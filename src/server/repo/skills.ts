@@ -1,0 +1,927 @@
+/**
+ * SQL for the skill domain: skills, versions, version file bytes, stars,
+ * ratings, comments and download de-duplication.
+ *
+ * Visibility filtering, cursor pagination and the download-counter de-dup rule
+ * all live here because they are SQL concerns that the service layer should not
+ * have to reconstruct.
+ */
+
+import crypto from 'node:crypto'
+import { asBool, asNumber, asString, nowIso, newId, query, tx, type Row } from '../db'
+import type {
+  CommentWithUser,
+  ModerationStatus,
+  RatingWithUser,
+  Skill,
+  SkillDependency,
+  SkillKind,
+  SkillVersion,
+  SkillWithOwner,
+  VersionFile,
+  Visibility,
+} from '../../lib/types'
+
+const parseJson = <T>(raw: unknown, fallback: T): T => {
+  if (raw == null) return fallback
+  try {
+    const parsed = JSON.parse(String(raw))
+    return (parsed ?? fallback) as T
+  } catch {
+    return fallback
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Mappers
+// ─────────────────────────────────────────────────────────────────────────────
+
+function mapSkill(r: Row): Skill {
+  return {
+    id: asString(r.id),
+    slug: asString(r.slug),
+    ...(r.display_name != null ? { displayName: asString(r.display_name) } : {}),
+    ...(r.summary != null ? { summary: asString(r.summary) } : {}),
+    ownerId: asString(r.owner_id),
+    ...(r.namespace_id != null ? { namespaceId: asString(r.namespace_id) } : {}),
+    ...(r.latest_version_id != null ? { latestVersionId: asString(r.latest_version_id) } : {}),
+    visibility: asString(r.visibility) as Visibility,
+    moderationStatus: asString(r.moderation_status) as ModerationStatus,
+    isSuspicious: asBool(r.is_suspicious),
+    kind: asString(r.kind) as SkillKind,
+    category: asString(r.category),
+    tags: parseJson<string[]>(r.tags, []),
+    downloads: asNumber(r.downloads),
+    installs: asNumber(r.installs),
+    starsCount: asNumber(r.stars_count),
+    versionsCount: asNumber(r.versions_count),
+    commentsCount: asNumber(r.comments_count),
+    averageRating: asNumber(r.average_rating),
+    ratingsCount: asNumber(r.ratings_count),
+    createdAt: asString(r.created_at),
+    updatedAt: asString(r.updated_at),
+    ...(r.soft_deleted_at != null ? { softDeletedAt: asString(r.soft_deleted_at) } : {}),
+  }
+}
+
+function mapSkillWithOwner(r: Row): SkillWithOwner {
+  return {
+    ...mapSkill(r),
+    ownerHandle: asString(r.owner_handle),
+    ...(r.owner_display_name != null ? { ownerDisplayName: asString(r.owner_display_name) } : {}),
+    ...(r.owner_avatar_url != null ? { ownerAvatarUrl: asString(r.owner_avatar_url) } : {}),
+    // Always present (no omitempty upstream); '' when the LEFT JOIN misses.
+    namespaceSlug: r.namespace_slug == null ? '' : asString(r.namespace_slug),
+  }
+}
+
+function mapVersion(r: Row): SkillVersion {
+  return {
+    id: asString(r.id),
+    skillId: asString(r.skill_id),
+    version: asString(r.version),
+    fingerprint: asString(r.fingerprint),
+    ...(r.git_commit_hash != null ? { gitCommitHash: asString(r.git_commit_hash) } : {}),
+    ...(r.changelog != null ? { changelog: asString(r.changelog) } : {}),
+    ...(r.changelog_source != null ? { changelogSource: asString(r.changelog_source) } : {}),
+    files: parseJson<VersionFile[]>(r.files, []),
+    parsed: parseJson<Record<string, unknown>>(r.parsed, {}),
+    createdBy: asString(r.created_by),
+    sha256Hash: asString(r.sha256_hash),
+    createdAt: asString(r.created_at),
+    ...(r.soft_deleted_at != null ? { softDeletedAt: asString(r.soft_deleted_at) } : {}),
+    ...(r.yanked_at != null ? { yankedAt: asString(r.yanked_at) } : {}),
+    ...(r.yank_reason != null ? { yankReason: asString(r.yank_reason) } : {}),
+    ...(r.deprecated_at != null ? { deprecatedAt: asString(r.deprecated_at) } : {}),
+    ...(r.deprecation_message != null ? { deprecationMessage: asString(r.deprecation_message) } : {}),
+    dependencies: parseJson<SkillDependency[]>(r.dependencies, []),
+    ...(r.signature_bundle != null ? { signatureBundle: asString(r.signature_bundle) } : {}),
+    signatureStatus: (asString(r.signature_status) || 'unsigned') as SkillVersion['signatureStatus'],
+    ...(r.signature_subject != null ? { signatureSubject: asString(r.signature_subject) } : {}),
+    ...(r.signature_issuer != null ? { signatureIssuer: asString(r.signature_issuer) } : {}),
+  }
+}
+
+const SKILL_SELECT = /* sql */ `
+  SELECT s.*,
+         u.handle       AS owner_handle,
+         u.display_name AS owner_display_name,
+         u.avatar_url   AS owner_avatar_url,
+         n.slug         AS namespace_slug
+  FROM skills s
+  JOIN users u      ON u.id = s.owner_id
+  LEFT JOIN namespaces n ON n.id = s.namespace_id
+`
+
+export interface Viewer {
+  id: string
+  role: string
+}
+
+/**
+ * Visibility predicate. Returns `{ sql, params }` to be ANDed into a query.
+ *
+ * Membership in a namespace does **not** widen the *list*: only ownership does.
+ * (Single-skill reads are more permissive — see `services/skills.ts`.)
+ */
+function visibilityClause(viewer: Viewer | null): { sql: string; params: unknown[] } {
+  if (viewer && (viewer.role === 'admin' || viewer.role === 'moderator')) {
+    return { sql: '', params: [] }
+  }
+  if (viewer) {
+    return {
+      sql: ` AND ((s.visibility = 'public' AND s.moderation_status = 'approved') OR s.owner_id = ?)`,
+      params: [viewer.id],
+    }
+  }
+  return { sql: ` AND s.visibility = 'public' AND s.moderation_status = 'approved'`, params: [] }
+}
+
+export type SortKey = 'created' | 'downloads' | 'stars' | 'updated' | 'name'
+
+/** Column + direction + cursor comparator for each supported sort. */
+function sortSpec(sort: string): {
+  orderBy: string
+  column: string
+  /** Row-value comparator between the cursor row and the next page. */
+  cursorOp: string
+} {
+  switch (sort) {
+    case 'downloads':
+      return { orderBy: 's.downloads DESC, s.id', column: 'downloads', cursorOp: '<' }
+    case 'stars':
+      return { orderBy: 's.stars_count DESC, s.id', column: 'stars_count', cursorOp: '<' }
+    case 'updated':
+      return { orderBy: 's.updated_at DESC, s.id', column: 'updated_at', cursorOp: '<' }
+    case 'name':
+      return { orderBy: 's.slug ASC, s.id', column: 'slug', cursorOp: '>' }
+    case 'created':
+    default:
+      return { orderBy: 's.created_at DESC, s.id', column: 'created_at', cursorOp: '<' }
+  }
+}
+
+export interface ListOptions {
+  limit: number
+  cursor: string
+  sort: string
+  category: string
+  /** Namespace **slug**; an unknown slug applies no filter (upstream quirk). */
+  namespaceSlug: string
+  viewer: Viewer | null
+  includeDeleted?: boolean
+}
+
+export const skills = {
+  getById(id: string): Skill | null {
+    const row = query.get<Row>('SELECT * FROM skills WHERE id = ?', id)
+    return row ? mapSkill(row) : null
+  },
+
+  /** Full row with owner + namespace join, by primary key. */
+  getWithOwnerById(id: string): SkillWithOwner | null {
+    const row = query.get<Row>(`${SKILL_SELECT} WHERE s.id = ?`, id)
+    return row ? mapSkillWithOwner(row) : null
+  },
+
+  getWithOwnerByNsAndSlug(
+    namespaceId: string,
+    slug: string,
+    opts: { includeDeleted?: boolean } = {},
+  ): SkillWithOwner | null {
+    const deleted = opts.includeDeleted ? '' : ' AND s.soft_deleted_at IS NULL'
+    const row = query.get<Row>(
+      `${SKILL_SELECT} WHERE s.namespace_id = ? AND s.slug = ?${deleted}`,
+      namespaceId,
+      slug,
+    )
+    return row ? mapSkillWithOwner(row) : null
+  },
+
+  /** All live skills with a given slug across namespaces — disambiguation input. */
+  findBySlugAcrossNamespaces(slug: string): SkillWithOwner[] {
+    return query
+      .all<Row>(`${SKILL_SELECT} WHERE s.slug = ? AND s.soft_deleted_at IS NULL`, slug)
+      .map(mapSkillWithOwner)
+  },
+
+  /** Slug alias lookup for renamed skills. */
+  findByAlias(namespaceId: string, oldSlug: string): SkillWithOwner | null {
+    const alias = query.get<Row>(
+      'SELECT skill_id FROM skill_slug_aliases WHERE namespace_id = ? AND old_slug = ?',
+      namespaceId,
+      oldSlug,
+    )
+    if (!alias) return null
+    return skills.getWithOwnerById(asString(alias.skill_id))
+  },
+
+  list(opts: ListOptions): { data: SkillWithOwner[]; nextCursor: string } {
+    const where: string[] = []
+    const params: unknown[] = []
+
+    if (!opts.includeDeleted) where.push('s.soft_deleted_at IS NULL')
+
+    const vis = visibilityClause(opts.viewer)
+    if (vis.sql) {
+      where.push(vis.sql.replace(/^ AND /, ''))
+      params.push(...vis.params)
+    }
+
+    if (opts.category) {
+      where.push('s.category = ?')
+      params.push(opts.category)
+    }
+
+    if (opts.namespaceSlug) {
+      const ns = query.get<Row>('SELECT id FROM namespaces WHERE slug = ?', opts.namespaceSlug)
+      // Unknown namespace → filter stays nil and no filtering happens. This
+      // reproduces the upstream behaviour (there is deliberately no 404).
+      if (ns) {
+        where.push('s.namespace_id = ?')
+        params.push(asString(ns.id))
+      }
+    }
+
+    const { orderBy, column, cursorOp } = sortSpec(opts.sort)
+
+    if (opts.cursor) {
+      where.push(
+        `(s.${column}, s.id) ${cursorOp} (SELECT ${column}, id FROM skills WHERE id = ?)`,
+      )
+      params.push(opts.cursor)
+    }
+
+    const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
+    const rows = query.all<Row>(
+      `${SKILL_SELECT} ${clause} ORDER BY ${orderBy} LIMIT ?`,
+      ...params,
+      opts.limit + 1,
+    )
+    const items = rows.map(mapSkillWithOwner)
+    const nextCursor = items.length > opts.limit ? items[opts.limit].id : ''
+    return { data: items.slice(0, opts.limit), nextCursor }
+  },
+
+  /** Admin listing — no visibility filter, ordered by `updated_at DESC`. */
+  listForAdmin(opts: {
+    visibility: string
+    cursor: string
+    limit: number
+  }): { data: SkillWithOwner[]; nextCursor: string } {
+    const where: string[] = ['s.soft_deleted_at IS NULL']
+    const params: unknown[] = []
+
+    switch (opts.visibility) {
+      case 'private':
+        where.push("s.visibility = 'private'")
+        break
+      case 'public':
+        where.push("s.visibility = 'public'")
+        break
+      case 'pending':
+        where.push("s.moderation_status = 'pending_review'")
+        break
+      default:
+        break
+    }
+
+    if (opts.cursor) {
+      where.push(
+        `s.updated_at <= (SELECT updated_at FROM skills WHERE id = ?) AND s.id != ?`,
+      )
+      params.push(opts.cursor, opts.cursor)
+    }
+
+    const rows = query.all<Row>(
+      `${SKILL_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.updated_at DESC, s.id LIMIT ?`,
+      ...params,
+      opts.limit + 1,
+    )
+    const items = rows.map(mapSkillWithOwner)
+    const nextCursor = items.length > opts.limit ? items[opts.limit].id : ''
+    return { data: items.slice(0, opts.limit), nextCursor }
+  },
+
+  create(input: {
+    slug: string
+    displayName?: string | null
+    summary?: string | null
+    ownerId: string
+    namespaceId: string
+    visibility: Visibility
+    kind: SkillKind
+    category: string
+    tags: string[]
+    moderationStatus?: ModerationStatus
+  }): Skill {
+    const id = newId()
+    const now = nowIso()
+    query.run(
+      `INSERT INTO skills
+        (id, slug, display_name, summary, owner_id, namespace_id, visibility, moderation_status,
+         is_suspicious, kind, category, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+      id,
+      input.slug,
+      input.displayName ?? null,
+      input.summary ?? null,
+      input.ownerId,
+      input.namespaceId,
+      input.visibility,
+      input.moderationStatus ?? 'approved',
+      input.kind,
+      input.category,
+      JSON.stringify(input.tags),
+      now,
+      now,
+    )
+    return skills.getById(id)!
+  },
+
+  /** Refreshes only the fields the publish request actually supplied. */
+  updateMetadata(
+    id: string,
+    fields: {
+      displayName?: string
+      summary?: string
+      category?: string
+      tags?: string[]
+      visibility?: Visibility
+    },
+  ): void {
+    const sets: string[] = []
+    const params: unknown[] = []
+    if (fields.displayName) {
+      sets.push('display_name = ?')
+      params.push(fields.displayName)
+    }
+    if (fields.summary) {
+      sets.push('summary = ?')
+      params.push(fields.summary)
+    }
+    if (fields.category) {
+      sets.push('category = ?')
+      params.push(fields.category)
+    }
+    if (fields.tags && fields.tags.length > 0) {
+      sets.push('tags = ?')
+      params.push(JSON.stringify(fields.tags))
+    }
+    if (fields.visibility) {
+      sets.push('visibility = ?')
+      params.push(fields.visibility)
+    }
+    if (sets.length === 0) return
+    params.push(id)
+    query.run(`UPDATE skills SET ${sets.join(', ')} WHERE id = ?`, ...params)
+  },
+
+  setLatestVersion(id: string, versionId: string, at: string): void {
+    query.run(
+      'UPDATE skills SET latest_version_id = ?, versions_count = versions_count + 1, updated_at = ? WHERE id = ?',
+      versionId,
+      at,
+      id,
+    )
+  },
+
+  /** Repoints `latest_version_id` without touching the version counter. */
+  repointLatest(id: string, versionId: string | null): void {
+    query.run('UPDATE skills SET latest_version_id = ? WHERE id = ?', versionId, id)
+  },
+
+  setVisibility(id: string, visibility: Visibility, moderationStatus: ModerationStatus): void {
+    query.run(
+      'UPDATE skills SET visibility = ?, moderation_status = ?, updated_at = ? WHERE id = ?',
+      visibility,
+      moderationStatus,
+      nowIso(),
+      id,
+    )
+  },
+
+  setNamespace(id: string, namespaceId: string): void {
+    query.run('UPDATE skills SET namespace_id = ?, updated_at = ? WHERE id = ?', namespaceId, nowIso(), id)
+  },
+
+  setOwner(id: string, ownerId: string): void {
+    query.run('UPDATE skills SET owner_id = ?, updated_at = ? WHERE id = ?', ownerId, nowIso(), id)
+  },
+
+  softDelete(id: string): void {
+    query.run('UPDATE skills SET soft_deleted_at = ?, updated_at = ? WHERE id = ?', nowIso(), nowIso(), id)
+  },
+
+  undelete(id: string): void {
+    query.run('UPDATE skills SET soft_deleted_at = NULL, updated_at = ? WHERE id = ?', nowIso(), id)
+  },
+
+  purge(id: string): void {
+    query.run('DELETE FROM skills WHERE id = ?', id)
+  },
+
+  addAlias(skillId: string, namespaceId: string, oldSlug: string): void {
+    query.run(
+      `INSERT OR REPLACE INTO skill_slug_aliases (id, skill_id, namespace_id, old_slug, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      newId(),
+      skillId,
+      namespaceId,
+      oldSlug,
+      nowIso(),
+    )
+  },
+
+  bumpDownloads(id: string): void {
+    query.run('UPDATE skills SET downloads = downloads + 1 WHERE id = ?', id)
+  },
+
+  recomputeStars(id: string): void {
+    query.run(
+      'UPDATE skills SET stars_count = (SELECT COUNT(*) FROM stars WHERE skill_id = skills.id) WHERE id = ?',
+      id,
+    )
+  },
+
+  recomputeRatings(id: string): void {
+    query.run(
+      `UPDATE skills
+       SET ratings_count = (SELECT COUNT(*) FROM ratings WHERE skill_id = skills.id),
+           average_rating = COALESCE((SELECT AVG(score) FROM ratings WHERE skill_id = skills.id), 0)
+       WHERE id = ?`,
+      id,
+    )
+  },
+
+  recomputeComments(id: string): void {
+    query.run(
+      `UPDATE skills SET comments_count =
+         (SELECT COUNT(*) FROM comments WHERE skill_id = skills.id AND soft_deleted_at IS NULL)
+       WHERE id = ?`,
+      id,
+    )
+  },
+
+  incrementComments(id: string, delta: number): void {
+    query.run(
+      'UPDATE skills SET comments_count = MAX(0, comments_count + ?) WHERE id = ?',
+      delta,
+      id,
+    )
+  },
+
+  /** Skill counts per namespace — used by the personal-namespace bootstrap. */
+  countByNamespace(namespaceId: string): number {
+    return asNumber(
+      query.get<Row>(
+        'SELECT COUNT(*) AS c FROM skills WHERE namespace_id = ? AND soft_deleted_at IS NULL',
+        namespaceId,
+      )?.c,
+    )
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skill versions
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const versions = {
+  create(input: {
+    skillId: string
+    version: string
+    fingerprint: string
+    changelog?: string | null
+    files: VersionFile[]
+    parsed: Record<string, unknown>
+    createdBy: string
+    dependencies: SkillDependency[]
+    signatureBundle?: string | null
+    signatureStatus: SkillVersion['signatureStatus']
+    createdAt?: string
+  }): SkillVersion {
+    const id = newId()
+    const now = input.createdAt ?? nowIso()
+    query.run(
+      `INSERT INTO skill_versions
+        (id, skill_id, version, fingerprint, changelog, files, parsed, created_by, sha256_hash,
+         created_at, dependencies, signature_bundle, signature_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      input.skillId,
+      input.version,
+      input.fingerprint,
+      input.changelog ?? null,
+      JSON.stringify(input.files),
+      JSON.stringify(input.parsed),
+      input.createdBy,
+      input.fingerprint,
+      now,
+      JSON.stringify(input.dependencies),
+      input.signatureBundle ?? null,
+      input.signatureStatus,
+    )
+    return versions.getById(id)!
+  },
+
+  getById(id: string): SkillVersion | null {
+    const row = query.get<Row>('SELECT * FROM skill_versions WHERE id = ?', id)
+    return row ? mapVersion(row) : null
+  },
+
+  /** Requires `soft_deleted_at IS NULL`. */
+  getBySkillAndVersion(skillId: string, version: string): SkillVersion | null {
+    const row = query.get<Row>(
+      'SELECT * FROM skill_versions WHERE skill_id = ? AND version = ? AND soft_deleted_at IS NULL',
+      skillId,
+      version,
+    )
+    return row ? mapVersion(row) : null
+  },
+
+  getByFingerprint(fingerprint: string): SkillVersion | null {
+    const row = query.get<Row>('SELECT * FROM skill_versions WHERE fingerprint = ? LIMIT 1', fingerprint)
+    return row ? mapVersion(row) : null
+  },
+
+  /** Version history, newest first. */
+  listBySkill(skillId: string): SkillVersion[] {
+    return query
+      .all<Row>(
+        'SELECT * FROM skill_versions WHERE skill_id = ? AND soft_deleted_at IS NULL ORDER BY created_at DESC',
+        skillId,
+      )
+      .map(mapVersion)
+  },
+
+  /** Newest version by `created_at` — **no** yank filter. Used for pub ordering. */
+  getLatest(skillId: string): SkillVersion | null {
+    const row = query.get<Row>(
+      `SELECT * FROM skill_versions
+       WHERE skill_id = ? AND soft_deleted_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      skillId,
+    )
+    return row ? mapVersion(row) : null
+  },
+
+  /** Newest non-yanked version — the repoint target after a yank. */
+  getLatestNonYanked(skillId: string): SkillVersion | null {
+    const row = query.get<Row>(
+      `SELECT * FROM skill_versions
+       WHERE skill_id = ? AND soft_deleted_at IS NULL AND yanked_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      skillId,
+    )
+    return row ? mapVersion(row) : null
+  },
+
+  exists(skillId: string, version: string): boolean {
+    return (
+      query.get<Row>(
+        'SELECT 1 AS x FROM skill_versions WHERE skill_id = ? AND version = ?',
+        skillId,
+        version,
+      ) !== undefined
+    )
+  },
+
+  setYanked(id: string, yanked: boolean, reason?: string | null): void {
+    if (yanked) {
+      query.run('UPDATE skill_versions SET yanked_at = ?, yank_reason = ? WHERE id = ?', nowIso(), reason ?? null, id)
+    } else {
+      query.run('UPDATE skill_versions SET yanked_at = NULL, yank_reason = NULL WHERE id = ?', id)
+    }
+  },
+
+  setDeprecated(id: string, deprecated: boolean, message?: string | null): void {
+    if (deprecated) {
+      query.run(
+        'UPDATE skill_versions SET deprecated_at = ?, deprecation_message = ? WHERE id = ?',
+        nowIso(),
+        message ?? null,
+        id,
+      )
+    } else {
+      query.run(
+        'UPDATE skill_versions SET deprecated_at = NULL, deprecation_message = NULL WHERE id = ?',
+        id,
+      )
+    }
+  },
+}
+
+// ── version file bytes (SQLite replacement for the git store) ────────────────
+
+export interface StoredFile {
+  path: string
+  content: Uint8Array
+}
+
+export const versionFiles = {
+  insertMany(versionId: string, files: Array<{ path: string; content: Uint8Array; contentType: string }>): void {
+    const stmt = query.stmt(
+      `INSERT OR REPLACE INTO skill_version_files
+        (version_id, path, seq, size, sha256, content_type, content)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    tx(() => {
+      files.forEach((f, seq) => {
+        stmt.run(
+          versionId,
+          f.path,
+          seq,
+          f.content.byteLength,
+          // Recomputes the digest so the stored value always matches the bytes.
+          crypto.createHash('sha256').update(f.content).digest('hex'),
+          f.contentType,
+          f.content,
+        )
+      })
+    })
+  },
+
+  /** Files of a version, ordered by insertion sequence. */
+  listPaths(versionId: string): Array<{ path: string; size: number; contentType: string }> {
+    return query
+      .all<Row>(
+        'SELECT path, size, content_type FROM skill_version_files WHERE version_id = ? ORDER BY seq',
+        versionId,
+      )
+      .map((r) => ({
+        path: asString(r.path),
+        size: asNumber(r.size),
+        contentType: asString(r.content_type),
+      }))
+  },
+
+  /** Raw bytes of one file, or `null` when the path is not in this version. */
+  get(versionId: string, path: string): Uint8Array | null {
+    const row = query.get<Row>(
+      'SELECT content FROM skill_version_files WHERE version_id = ? AND path = ?',
+      versionId,
+      path,
+    )
+    if (!row || row.content == null) return null
+    return toBytes(row.content)
+  },
+
+  listAll(versionId: string): StoredFile[] {
+    return query
+      .all<Row>(
+        'SELECT path, content FROM skill_version_files WHERE version_id = ? ORDER BY seq',
+        versionId,
+      )
+      .map((r) => ({ path: asString(r.path), content: toBytes(r.content) }))
+  },
+
+  has(versionId: string, path: string): boolean {
+    return (
+      query.get<Row>(
+        'SELECT 1 AS x FROM skill_version_files WHERE version_id = ? AND path = ?',
+        versionId,
+        path,
+      ) !== undefined
+    )
+  },
+}
+
+/** SQLite BLOBs arrive as `Uint8Array`; guard against drivers handing back Buffers/strings. */
+function toBytes(v: unknown): Uint8Array {
+  if (v instanceof Uint8Array) return v
+  if (typeof v === 'string') return new TextEncoder().encode(v)
+  return new Uint8Array(0)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stars
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const stars = {
+  add(userId: string, skillId: string): boolean {
+    const result = query.run(
+      'INSERT OR IGNORE INTO stars (id, user_id, skill_id, created_at) VALUES (?, ?, ?, ?)',
+      newId(),
+      userId,
+      skillId,
+      nowIso(),
+    )
+    return Number(result.changes ?? 0) > 0
+  },
+
+  remove(userId: string, skillId: string): boolean {
+    const result = query.run('DELETE FROM stars WHERE user_id = ? AND skill_id = ?', userId, skillId)
+    return Number(result.changes ?? 0) > 0
+  },
+
+  has(userId: string, skillId: string): boolean {
+    return (
+      query.get<Row>('SELECT 1 AS x FROM stars WHERE user_id = ? AND skill_id = ?', userId, skillId) !==
+      undefined
+    )
+  },
+
+  count(skillId: string): number {
+    return asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM stars WHERE skill_id = ?', skillId)?.c)
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ratings
+// ─────────────────────────────────────────────────────────────────────────────
+
+function mapRating(r: Row): RatingWithUser {
+  return {
+    id: asString(r.id),
+    skillId: asString(r.skill_id),
+    userId: asString(r.user_id),
+    score: asNumber(r.score),
+    ...(r.comment != null ? { comment: asString(r.comment) } : {}),
+    createdAt: asString(r.created_at),
+    updatedAt: asString(r.updated_at),
+    handle: asString(r.handle),
+    ...(r.display_name != null ? { displayName: asString(r.display_name) } : {}),
+  }
+}
+
+export const ratings = {
+  /** Upsert on `(skill_id, user_id)`. */
+  upsert(skillId: string, userId: string, score: number, comment?: string | null): void {
+    const existing = query.get<Row>(
+      'SELECT id FROM ratings WHERE skill_id = ? AND user_id = ?',
+      skillId,
+      userId,
+    )
+    if (existing) {
+      query.run(
+        'UPDATE ratings SET score = ?, comment = ?, updated_at = ? WHERE id = ?',
+        score,
+        comment ?? null,
+        nowIso(),
+        asString(existing.id),
+      )
+      return
+    }
+    query.run(
+      `INSERT INTO ratings (id, skill_id, user_id, score, comment, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      newId(),
+      skillId,
+      userId,
+      score,
+      comment ?? null,
+      nowIso(),
+      nowIso(),
+    )
+  },
+
+  delete(skillId: string, userId: string): boolean {
+    const result = query.run('DELETE FROM ratings WHERE skill_id = ? AND user_id = ?', skillId, userId)
+    return Number(result.changes ?? 0) > 0
+  },
+
+  list(
+    skillId: string,
+    limit: number,
+    cursor: string,
+  ): { data: RatingWithUser[]; nextCursor: string } {
+    const effective = limit <= 0 || limit > 100 ? 20 : limit
+    const rows = cursor
+      ? query.all<Row>(
+          `SELECT r.*, u.handle AS handle, u.display_name AS display_name
+           FROM ratings r JOIN users u ON u.id = r.user_id
+           WHERE r.skill_id = ? AND r.id < ?
+           ORDER BY r.created_at DESC, r.id DESC LIMIT ?`,
+          skillId,
+          cursor,
+          effective + 1,
+        )
+      : query.all<Row>(
+          `SELECT r.*, u.handle AS handle, u.display_name AS display_name
+           FROM ratings r JOIN users u ON u.id = r.user_id
+           WHERE r.skill_id = ?
+           ORDER BY r.created_at DESC, r.id DESC LIMIT ?`,
+          skillId,
+          effective + 1,
+        )
+    const items = rows.map(mapRating)
+    const nextCursor = items.length > effective ? items[effective].id : ''
+    return { data: items.slice(0, effective), nextCursor }
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comments
+// ─────────────────────────────────────────────────────────────────────────────
+
+function mapComment(r: Row): CommentWithUser {
+  return {
+    id: asString(r.id),
+    skillId: asString(r.skill_id),
+    userId: asString(r.user_id),
+    body: asString(r.body),
+    createdAt: asString(r.created_at),
+    updatedAt: asString(r.updated_at),
+    ...(r.soft_deleted_at != null ? { softDeletedAt: asString(r.soft_deleted_at) } : {}),
+    handle: asString(r.handle),
+    ...(r.display_name != null ? { displayName: asString(r.display_name) } : {}),
+    ...(r.avatar_url != null ? { avatarUrl: asString(r.avatar_url) } : {}),
+  }
+}
+
+export const comments = {
+  create(skillId: string, userId: string, body: string): CommentWithUser {
+    const id = newId()
+    const now = nowIso()
+    query.run(
+      `INSERT INTO comments (id, skill_id, user_id, body, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      id,
+      skillId,
+      userId,
+      body,
+      now,
+      now,
+    )
+    query.run('UPDATE skills SET comments_count = comments_count + 1 WHERE id = ?', skillId)
+    return comments.getById(id)!
+  },
+
+  getById(id: string): CommentWithUser | null {
+    const row = query.get<Row>(
+      `SELECT c.*, u.handle AS handle, u.display_name AS display_name, u.avatar_url AS avatar_url
+       FROM comments c JOIN users u ON u.id = c.user_id
+       WHERE c.id = ?`,
+      id,
+    )
+    return row ? mapComment(row) : null
+  },
+
+  list(
+    skillId: string,
+    limit: number,
+    cursor: string,
+  ): { data: CommentWithUser[]; nextCursor: string } {
+    const effective = limit <= 0 || limit > 100 ? 20 : limit
+    const rows = cursor
+      ? query.all<Row>(
+          `SELECT c.*, u.handle AS handle, u.display_name AS display_name, u.avatar_url AS avatar_url
+           FROM comments c JOIN users u ON u.id = c.user_id
+           WHERE c.skill_id = ? AND c.soft_deleted_at IS NULL
+             AND (c.created_at, c.id) < (SELECT created_at, id FROM comments WHERE id = ?)
+           ORDER BY c.created_at DESC, c.id DESC LIMIT ?`,
+          skillId,
+          cursor,
+          effective + 1,
+        )
+      : query.all<Row>(
+          `SELECT c.*, u.handle AS handle, u.display_name AS display_name, u.avatar_url AS avatar_url
+           FROM comments c JOIN users u ON u.id = c.user_id
+           WHERE c.skill_id = ? AND c.soft_deleted_at IS NULL
+           ORDER BY c.created_at DESC, c.id DESC LIMIT ?`,
+          skillId,
+          effective + 1,
+        )
+    const items = rows.map(mapComment)
+    const nextCursor = items.length > effective ? items[effective].id : ''
+    return { data: items.slice(0, effective), nextCursor }
+  },
+
+  softDelete(id: string): void {
+    query.run('UPDATE comments SET soft_deleted_at = ? WHERE id = ?', nowIso(), id)
+  },
+
+  /** Current comment count for a skill, used to keep the counter honest. */
+  recount(skillId: string): number {
+    return asNumber(
+      query.get<Row>(
+        'SELECT COUNT(*) AS c FROM comments WHERE skill_id = ? AND soft_deleted_at IS NULL',
+        skillId,
+      )?.c,
+    )
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Download de-duplication
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const downloadDedupes = {
+  /**
+   * Records a download by identity. Returns `true` when this identity has not
+   * downloaded this version before — only then should the counter be bumped.
+   */
+  record(skillId: string, versionId: string, identityHash: string): boolean {
+    if (identityHash === '') return false
+    const result = query.run(
+      `INSERT OR IGNORE INTO download_dedupes (id, skill_id, version_id, identity_hash, downloaded_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      newId(),
+      skillId,
+      versionId,
+      identityHash,
+      nowIso(),
+    )
+    return Number(result.changes ?? 0) > 0
+  },
+}

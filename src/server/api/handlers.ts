@@ -1,0 +1,1782 @@
+/**
+ * Request handlers for the whole HTTP surface.
+ *
+ * Handlers are deliberately thin: parse the request, call a service, map the
+ * outcome onto a status code. Anything resembling a business rule belongs in
+ * `src/server/services/*`.
+ *
+ * Error mapping note: `writeServiceError` in the original only gives a
+ * meaningful status to errors carrying a sentinel, and everything else becomes
+ * 400. `serviceError()` below reproduces that, so handlers should route
+ * service exceptions through it rather than choosing a status themselves.
+ */
+
+import crypto from 'node:crypto'
+import type { RequestContext } from '../http'
+import { empty, errorJson, json, text } from '../http'
+import { errorBody, httpStatusFor, isServiceError, ServiceError } from '../errors'
+import { getConfig } from '../config'
+import {
+  clearSessionCookie,
+  generateRawToken,
+  hashPassword,
+  hashToken,
+  extractPrefix,
+  parseDuration,
+  PERSONAL_SCOPES,
+  sessionCookie,
+  verifyPassword,
+  MIN_PASSWORD_LENGTH,
+} from '../auth'
+import { asNumber, nowIso, query, type Row } from '../db'
+import { parseSkillRef, isUuidLike, formatSkillRef } from '../services/shared'
+import * as skillSvc from '../services/skills'
+import * as pluginSvc from '../services/plugins'
+import * as nsSvc from '../services/namespaces'
+import * as socialSvc from '../services/social'
+import * as manageSvc from '../services/manage'
+import * as runtimeSvc from '../services/runtime'
+import * as agentSvc from '../services/agentSkills'
+import { readMultipart, formValue } from '../content'
+import { users, tokens as tokenRepo, members, type UserRecord } from '../repo/core'
+import type { TokenScope } from '../../lib/types'
+import type { Handler } from '../http'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Small parsing helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** `queryInt` — accepts only `0 < n <= max`, else the default. */
+function qInt(url: URL, key: string, def: number, max = 100): number {
+  const raw = url.searchParams.get(key)
+  if (raw === null) return def
+  const n = Number.parseInt(raw, 10)
+  return Number.isFinite(n) && n > 0 && n <= max ? n : def
+}
+
+function qStr(url: URL, key: string, def = ''): string {
+  return url.searchParams.get(key) ?? def
+}
+
+async function jsonBody<T>(request: Request): Promise<T | null> {
+  try {
+    return (await request.json()) as T
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Reads a form-style body. Accepts urlencoded, multipart **and** JSON, so a
+ * client can use whichever encoding it prefers — upstream only handled the two
+ * form encodings, making this a superset of its contract.
+ */
+async function formFields(request: Request): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const ct = request.headers.get('content-type') ?? ''
+  const raw = await request.text().catch(() => '')
+  try {
+    if (ct.includes('application/json')) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      for (const [k, v] of Object.entries(parsed)) {
+        if (v !== undefined && v !== null) out.set(k, String(v))
+      }
+    } else if (ct.includes('application/x-www-form-urlencoded')) {
+      for (const [k, v] of new URLSearchParams(raw).entries()) if (!out.has(k)) out.set(k, v)
+    } else if (ct.includes('multipart/')) {
+      // Re-parse from the raw body (it has already been consumed above).
+      const form = await new Response(raw, { headers: { 'Content-Type': ct } }).formData()
+      for (const [k, v] of form.entries()) if (typeof v === 'string' && !out.has(k)) out.set(k, v)
+    }
+  } catch {
+    /* an empty or malformed body is fine for endpoints like logout */
+  }
+  return out
+}
+
+/** Maps a thrown service error onto the original's status/body rules. */
+function serviceError(e: unknown): Response {
+  if (isServiceError(e)) return json(errorBody(e), httpStatusFor(e))
+  if (e instanceof Error) return errorJson(e.message, 400)
+  return errorJson('internal error', 500)
+}
+
+function internalError(): Response {
+  return errorJson('internal error', 500)
+}
+
+/** `@namespace/slug` from gin's `@:namespace` + `:slug` params. */
+function refFromCtx(ctx: RequestContext): { namespace: string; slug: string } {
+  const ns = ctx.params.namespace ?? ''
+  return { namespace: ns.startsWith('@') ? ns.slice(1) : ns, slug: ctx.params.slug ?? '' }
+}
+
+function viewerOf(ctx: RequestContext) {
+  return ctx.user ? { id: ctx.user.id, role: ctx.user.role } : null
+}
+
+function identityHashOf(ctx: RequestContext): string {
+  return skillSvc.identityHashFor(ctx.clientIp)
+}
+
+/** `If-None-Match` matching: comma lists, optional `W/`, quotes, and `*`. */
+function etagMatches(header: string | null, etag: string): boolean {
+  if (!header) return false
+  return header
+    .split(',')
+    .map((part) => part.trim().replace(/^W\//, '').replace(/^"|"$/g, ''))
+    .some((candidate) => candidate === '*' || candidate === etag)
+}
+
+function requireUser(ctx: RequestContext): UserRecord {
+  if (!ctx.user) throw new ServiceError('authentication required', 'forbidden')
+  return ctx.user
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Discovery
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const discovery: Record<string, Handler> = {
+  healthz: () => json({ status: 'ok' }),
+
+  readyz: () => {
+    try {
+      query.get('SELECT 1 AS x')
+      return json({ status: 'ready' })
+    } catch {
+      return json({ status: 'not ready' }, 503)
+    }
+  },
+
+  clawhubJson: () => {
+    const cfg = getConfig()
+    const base = cfg.baseUrl.replace(/\/+$/, '')
+    return json({
+      registryUrl: base,
+      apiVersion: 'v1',
+      endpoints: {
+        search: '/api/v1/search',
+        skills: '/api/v1/skills',
+        download: '/api/v1/download',
+        resolve: '/api/v1/resolve',
+        whoami: '/api/v1/whoami',
+        publish: '/api/agent/skills',
+        installGuide: '/skills.md',
+        openapi: '/openapi.json',
+        apiDocs: '/docs',
+      },
+    })
+  },
+
+  skillsMd: (ctx) => {
+    const cfg = getConfig()
+    const base =
+      cfg.baseUrl.replace(/\/+$/, '') ||
+      `${new URL(ctx.request.url).protocol}//${ctx.request.headers.get('host') ?? 'localhost'}`
+    return text(renderSkillsMd(base), 200, 'text/markdown; charset=utf-8')
+  },
+
+  /**
+   * Minimal Prometheus exposition. The original used the prometheus client
+   * library with a rich collector set; this reports the counters that have a
+   * cheap SQL source, in the same text format so scrapes keep working.
+   */
+  metrics: () => {
+    const rows: string[] = []
+    const gauge = (name: string, help: string, value: number) => {
+      rows.push(`# HELP ${name} ${help}`)
+      rows.push(`# TYPE ${name} gauge`)
+      rows.push(`${name} ${value}`)
+    }
+    gauge('skillhub_skills_total', 'Live skills', skillSvc.totalSkills())
+    gauge(
+      'skillhub_plugins_total',
+      'Live plugins',
+      asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM plugins WHERE soft_deleted_at IS NULL')?.c),
+    )
+    gauge('skillhub_users_total', 'Users', asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM users')?.c))
+    gauge(
+      'skillhub_downloads_total',
+      'Skill downloads',
+      asNumber(query.get<Row>('SELECT COALESCE(SUM(downloads),0) AS c FROM skills')?.c),
+    )
+    gauge(
+      'skillhub_search_documents',
+      'Documents in the search index',
+      asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM search_docs')?.c),
+    )
+    return text(`${rows.join('\n')}\n`, 200, 'text/plain; version=0.0.4; charset=utf-8')
+  },
+}
+
+function renderSkillsMd(base: string): string {
+  return `# SkillHub — install guide
+
+Base URL: ${base}
+
+## Discover
+
+\`\`\`bash
+curl '${base}/api/v1/skills?limit=20&sort=downloads'
+curl '${base}/api/v1/search?q=agent'
+curl '${base}/api/v1/skills/@<namespace>/<slug>'
+\`\`\`
+
+## Download
+
+\`\`\`bash
+curl -L -o skill.zip '${base}/api/v1/download?slug=<slug>&version=latest'
+\`\`\`
+
+## Publish
+
+\`\`\`bash
+curl -X POST '${base}/api/v1/skills' \\
+  -H 'Authorization: Bearer <token>' \\
+  -F 'slug=my-skill' -F 'version=1.0.0' -F 'summary=A useful skill' \\
+  -F 'files=@SKILL.md'
+\`\`\`
+
+Your package must contain \`SKILL.md\`. Versions are immutable once published.
+
+## Authenticate
+
+\`\`\`bash
+curl -X POST '${base}/auth/device/code'
+curl -X POST '${base}/auth/device/token' -H 'Content-Type: application/json' -d '{"deviceCode":"<code>"}'
+\`\`\`
+`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skill browsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const skillRead: Record<string, Handler> = {
+  listFeatures: () => {
+    try { return json({ data: manageSvc.listFeaturedSkills() }) }
+    catch { return internalError() }
+  },
+  search: (ctx) => {
+    const q = qStr(ctx.url, 'q')
+    if (q.trim() === '') return errorJson("query parameter 'q' is required", 400)
+    try {
+      return json(
+        runtimeSvc.searchDocuments({
+          q,
+          limit: qInt(ctx.url, 'limit', 20, 100),
+          offset: Math.max(0, Number.parseInt(qStr(ctx.url, 'offset', '0'), 10) || 0),
+          sort: qStr(ctx.url, 'sort'),
+          type: qStr(ctx.url, 'type'),
+          namespace: qStr(ctx.url, 'namespace'),
+        }),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+
+  categories: () => json({ categories: ['devops', 'security', 'data', 'frontend', 'backend', 'infra', 'testing', 'ai', 'general'] }),
+
+  listSkills: (ctx) => {
+    try {
+      return json(
+        skillSvc.listSkills({
+          limit: qInt(ctx.url, 'limit', 20, 100),
+          cursor: qStr(ctx.url, 'cursor'),
+          sort: qStr(ctx.url, 'sort', 'created'),
+          category: qStr(ctx.url, 'category'),
+          namespaceSlug: qStr(ctx.url, 'namespace'),
+          viewer: viewerOf(ctx),
+        }),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+
+  listByNamespace: (ctx) => {
+    try {
+      return json(
+        skillSvc.listSkills({
+          limit: qInt(ctx.url, 'limit', 20, 100),
+          cursor: qStr(ctx.url, 'cursor'),
+          sort: qStr(ctx.url, 'sort', 'created'),
+          category: qStr(ctx.url, 'category'),
+          namespaceSlug: ctx.params.slug ?? '',
+          viewer: viewerOf(ctx),
+        }),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+
+  getSkill: (ctx) => {
+    try {
+      const skill = skillSvc.getSkill(refFromCtx(ctx), viewerOf(ctx))
+      if (!skill) return errorJson('skill not found', 404)
+      return json(skill)
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  getVersions: (ctx) => {
+    try {
+      const versions = skillSvc.getVersions(refFromCtx(ctx), viewerOf(ctx))
+      // A missing/invisible skill yields `{"versions":null}` with status 200 —
+      // this endpoint never returns 404.
+      return json({ versions })
+    } catch {
+      return internalError()
+    }
+  },
+
+  getVersion: (ctx) => {
+    try {
+      const version = skillSvc.getVersion(
+        refFromCtx(ctx),
+        ctx.params.version ?? '',
+        viewerOf(ctx),
+      )
+      if (!version) return errorJson('version not found', 404)
+      return json(version)
+    } catch {
+      return internalError()
+    }
+  },
+
+  getFile: (ctx) => {
+    const result = skillSvc.getFile(
+      refFromCtx(ctx),
+      qStr(ctx.url, 'version', 'latest'),
+      qStr(ctx.url, 'path', 'SKILL.md'),
+      viewerOf(ctx),
+    )
+    if ('error' in result) return errorJson(result.error, 404)
+    // Content type is always text/plain here, matching upstream.
+    return text(new TextDecoder().decode(result.content), 200, 'text/plain; charset=utf-8')
+  },
+
+  resolve: (ctx) => {
+    const fingerprint = qStr(ctx.url, 'fingerprint')
+    if (fingerprint === '') return errorJson('fingerprint is required', 400)
+    try {
+      const found = skillSvc.resolveFingerprint(fingerprint)
+      if (!found) return errorJson('not found', 404)
+      return json(found)
+    } catch {
+      return internalError()
+    }
+  },
+
+  download: (ctx) => {
+    const direct = qStr(ctx.url, 'direct')
+    if (direct === '1' || direct === 'true') {
+      // Direct download requires an object-storage backend; this build stores
+      // version content in SQLite, so there are no presigned URLs to hand out.
+      if (qStr(ctx.url, 'path') === '') {
+        return errorJson('path is required for direct download', 400)
+      }
+      if (qStr(ctx.url, 'slug') === '') return errorJson('slug is required', 400)
+      return errorJson(
+        'validation: direct download is only available for object storage backends',
+        400,
+      )
+    }
+
+    const slug = qStr(ctx.url, 'slug')
+    if (slug === '') return errorJson('slug is required', 400)
+
+    const ref = { namespace: qStr(ctx.url, 'namespace'), slug }
+    const version = qStr(ctx.url, 'version', 'latest')
+
+    try {
+      // Cheap 304 path: resolve the version, compare the fingerprint, and skip
+      // the archive entirely on a match. No download is recorded.
+      const probe = skillSvc.probeVersion(ref, version, viewerOf(ctx))
+      if (probe && etagMatches(ctx.request.headers.get('if-none-match'), probe.fingerprint)) {
+        return empty(304, { ETag: `"${probe.fingerprint}"` })
+      }
+
+      const result = skillSvc.download(ref, version, viewerOf(ctx), identityHashOf(ctx))
+      if ('error' in result) return errorJson(result.error, 404)
+
+      return new Response(result.zip as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          ETag: `"${result.fingerprint}"`,
+          'Content-Disposition': `attachment; filename="${result.slug}-${result.version}.zip"`,
+          'Content-Type': 'application/zip',
+          'X-Skill-Version': result.version,
+          'X-Skill-Fingerprint': result.fingerprint,
+        },
+      })
+    } catch (e) {
+      return errorJson(e instanceof Error ? e.message : 'download failed', 404)
+    }
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plugin reads
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const pluginRead: Record<string, Handler> = {
+  listPlugins: (ctx) => {
+    try {
+      return json(
+        pluginSvc.listPlugins({
+          category: qStr(ctx.url, 'category'),
+          sort: qStr(ctx.url, 'sort', 'created'),
+          cursor: qStr(ctx.url, 'cursor'),
+          limit: qInt(ctx.url, 'limit', 20, 100),
+        }),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+
+  getPlugin: (ctx) => {
+    try {
+      return json(pluginSvc.getPlugin(refFromCtx(ctx), viewerOf(ctx)))
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  getPluginById: (ctx) => {
+    const id = (ctx.params.id ?? '').trim()
+    if (!isUuidLike(id)) return errorJson('invalid plugin id', 400)
+    try {
+      return json(pluginSvc.getPluginById(id, viewerOf(ctx)))
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  pluginVersions: (ctx) => {
+    try {
+      return json({ versions: pluginSvc.getPluginVersions(refFromCtx(ctx), viewerOf(ctx)) })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  pluginFile: (ctx) => {
+    const slug = qStr(ctx.url, 'slug')
+    const path = qStr(ctx.url, 'path')
+    if (slug === '' || path === '') return errorJson('slug and path are required', 400)
+    const namespace = qStr(ctx.url, 'namespace')
+    try {
+      const content = pluginSvc.getPluginFile(
+        { namespace, slug },
+        qStr(ctx.url, 'version'),
+        path,
+        viewerOf(ctx),
+      )
+      return new Response(content as unknown as BodyInit, {
+        status: 200,
+        headers: { 'Content-Type': 'application/octet-stream' },
+      })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  pluginDownload: (ctx) => {
+    const slug = qStr(ctx.url, 'slug')
+    if (slug === '') return errorJson('slug is required', 400)
+    try {
+      const result = pluginSvc.downloadPlugin(
+        { namespace: qStr(ctx.url, 'namespace'), slug },
+        qStr(ctx.url, 'version'),
+        viewerOf(ctx),
+      )
+      // Exact string compare against an unquoted ETag — deliberately simpler
+      // than the skill download's matching rules.
+      if (ctx.request.headers.get('if-none-match') === result.fingerprint) {
+        return empty(304, { ETag: result.fingerprint })
+      }
+      return new Response(result.zip as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          ETag: result.fingerprint,
+          'Content-Type': 'application/zip',
+          'Content-Disposition': `attachment; filename=${JSON.stringify(`${slug}.zip`)}`,
+        },
+      })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Authentication & session
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const auth: Record<string, Handler> = {
+  login: async (ctx) => {
+    const fields = await formFields(ctx.request)
+    const handle = (fields.get('handle') ?? '').trim()
+    const password = fields.get('password') ?? ''
+    if (handle === '' || password === '') {
+      return errorJson('username and password are required', 400)
+    }
+
+    const user = users.getByHandle(handle)
+    // All failure reasons collapse into one message on purpose.
+    if (!user || user.isBanned) return errorJson('invalid username or password', 401)
+    if (!user.passwordHash) return errorJson('invalid username or password', 401)
+    if (!verifyPassword(password, user.passwordHash)) {
+      return errorJson('invalid username or password', 401)
+    }
+
+    const raw = generateRawToken()
+    tokenRepo.create({
+      userId: user.id,
+      label: 'web-session',
+      prefix: extractPrefix(raw),
+      tokenHash: hashToken(raw),
+      scope: 'full',
+      expiresAt: new Date(Date.now() + getConfig().sessionTtlSeconds * 1000).toISOString(),
+    })
+
+    return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie(ctx.request, raw) })
+  },
+
+  logout: (ctx) =>
+    json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie(ctx.request) }),
+
+  whoami: (ctx) => {
+    if (!ctx.user) return errorJson('not authenticated', 401)
+    const { passwordHash: _drop, ...safe } = ctx.user
+    void _drop
+    return json(safe)
+  },
+
+  // ── device flow (used by CLI clients) ──────────────────────────────────────
+  deviceCode: () => {
+    const deviceCode = crypto.randomBytes(16).toString('hex')
+    // Ambiguous characters (I, O, 0, 1) are excluded so codes survive retyping.
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    let userCode = ''
+    for (let i = 0; i < 8; i++) {
+      userCode += alphabet[crypto.randomInt(0, alphabet.length)]
+    }
+    userCode = `${userCode.slice(0, 4)}-${userCode.slice(4)}`
+
+    pendingDeviceCodes.set(deviceCode, {
+      userCode,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      userId: null,
+      token: null,
+    })
+
+    const cfg = getConfig()
+    const base =
+      cfg.baseUrl.replace(/\/+$/, '') || `http://${cfg.host}:${cfg.port}`
+    return json({
+      deviceCode,
+      userCode,
+      verificationUrl: `${base}/auth/device/verify`,
+      expiresIn: 300,
+      interval: 5,
+    })
+  },
+
+  deviceVerifyPage: (ctx) =>
+    ctx.user
+      ? json({ message: 'Enter your device code to authorize the CLI.' })
+      : new Response(null, { status: 302, headers: { Location: '/login?redirect=/auth/device/verify' } }),
+
+  deviceVerifySubmit: async (ctx) => {
+    const user = ctx.user
+    if (!user) return errorJson('authentication required', 401)
+
+    let userCode = ''
+    const ct = ctx.request.headers.get('content-type') ?? ''
+    if (ct.includes('application/json')) {
+      const body = await jsonBody<{ userCode?: string }>(ctx.request)
+      userCode = body?.userCode ?? ''
+    } else {
+      const fields = await formFields(ctx.request)
+      userCode = fields.get('userCode') ?? ''
+    }
+    if (userCode.trim() === '') return errorJson('userCode is required', 400)
+
+    const normalized = normalizeUserCode(userCode)
+    for (const [deviceCode, entry] of pendingDeviceCodes) {
+      if (entry.userCode !== normalized) continue
+      if (Date.now() > entry.expiresAt) {
+        pendingDeviceCodes.delete(deviceCode)
+        return errorJson('device code expired', 400)
+      }
+      const raw = generateRawToken()
+      tokenRepo.create({
+        userId: user.id,
+        label: 'device-auth',
+        prefix: extractPrefix(raw),
+        tokenHash: hashToken(raw),
+        scope: 'full',
+        expiresAt: new Date(Date.now() + getConfig().sessionTtlSeconds * 1000).toISOString(),
+      })
+      entry.userId = user.id
+      entry.token = raw
+      return json({ message: 'Device authorized successfully.' })
+    }
+    return errorJson('invalid or expired user code', 400)
+  },
+
+  deviceToken: async (ctx) => {
+    const body = await jsonBody<{ deviceCode?: string }>(ctx.request)
+    const deviceCode = (body?.deviceCode ?? '').trim()
+    if (deviceCode === '') return errorJson('deviceCode is required', 400)
+
+    const entry = pendingDeviceCodes.get(deviceCode)
+    if (!entry) return errorJson('invalid or expired device code', 400)
+    if (Date.now() > entry.expiresAt) {
+      pendingDeviceCodes.delete(deviceCode)
+      return errorJson('device code expired', 400)
+    }
+    if (!entry.token) return json({ status: 'pending' }, 202)
+
+    const token = entry.token
+    // Single use: consume on retrieval.
+    pendingDeviceCodes.delete(deviceCode)
+    return json({ token })
+  },
+}
+
+interface PendingDeviceCode {
+  userCode: string
+  expiresAt: number
+  userId: string | null
+  token: string | null
+}
+
+const pendingDeviceCodes = new Map<string, PendingDeviceCode>()
+
+function normalizeUserCode(raw: string): string {
+  const compact = raw.toUpperCase().replace(/[-\s]/g, '')
+  if (compact.length === 8) return `${compact.slice(0, 4)}-${compact.slice(4)}`
+  return compact
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Personal tokens
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const personalTokens: Record<string, Handler> = {
+  list: (ctx) => {
+    const user = requireUser(ctx)
+    return json({ data: tokenRepo.listByUser(user.id) })
+  },
+
+  create: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ label?: string; scope?: string; expiresIn?: string }>(ctx.request)
+    if (body === null) return errorJson('invalid request', 400)
+
+    const scopeRaw = body.scope && body.scope !== '' ? body.scope : 'full'
+    if (!PERSONAL_SCOPES.includes(scopeRaw as TokenScope)) {
+      return errorJson('invalid scope, must be one of: full, read, publish', 400)
+    }
+
+    let expiresAt: string | null = null
+    if (body.expiresIn !== undefined && body.expiresIn !== '') {
+      const seconds = parseDuration(body.expiresIn)
+      if (seconds === null || seconds <= 0) return errorJson('invalid expiresIn duration', 400)
+      expiresAt = new Date(Date.now() + seconds * 1000).toISOString()
+    }
+
+    const raw = generateRawToken()
+    const metadata = tokenRepo.create({
+      userId: user.id,
+      label: body.label || null,
+      prefix: extractPrefix(raw),
+      tokenHash: hashToken(raw),
+      scope: scopeRaw as TokenScope,
+      expiresAt,
+    })
+    return json({ token: raw, metadata }, 201)
+  },
+
+  revoke: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid token ID', 400)
+    const token = tokenRepo.getById(id)
+    if (!token || token.userId !== user.id) return errorJson('token not found', 404)
+    tokenRepo.revoke(id)
+    return json({ message: 'token revoked' })
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skill mutations
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const skillWrite: Record<string, Handler> = {
+  publish: async (ctx) => {
+    const user = requireUser(ctx)
+    let multipart
+    try {
+      multipart = await readMultipart(ctx.request, 5 * 1024 * 1024)
+    } catch (e) {
+      return errorJson((e as Error).message, 400)
+    }
+    const { files, fields } = multipart
+
+    // Skill publish uses raw form values (no trimming), unlike the agent path.
+    let dependencies
+    const depsRaw = fields.get('dependencies') ?? ''
+    if (depsRaw !== '') {
+      try {
+        dependencies = JSON.parse(depsRaw)
+      } catch (e) {
+        return errorJson(`invalid dependencies JSON: ${(e as Error).message}`, 400)
+      }
+    }
+
+    const signature = fields.get('signature') ?? ''
+    if (signature.length > 64 * 1024) {
+      return errorJson('signature bundle exceeds 64 KB', 400)
+    }
+
+    try {
+      const result = skillSvc.publishVersion(user, {
+        slug: fields.get('slug') ?? '',
+        version: fields.get('version') ?? '',
+        changelog: fields.get('changelog') ?? '',
+        displayName: fields.get('displayName') ?? '',
+        summary: fields.get('summary') ?? '',
+        category: fields.get('category') ?? '',
+        kind: fields.get('kind') ?? '',
+        visibility: fields.get('visibility') ?? '',
+        namespaceSlug: fields.get('namespace') ?? '',
+        tags: fields.get('tags') ? splitTags(fields.get('tags')!) : undefined,
+        dependencies,
+        signatureBundle: signature || undefined,
+        files,
+        tokenNamespaceId: ctx.tokenNamespaceId,
+      })
+      return json(result)
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  /** Object-storage-only flow; this build keeps content in SQLite. */
+  directUploadPlan: async (ctx) => {
+    requireUser(ctx)
+    const body = await jsonBody(ctx.request)
+    if (body === null) return errorJson('invalid request body', 400)
+    return errorJson('direct upload is only available for object storage backends', 400)
+  },
+
+  directUploadComplete: async (ctx) => {
+    requireUser(ctx)
+    const body = await jsonBody<{ signature?: string }>(ctx.request)
+    if (body === null) return errorJson('invalid request body', 400)
+    if ((body.signature ?? '').length > 64 * 1024) {
+      return errorJson('signature bundle exceeds 64 KB', 400)
+    }
+    return errorJson('multipart direct upload is not available for this backend', 400)
+  },
+
+  remove: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.softDelete(user, refFromCtx(ctx), ctx.tokenNamespaceId)
+      return json({ message: 'skill deleted' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  purge: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.purge(user, refFromCtx(ctx))
+      return json({ message: 'skill purged' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  undelete: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.undelete(user, refFromCtx(ctx), ctx.tokenNamespaceId)
+      return json({ message: 'skill restored' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  requestPublic: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.requestPublic(user, refFromCtx(ctx))
+      return json({ message: 'public review requested' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  transfer: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ namespace?: string }>(ctx.request)
+    if (!body?.namespace) return errorJson('namespace is required', 400)
+    try {
+      skillSvc.transferSkill(user, refFromCtx(ctx), body.namespace, ctx.tokenNamespaceId)
+      return json({ message: 'skill transferred' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  updateFile: async (ctx) => {
+    const user = requireUser(ctx)
+    const ct = ctx.request.headers.get('content-type') ?? ''
+    let path = 'SKILL.md'
+    let changelog = ''
+    let content: Uint8Array
+
+    if (ct.startsWith('multipart/')) {
+      try {
+        const form = await ctx.request.formData()
+        path = (form.get('path') as string | null) || 'SKILL.md'
+        changelog = (form.get('changelog') as string | null) ?? ''
+        const file = form.get('file')
+        if (!(file instanceof File)) return errorJson('file is required', 400)
+        content = new Uint8Array(await file.arrayBuffer())
+        if (content.byteLength > 200 * 1024) return errorJson('file exceeds 200KB', 400)
+      } catch {
+        return errorJson('cannot read file', 400)
+      }
+    } else {
+      const body = await jsonBody<{ path?: string; content?: string; changelog?: string }>(
+        ctx.request,
+      )
+      if (body === null) return errorJson('invalid request body', 400)
+      path = body.path || 'SKILL.md'
+      changelog = body.changelog ?? ''
+      content = new TextEncoder().encode(body.content ?? '')
+    }
+
+    try {
+      return json(
+        skillSvc.updateFile(user, refFromCtx(ctx), path, content, changelog, ctx.tokenNamespaceId),
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  yank: async (ctx) => {
+    const user = requireUser(ctx)
+    // An empty body is acceptable; malformed JSON is not.
+    const raw = await ctx.request.text()
+    let reason = ''
+    if (raw.trim() !== '') {
+      try {
+        reason = (JSON.parse(raw) as { reason?: string }).reason ?? ''
+      } catch {
+        return errorJson('invalid JSON body', 400)
+      }
+    }
+    try {
+      skillSvc.yankVersion(
+        user,
+        refFromCtx(ctx),
+        ctx.params.version ?? '',
+        reason,
+        ctx.tokenNamespaceId,
+      )
+      return json({ message: 'version yanked' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  unyank: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.unyankVersion(user, refFromCtx(ctx), ctx.params.version ?? '', ctx.tokenNamespaceId)
+      return json({ message: 'version unyanked' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  deprecate: async (ctx) => {
+    const user = requireUser(ctx)
+    const raw = await ctx.request.text()
+    let message = ''
+    if (raw.trim() !== '') {
+      try {
+        message = (JSON.parse(raw) as { message?: string }).message ?? ''
+      } catch {
+        return errorJson('invalid JSON body', 400)
+      }
+    }
+    try {
+      skillSvc.deprecateVersion(
+        user,
+        refFromCtx(ctx),
+        ctx.params.version ?? '',
+        message,
+        ctx.tokenNamespaceId,
+      )
+      return json({ message: 'version deprecated' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  undeprecate: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.undeprecateVersion(
+        user,
+        refFromCtx(ctx),
+        ctx.params.version ?? '',
+        ctx.tokenNamespaceId,
+      )
+      return json({ message: 'version undeprecated' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+}
+
+function splitTags(raw: string): string[] {
+  return raw
+    .split(/[,; ]+/)
+    .map((t) => t.trim())
+    .filter((t) => t !== '')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stars, ratings, comments, notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const social: Record<string, Handler> = {
+  star: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.toggleStar(user.id, refFromCtx(ctx), true)
+      return json({ message: 'starred' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  unstar: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      skillSvc.toggleStar(user.id, refFromCtx(ctx), false)
+      return json({ message: 'unstarred' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  rate: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ score?: number; comment?: string }>(ctx.request)
+    if (body?.score === undefined || body.score === null) {
+      return errorJson('score is required (1-5)', 400)
+    }
+    try {
+      socialSvc.rate(user, refFromCtx(ctx), body.score, body.comment)
+      return json({ message: 'rating saved' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  deleteRating: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      socialSvc.deleteRating(user, refFromCtx(ctx))
+      return json({ message: 'rating deleted' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listRatings: (ctx) => {
+    try {
+      return json(
+        socialSvc.listRatings(
+          refFromCtx(ctx),
+          viewerOf(ctx),
+          qInt(ctx.url, 'limit', 20),
+          qStr(ctx.url, 'cursor'),
+        ),
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  createComment: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ body?: string }>(ctx.request)
+    if (body === null) return errorJson('invalid request body', 400)
+    try {
+      return json(socialSvc.createComment(user, refFromCtx(ctx), body.body ?? ''))
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listComments: (ctx) => {
+    try {
+      return json(
+        socialSvc.listComments(
+          refFromCtx(ctx),
+          viewerOf(ctx),
+          qInt(ctx.url, 'limit', 20),
+          qStr(ctx.url, 'cursor'),
+        ),
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  deleteComment: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid id', 400)
+    try {
+      socialSvc.deleteComment(user, id)
+      return json({ message: 'comment deleted' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listNotifications: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json(
+        socialSvc.listNotifications(user.id, qInt(ctx.url, 'limit', 20), qStr(ctx.url, 'cursor')),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+
+  unread: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json({ unread: socialSvc.unreadCount(user.id) })
+    } catch {
+      return internalError()
+    }
+  },
+
+  markRead: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid notification ID', 400)
+    socialSvc.markRead(user.id, id)
+    return json({ message: 'marked as read' })
+  },
+
+  markAllRead: (ctx) => {
+    const user = requireUser(ctx)
+    socialSvc.markAllRead(user.id)
+    return json({ message: 'all marked as read' })
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Namespaces
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const namespaceHandlers: Record<string, Handler> = {
+  create: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{
+      slug?: string
+      displayName?: string
+      description?: string
+      type?: string
+      defaultVisibility?: string
+      maxSkills?: number
+    }>(ctx.request)
+    if (!body?.slug) return errorJson('slug is required', 400)
+    try {
+      return json(
+        nsSvc.createNamespace(user, {
+          slug: body.slug,
+          displayName: body.displayName,
+          description: body.description,
+          type: body.type,
+          defaultVisibility: body.defaultVisibility,
+          maxSkills: body.maxSkills,
+        }),
+        201,
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  list: (ctx) => {
+    const user = requireUser(ctx)
+    return json({ data: nsSvc.listNamespaces(user) })
+  },
+
+  get: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json(nsSvc.getNamespaceForUser(ctx.params.slug ?? '', { id: user.id, role: user.role }))
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  update: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{
+      displayName?: string
+      description?: string
+      defaultVisibility?: string
+      maxSkills?: number
+    }>(ctx.request)
+    if (body === null) return errorJson('invalid request', 400)
+    try {
+      return json(nsSvc.updateNamespace(ctx.params.slug ?? '', { id: user.id, role: user.role }, body))
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  remove: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      nsSvc.deleteNamespace(ctx.params.slug ?? '', { id: user.id, role: user.role })
+      return json({ message: 'namespace deleted' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listMembers: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json({
+        data: nsSvc.listMembers(ctx.params.slug ?? '', { id: user.id, role: user.role }),
+      })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  addMember: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ handle?: string; role?: string }>(ctx.request)
+    if (!body?.handle) return errorJson('handle is required', 400)
+    try {
+      nsSvc.addMember(ctx.params.slug ?? '', { id: user.id, role: user.role }, body.handle, body.role ?? 'member')
+      return json({ message: 'member added' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  removeMember: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      nsSvc.removeMember(ctx.params.slug ?? '', { id: user.id, role: user.role }, ctx.params.handle ?? '')
+      return json({ message: 'member removed' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  leave: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      nsSvc.leaveNamespace(ctx.params.slug ?? '', { id: user.id, role: user.role })
+      return json({ message: 'left namespace' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  transfer: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ newOwner?: string }>(ctx.request)
+    if (!body?.newOwner) return errorJson('newOwner is required', 400)
+    try {
+      nsSvc.transferOwnership(ctx.params.slug ?? '', { id: user.id, role: user.role }, body.newOwner)
+      return json({ message: 'ownership transferred' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  invite: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ handle?: string; role?: string; message?: string }>(ctx.request)
+    if (!body?.handle) return errorJson('handle is required', 400)
+    try {
+      return json(
+        nsSvc.inviteMember(
+          ctx.params.slug ?? '',
+          { id: user.id, role: user.role },
+          body.handle,
+          body.role ?? 'member',
+          body.message,
+        ),
+        201,
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listInvitations: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json({
+        data: nsSvc.listNamespaceInvitations(
+          ctx.params.slug ?? '',
+          { id: user.id, role: user.role },
+          qStr(ctx.url, 'status'),
+        ),
+      })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  revokeInvitation: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid invitation id', 400)
+    try {
+      nsSvc.revokeInvitation(ctx.params.slug ?? '', { id: user.id, role: user.role }, id)
+      return json({ message: 'invitation revoked' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  myInvitations: (ctx) => {
+    const user = requireUser(ctx)
+    return json({ data: nsSvc.myInvitations({ id: user.id, role: user.role }) })
+  },
+
+  acceptInvitation: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid invitation id', 400)
+    try {
+      nsSvc.respondInvitation({ id: user.id, role: user.role }, id, 'accept')
+      return json({ message: 'invitation accepted' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  declineInvitation: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid invitation id', 400)
+    try {
+      nsSvc.respondInvitation({ id: user.id, role: user.role }, id, 'decline')
+      return json({ message: 'invitation declined' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  createTeamToken: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ label?: string; scope?: string; expiresIn?: string }>(ctx.request)
+    if (body === null) return errorJson('invalid request', 400)
+    try {
+      return json(
+        nsSvc.createTeamToken(ctx.params.slug ?? '', { id: user.id, role: user.role }, {
+          label: body.label,
+          scope: body.scope,
+          expiresIn: body.expiresIn ?? '',
+        }),
+        201,
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listTeamTokens: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json(
+        nsSvc.listTeamTokens(
+          ctx.params.slug ?? '',
+          { id: user.id, role: user.role },
+          qInt(ctx.url, 'limit', 20, 100),
+          qStr(ctx.url, 'cursor'),
+        ),
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  revokeTeamToken: (ctx) => {
+    const user = requireUser(ctx)
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid token ID', 400)
+    try {
+      nsSvc.revokeTeamToken(ctx.params.slug ?? '', { id: user.id, role: user.role }, id)
+      return json({ message: 'token revoked' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const admin: Record<string, Handler> = {
+  listFeaturedSkills: () => {
+    try { return json({ data: manageSvc.listFeaturedSkills() }) }
+    catch { return internalError() }
+  },
+
+  replaceFeaturedSkills: async (ctx) => {
+    const body = await jsonBody<{ skillIds?: string[] }>(ctx.request)
+    if (!Array.isArray(body?.skillIds) || body.skillIds.some((id) => typeof id !== 'string')) return errorJson('skillIds must be an array', 400)
+    try {
+      manageSvc.replaceFeaturedSkills(ctx.user!.id, body.skillIds)
+      return json({ message: 'featured skills updated' })
+    } catch (e) { return serviceError(e) }
+  },
+
+  banUser: async (ctx) => {
+    const body = await jsonBody<{ userId?: string; reason?: string }>(ctx.request)
+    if (!body?.userId) return errorJson('invalid request', 400)
+    if (!isUuidLike(body.userId)) return errorJson('invalid user ID', 400)
+    try {
+      manageSvc.banUser(ctx.user!.id, body.userId, body.reason ?? '')
+      return json({ message: 'user banned' })
+    } catch (e) {
+      if (isServiceError(e)) return serviceError(e)
+      return errorJson('failed to ban user', 500)
+    }
+  },
+
+  setRole: async (ctx) => {
+    const body = await jsonBody<{ userId?: string; role?: string }>(ctx.request)
+    if (!body?.userId || !body.role) return errorJson('invalid request', 400)
+    if (!isUuidLike(body.userId)) return errorJson('invalid user ID', 400)
+    try {
+      manageSvc.setRole(ctx.user!.id, body.userId, body.role)
+      return json({ message: 'role updated' })
+    } catch (e) {
+      if (isServiceError(e)) return serviceError(e)
+      return errorJson('failed to update role', 500)
+    }
+  },
+
+  listUsers: (ctx) => {
+    try {
+      return json(manageSvc.listUsers(qStr(ctx.url, 'cursor')))
+    } catch {
+      return errorJson('failed to list users', 500)
+    }
+  },
+
+  createUser: async (ctx) => {
+    const body = await jsonBody<{
+      handle?: string
+      displayName?: string
+      email?: string
+      role?: string
+    }>(ctx.request)
+    if (!body?.handle) return errorJson('invalid request', 400)
+    try {
+      return json(
+        manageSvc.createUser({
+          handle: body.handle,
+          displayName: body.displayName,
+          email: body.email,
+          role: body.role,
+        }),
+        201,
+      )
+    } catch (e) {
+      if (isServiceError(e)) return serviceError(e)
+      return errorJson('failed to create user', 500)
+    }
+  },
+
+  createToken: async (ctx) => {
+    const body = await jsonBody<{ userId?: string; label?: string; scope?: string }>(ctx.request)
+    if (!body?.userId) return errorJson('invalid request', 400)
+    if (!isUuidLike(body.userId)) return errorJson('invalid user ID', 400)
+    try {
+      // Note: 200 here, not the 201 that `POST /api/v1/tokens` returns.
+      return json(manageSvc.createUserToken(ctx.user!.id, body.userId, body.label ?? '', body.scope ?? 'full'))
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listSkills: (ctx) => {
+    try {
+      return json(
+        manageSvc.listAllSkills({
+          visibility: qStr(ctx.url, 'visibility'),
+          cursor: qStr(ctx.url, 'cursor'),
+          limit: qInt(ctx.url, 'limit', 20, 100),
+        }),
+      )
+    } catch {
+      return errorJson('failed to list skills', 500)
+    }
+  },
+
+  reviewSkill: async (ctx) => {
+    const body = await jsonBody<{ action?: string }>(ctx.request)
+    if (!body?.action) return errorJson('invalid request, action is required', 400)
+    try {
+      const state = manageSvc.reviewSkill(refFromCtx(ctx), body.action, ctx.user!.id)
+      return json({ message: `skill ${state === 'approved' ? 'approved' : 'rejected'}` })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  setSkillVisibility: async (ctx) => {
+    const body = await jsonBody<{ visibility?: string }>(ctx.request)
+    if (!body?.visibility) return errorJson('invalid request, visibility is required', 400)
+    try {
+      manageSvc.setSkillVisibility(refFromCtx(ctx), body.visibility, ctx.user!.id)
+      return json({ message: `visibility updated to ${body.visibility}` })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  listPlugins: (ctx) => {
+    try {
+      return json(
+        manageSvc.listAllPlugins({
+          limit: qInt(ctx.url, 'limit', 20, 100),
+          cursor: qStr(ctx.url, 'cursor'),
+          visibility: qStr(ctx.url, 'visibility'),
+        }),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+
+  reviewPlugin: async (ctx) => {
+    const body = await jsonBody<{ action?: string }>(ctx.request)
+    if (!body?.action) return errorJson("action must be 'approve' or 'reject'", 400)
+    try {
+      const state = manageSvc.reviewPluginByRef(refFromCtx(ctx), body.action, ctx.user!.id)
+      return json({ message: `plugin ${state === 'approved' ? 'approved' : 'rejected'}` })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  setPluginVisibility: async (ctx) => {
+    const body = await jsonBody<{ visibility?: string }>(ctx.request)
+    if (!body?.visibility) return errorJson('visibility is required', 400)
+    try {
+      manageSvc.setPluginVisibility(refFromCtx(ctx), body.visibility, ctx.user!.id)
+      return json({ message: 'visibility updated' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  auditLogs: (ctx) => {
+    try {
+      const actorIdRaw = qStr(ctx.url, 'actor_id')
+      return json(
+        manageSvc.auditLogs({
+          limit: qInt(ctx.url, 'limit', 50, 200),
+          cursor: qStr(ctx.url, 'cursor'),
+          action: qStr(ctx.url, 'action'),
+          resourceType: qStr(ctx.url, 'resource_type'),
+          // A non-UUID actor_id is silently ignored.
+          actorId: isUuidLike(actorIdRaw) ? actorIdRaw : '',
+        }),
+      )
+    } catch {
+      return internalError()
+    }
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent auto-provisioning
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const agentProvision: Record<string, Handler> = {
+  provision: async (ctx) => {
+    const body = await jsonBody<{ handle?: string; secret?: string }>(ctx.request)
+    if (!body?.handle || !body.secret) return errorJson('handle and secret are required', 400)
+    try {
+      return json(manageSvc.agentProvision(body.handle, body.secret))
+    } catch (e) {
+      if (isServiceError(e)) return serviceError(e)
+      return internalError()
+    }
+  },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Agent Skill API (/api/agent/*)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const agent: Record<string, Handler> = {
+  publish: async (ctx) => {
+    const user = ctx.user
+    if (!user) return agentErr('UNAUTHORIZED', 'authentication required', 401, ctx)
+
+    let multipart
+    try {
+      multipart = await readMultipart(ctx.request, 5 * 1024 * 1024)
+    } catch (e) {
+      const message = (e as Error).message
+      if (message.includes('exceeds max size')) {
+        return agentErr('ARCHIVE_TOO_LARGE', message, 413, ctx)
+      }
+      return agentErr('INVALID_REQUEST', message, 400, ctx)
+    }
+    const { files, fields } = multipart
+
+    if (files.size === 0) return agentErr('MISSING_FILES', 'missing files', 400, ctx)
+    if (!files.has('SKILL.md')) {
+      return agentErr('INVALID_SKILL_MD', 'SKILL.md is required', 400, ctx)
+    }
+
+    try {
+      const result = skillSvc.publishVersion(user, {
+        slug: formValue(fields, 'slug'),
+        version: formValue(fields, 'version'),
+        displayName: formValue(fields, 'displayName'),
+        visibility: formValue(fields, 'visibility'),
+        files,
+        tokenNamespaceId: ctx.tokenNamespaceId,
+        overwrite: parseAgentOverwrite(formValue(fields, 'overwrite')),
+      })
+      // 201 for a brand-new skill, 200 when extending an existing one.
+      const isNew = result.skill.versionsCount === 1 && result.version.version !== ''
+      const status = isNew ? 201 : 200
+      return json(
+        {
+          data: {
+            skill: { slug: result.skill.slug },
+            version: {
+              version: result.version.version,
+              fingerprint: result.version.fingerprint,
+            },
+          },
+          requestId: ctx.requestId.startsWith('req_') ? ctx.requestId : `req_${ctx.requestId}`,
+        },
+        status,
+      )
+    } catch (e) {
+      return writeAgentServiceError(e, ctx)
+    }
+  },
+
+  list: (ctx) => agentSvc.listAgentSkills(ctx, qInt(ctx.url, 'page', 1, 10000), qInt(ctx.url, 'pageSize', 20, 100)),
+
+  detail: (ctx) => agentSvc.skillDetail(ctx, ctx.params.id ?? ''),
+
+  download: (ctx) => agentSvc.downloadInfo(ctx, ctx.params.id ?? ''),
+
+  archive: (ctx) => agentSvc.archive(ctx, ctx.params.id ?? ''),
+}
+
+/** `parseAgentOverwrite` — unrecognised values mean "unset" (= allowed). */
+function parseAgentOverwrite(raw: string): boolean | null {
+  const v = raw.trim().toLowerCase()
+  if (v === '') return null
+  if (['true', '1', 'yes', 'y'].includes(v)) return true
+  if (['false', '0', 'no', 'n'].includes(v)) return false
+  return null
+}
+
+function agentErr(
+  code: string,
+  message: string,
+  status: number,
+  ctx: RequestContext,
+): Response {
+  return json(
+    {
+      error: { code, message },
+      requestId: ctx.requestId.startsWith('req_') ? ctx.requestId : `req_${ctx.requestId}`,
+    },
+    status,
+  )
+}
+
+function writeAgentServiceError(e: unknown, ctx: RequestContext): Response {
+  if (isServiceError(e)) {
+    switch (e.kind) {
+      case 'forbidden':
+        return agentErr('FORBIDDEN', e.message, 403, ctx)
+      case 'notfound':
+        return json(
+          { error: { code: 'SKILL_NOT_FOUND', message: 'skill not found', details: {} }, requestId: ctx.requestId },
+          404,
+        )
+      case 'conflict':
+        return json(
+          { error: { code: 'SKILL_NAME_CONFLICT', message: e.message, details: {} }, requestId: ctx.requestId },
+          409,
+        )
+      default:
+        break
+    }
+  }
+  const message = e instanceof Error ? e.message : String(e)
+  const code = message.toLowerCase().includes('skill.md') ? 'INVALID_SKILL_MD' : 'INVALID_REQUEST'
+  return agentErr(code, message, 400, ctx)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Runtime skill API (/api/runtime/*)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const runtime: Record<string, Handler> = {
+  capabilities: () =>
+    json({
+      runtimeSkills: { version: '2026-06-17', resolve: true, files: true, bundle: true },
+    }),
+
+  resolve: (ctx) => runtimeSvc.resolve(ctx),
+  list: (ctx) => runtimeSvc.list(ctx),
+  byId: (ctx) => runtimeSvc.byId(ctx, ctx.params.id ?? ''),
+  bySlug: (ctx) => runtimeSvc.bySlug(ctx),
+  file: (ctx) => runtimeSvc.file(ctx),
+  bundle: (ctx) => runtimeSvc.bundle(ctx),
+}
+
+export { hashPassword, MIN_PASSWORD_LENGTH, nowIso, formatSkillRef, parseSkillRef, members }
+
+
+// -----------------------------------------------------------------------------
+// Plugin writes
+// -----------------------------------------------------------------------------
+
+export const pluginWrite: Record<string, Handler> = {
+  publish: async (ctx) => {
+    const user = requireUser(ctx)
+    let multipart
+    try {
+      // Plugin packages are larger than skills: 64 MiB per file, 512 MiB total.
+      multipart = await readMultipart(ctx.request, 64 * 1024 * 1024)
+    } catch (e) {
+      return errorJson(`invalid multipart form: ${(e as Error).message}`, 400)
+    }
+    const { files, fields } = multipart
+
+    try {
+      return json(
+        pluginSvc.publishPlugin(user, {
+          slug: formValue(fields, 'slug'),
+          version: formValue(fields, 'version'),
+          category: formValue(fields, 'category'),
+          displayName: formValue(fields, 'displayName'),
+          summary: formValue(fields, 'summary'),
+          changelog: formValue(fields, 'changelog'),
+          tags: fields.get('tags'),
+          namespaceSlug: formValue(fields, 'namespace'),
+          visibility: formValue(fields, 'visibility'),
+          files,
+          tokenNamespaceId: ctx.tokenNamespaceId,
+        }),
+        201,
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  remove: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      pluginSvc.deletePlugin(user, refFromCtx(ctx), ctx.tokenNamespaceId)
+      return json({ message: 'plugin deleted' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  undelete: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      pluginSvc.undeletePlugin(user, refFromCtx(ctx), ctx.tokenNamespaceId)
+      return json({ message: 'plugin restored' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  yank: async (ctx) => {
+    const user = requireUser(ctx)
+    // Unlike the skill variant, a malformed body here is silently ignored.
+    let reason = ''
+    try {
+      const raw = await ctx.request.text()
+      if (raw.trim() !== '') reason = (JSON.parse(raw) as { reason?: string }).reason ?? ''
+    } catch {
+      reason = ''
+    }
+    try {
+      pluginSvc.yankPluginVersion(
+        user,
+        refFromCtx(ctx),
+        ctx.params.version ?? '',
+        reason,
+        ctx.tokenNamespaceId,
+      )
+      return json({ message: 'version yanked' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  unyank: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      pluginSvc.unyankPluginVersion(
+        user,
+        refFromCtx(ctx),
+        ctx.params.version ?? '',
+        ctx.tokenNamespaceId,
+      )
+      return json({ message: 'version unyanked' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+}

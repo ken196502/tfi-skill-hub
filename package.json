@@ -1,0 +1,31 @@
+{
+  "name": "tfi-skill-hub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted agent skill & plugin registry — TypeScript rewrite of saker-ai/skillhub on TanStack Start + SQLite",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vite dev",
+    "build": "vite build",
+    "start": "NODE_OPTIONS=--disable-warning=ExperimentalWarning node dist/server/server.js",
+    "typecheck": "tsc --noEmit",
+    "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-api.mjs",
+    "seed:admin": "node --disable-warning=ExperimentalWarning scripts/create-admin.mjs"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.90.2",
+    "@tanstack/react-router": "^1.132.47",
+    "@tanstack/react-start": "^1.132.47",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.8",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.1",
+    "@vitejs/plugin-react": "^5.0.4",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.9"
+  }
+}

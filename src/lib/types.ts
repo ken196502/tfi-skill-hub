@@ -1,0 +1,265 @@
+/**
+ * Shared domain types.
+ *
+ * These mirror `pkg/model/*.go` field-for-field, including which fields are
+ * optional (`json:",omitempty"` in Go → optional + omitted when absent here).
+ * The optionality distinction is load-bearing: consumers rely on the key being
+ * *absent* rather than `null`.
+ */
+
+export type Visibility = 'private' | 'public'
+export type ModerationStatus = 'approved' | 'pending_review' | 'rejected'
+export type SkillKind = 'builtin' | 'domain' | 'learned' | 'custom'
+export type UserRole = 'user' | 'moderator' | 'admin' | 'agent'
+export type NamespaceType = 'personal' | 'team'
+export type NamespaceRole = 'owner' | 'admin' | 'member' | 'reader'
+export type TokenScope = 'full' | 'read' | 'publish'
+export type SignatureStatus = 'unsigned' | 'unverified' | 'verified' | 'invalid'
+
+export const VALID_CATEGORIES = [
+  'devops',
+  'security',
+  'data',
+  'frontend',
+  'backend',
+  'infra',
+  'testing',
+  'ai',
+  'general',
+] as const
+
+export const VALID_KINDS: SkillKind[] = ['builtin', 'domain', 'learned', 'custom']
+
+export const VALID_ROLES: UserRole[] = ['user', 'moderator', 'admin']
+
+/** `model.ReservedNamespaces` — slug prefixes reserved for official distribution. */
+export const RESERVED_NAMESPACE_PREFIXES = ['animus-builtin/', 'animus-domain/']
+
+export interface User {
+  id: string
+  handle: string
+  displayName?: string
+  avatarUrl?: string
+  email?: string
+  role: UserRole
+  isBanned: boolean
+  banReason?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Skill {
+  id: string
+  slug: string
+  displayName?: string
+  summary?: string
+  ownerId: string
+  namespaceId?: string
+  latestVersionId?: string
+  visibility: Visibility
+  moderationStatus: ModerationStatus
+  isSuspicious: boolean
+  kind: SkillKind
+  category: string
+  tags: string[]
+  downloads: number
+  installs: number
+  starsCount: number
+  versionsCount: number
+  commentsCount: number
+  averageRating: number
+  ratingsCount: number
+  createdAt: string
+  updatedAt: string
+  softDeletedAt?: string
+}
+
+/** `model.SkillWithOwner` — `Skill` inlined, plus owner/namespace display fields. */
+export interface SkillWithOwner extends Skill {
+  ownerHandle: string
+  ownerDisplayName?: string
+  ownerAvatarUrl?: string
+  /** Always present; `""` when the joined namespace is missing. */
+  namespaceSlug: string
+}
+
+export interface VersionFile {
+  path: string
+  size: number
+  sha256: string
+  contentType?: string
+}
+
+export interface SkillDependency {
+  slug: string
+  namespace?: string
+  /** Verbatim semver range, e.g. `^1.2.0`. */
+  version: string
+}
+
+export interface SkillVersion {
+  id: string
+  skillId: string
+  version: string
+  fingerprint: string
+  gitCommitHash?: string
+  changelog?: string
+  changelogSource?: string
+  files: VersionFile[]
+  /** Frontmatter extracted from SKILL.md, or `{}`. */
+  parsed: Record<string, unknown>
+  createdBy: string
+  sha256Hash: string
+  createdAt: string
+  softDeletedAt?: string
+  yankedAt?: string
+  yankReason?: string
+  deprecatedAt?: string
+  deprecationMessage?: string
+  dependencies: SkillDependency[]
+  signatureBundle?: string
+  signatureStatus: SignatureStatus
+  signatureSubject?: string
+  signatureIssuer?: string
+}
+
+export interface Plugin {
+  id: string
+  slug: string
+  displayName?: string
+  summary?: string
+  ownerId: string
+  namespaceId?: string
+  latestVersionId?: string
+  visibility: Visibility
+  moderationStatus: ModerationStatus
+  category: string
+  tags: string[]
+  downloads: number
+  starsCount: number
+  versionsCount: number
+  createdAt: string
+  updatedAt: string
+  softDeletedAt?: string
+}
+
+export interface PluginVersion {
+  id: string
+  pluginId: string
+  version: string
+  fingerprint: string
+  manifest: Record<string, unknown>
+  files: VersionFile[]
+  changelog?: string
+  createdBy: string
+  sha256Hash: string
+  createdAt: string
+  softDeletedAt?: string
+  yankedAt?: string
+  yankReason?: string
+}
+
+export interface Namespace {
+  id: string
+  slug: string
+  displayName?: string
+  description?: string
+  ownerId: string
+  type: NamespaceType
+  status: 'active' | 'suspended'
+  defaultVisibility: Visibility
+  /** 0 = unlimited. */
+  maxSkills: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface NamespaceMemberWithUser {
+  id: string
+  namespaceId: string
+  userId: string
+  role: NamespaceRole
+  createdAt: string
+  handle: string
+  displayName?: string
+}
+
+export interface NamespaceInvitation {
+  id: string
+  namespaceId: string
+  inviterId: string
+  inviteeId: string
+  inviteeHandle: string
+  role: NamespaceRole
+  status: 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired'
+  message?: string
+  createdAt: string
+  expiresAt: string
+  respondedAt?: string
+}
+
+export interface APIToken {
+  id: string
+  userId: string
+  namespaceId?: string
+  label?: string
+  prefix: string
+  scope: TokenScope
+  lastUsedAt?: string
+  expiresAt?: string
+  createdAt: string
+  revokedAt?: string
+}
+
+export interface Notification {
+  id: string
+  userId: string
+  category: string
+  title: string
+  body?: string
+  link?: string
+  isRead: boolean
+  createdAt: string
+}
+
+export interface RatingWithUser {
+  id: string
+  skillId: string
+  userId: string
+  score: number
+  comment?: string
+  createdAt: string
+  updatedAt: string
+  handle: string
+  displayName?: string
+}
+
+export interface CommentWithUser {
+  id: string
+  skillId: string
+  userId: string
+  body: string
+  createdAt: string
+  updatedAt: string
+  softDeletedAt?: string
+  handle: string
+  displayName?: string
+  avatarUrl?: string
+}
+
+export interface AuditLog {
+  id: string
+  actorId?: string
+  action: string
+  resourceType: string
+  resourceId?: string
+  details?: string
+  ipAddress?: string
+  createdAt: string
+}
+
+/** Parsed `@namespace/slug` reference — mirrors `model.SkillRef`. */
+export interface SkillRef {
+  namespace: string
+  slug: string
+}

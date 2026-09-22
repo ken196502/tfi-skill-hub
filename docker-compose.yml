@@ -1,0 +1,59 @@
+# tfi-skill-hub 部署配置
+#
+# 数据持久化：SQLite 主库与 -wal / -shm 伴随文件都在 /app/data 下，
+# 通过命名卷 skillhub-data 持久化。升级镜像、重建容器都不会丢数据。
+#
+# 启动：  docker compose up -d --build
+# 查看：  docker compose logs -f
+# 停止：  docker compose down        # 数据仍在卷中，不会删除
+# 彻底清理（含数据！）： docker compose down -v
+
+services:
+  skillhub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tfi-skill-hub:latest
+    container_name: tfi-skill-hub
+    restart: unless-stopped
+    init: true                       # 用 tini 作为 PID 1，正确转发 SIGTERM / 回收僵尸
+    ports:
+      - "10070:10070"
+    environment:
+      NODE_ENV: "production"
+      SKILLHUB_HOST: "0.0.0.0"
+      SKILLHUB_PORT: "10070"
+      SKILLHUB_DB_PATH: "/app/data/skillhub.db"
+
+      # 仅在库为空时生效：首次启动创建一个管理员账号，请务必修改密码
+      SKILLHUB_ADMIN_USER: "admin"
+      SKILLHUB_ADMIN_PASSWORD: "admin12345"
+
+      # 可选：公开访问地址，用于设备码校验等回链
+      # SKILLHUB_BASE_URL: "https://skillhub.example.com"
+
+      # 可选：限流调整（次数 / 时间窗，单位秒）
+      # SKILLHUB_RATE_READ_LIMIT: "120"
+      # SKILLHUB_RATE_WRITE_LIMIT: "30"
+      # SKILLHUB_RATE_DOWNLOAD_LIMIT: "20"
+
+      # 可选：启用 /api/v1/agent/provision（留空则返回 404）
+      # SKILLHUB_AGENT_SECRET: ""
+    volumes:
+      # 命名卷：推荐。数据随卷保留，与宿主机路径解耦。
+      - skillhub-data:/app/data
+
+      # 若想直接用宿主机目录（bind mount），注释上面一行、启用下面这行：
+      # - ./data:/app/data
+      #   注意：bind mount 的目录不要放在 NFS / vboxsf 等网络文件系统上，
+      #   否则 SQLite WAL 模式可能报 "unable to open database file"。本地 ext4 没问题。
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:10070/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  skillhub-data:
+    driver: local

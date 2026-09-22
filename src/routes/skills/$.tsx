@@ -1,0 +1,160 @@
+import { createFileRoute, Link, useParams } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import * as api from '../../lib/api'
+import {
+  Markdown,
+  Loading,
+  ErrorBox,
+  formatDate,
+  formatNumber,
+  displayNameOf,
+} from '../../components/ui'
+
+/**
+ * Skill detail.
+ *
+ * The path is a splat so a single route serves both `slug` and
+ * `@namespace/slug` — the same grammar the API uses for a skill reference.
+ */
+export const Route = createFileRoute('/skills/$')({
+  component: SkillDetailPage,
+})
+
+function SkillDetailPage() {
+  const { _splat: ref = '' } = useParams({ from: '/skills/$' })
+
+  const skill = useQuery({
+    queryKey: ['skill', ref],
+    queryFn: () => api.getSkill(ref),
+    retry: false,
+  })
+  const versions = useQuery({
+    queryKey: ['skill', ref, 'versions'],
+    queryFn: () => api.getSkillVersions(ref),
+    enabled: skill.isSuccess,
+  })
+  const readme = useQuery({
+    queryKey: ['skill', ref, 'file', 'SKILL.md'],
+    queryFn: () => api.getSkillFile(ref, 'latest', 'SKILL.md'),
+    enabled: skill.isSuccess,
+    retry: false,
+  })
+
+  if (skill.isLoading) return <Loading />
+  if (skill.isError || !skill.data) {
+    return (
+      <div className="container" style={{ paddingTop: 60 }}>
+        <PageTitle title="技能未找到" />
+        <Link to="/skills" className="btn btn-secondary">
+          返回技能列表
+        </Link>
+      </div>
+    )
+  }
+
+  const s = skill.data
+  const latest = versions.data?.versions?.[0]
+  const downloadHref = api.downloadUrl({ slug: s.slug, namespace: s.namespaceSlug })
+
+  return (
+    <div className="container" style={{ paddingTop: 40 }}>
+      <div className="detail-header">
+        <h1 className="detail-title">{displayNameOf(s)}</h1>
+        <p className="detail-summary">{s.summary || '暂无描述'}</p>
+        <div className="detail-stats">
+          <Stat label="下载" value={formatNumber(s.downloads)} />
+          <Stat label="版本" value={formatNumber(s.versionsCount)} />
+        </div>
+      </div>
+
+      <div className="detail-layout">
+        <div>
+          <div className="tab-bar">
+            <span className="tab-btn active">说明</span>
+          </div>
+          {readme.isLoading ? (
+            <Loading />
+          ) : readme.isError ? (
+            <ErrorBox message="无法读取该技能的 SKILL.md。" />
+          ) : (
+            <Markdown source={readme.data ?? ''} />
+          )}
+        </div>
+
+        <aside className="detail-sidebar">
+          <div className="sidebar-section">
+            <div className="sidebar-label">安装</div>
+            <a className="btn btn-primary" href={downloadHref} style={{ width: '100%', justifyContent: 'center' }}>
+              下载 ZIP
+            </a>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-label">最新版本</div>
+            <div className="sidebar-value">{latest?.version ?? '—'}</div>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-label">发布者</div>
+            <div className="owner-info">
+              <span className="owner-avatar">{s.ownerHandle.slice(0, 1).toUpperCase()}</span>
+              <span className="sidebar-value">{s.ownerHandle}</span>
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-label">创建时间</div>
+            <div className="sidebar-value">{formatDate(s.createdAt)}</div>
+          </div>
+          <div className="sidebar-section">
+            <div className="sidebar-label">更新时间</div>
+            <div className="sidebar-value">{formatDate(s.updatedAt)}</div>
+          </div>
+
+          {s.tags.length > 0 && (
+            <div className="sidebar-section">
+              <div className="sidebar-label">标签</div>
+              <div className="card-tags" style={{ marginBottom: 0 }}>
+                {s.tags.map((tag) => (
+                  <span className="tag" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="sidebar-section">
+            <div className="sidebar-label">版本历史</div>
+            {(versions.data?.versions ?? []).length === 0 ? (
+              <div className="sidebar-value">—</div>
+            ) : (
+              <ul className="version-list">
+                {versions.data!.versions!.slice(0, 8).map((v) => (
+                  <li className="version-item" key={v.id}>
+                    <span className="version-tag">{v.version}</span>
+                    {v.yankedAt && <span className="version-date">已撤回</span>}
+                    <span className="version-date">{formatDate(v.createdAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="stat">
+      <span className="stat-value">{value}</span>
+      <span className="stat-label">{label}</span>
+    </div>
+  )
+}
+
+function PageTitle({ title }: { title: string }) {
+  return <h1 className="detail-title">{title}</h1>
+}
