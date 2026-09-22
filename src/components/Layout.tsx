@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, type ReactNode } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useLogout, useSession } from '../lib/auth'
 import { useLang, useT } from '../lib/i18n'
 
@@ -58,6 +58,7 @@ function LangSwitch({ lang, toggle }: { lang: string; toggle: () => void }) {
 }
 
 export function Layout({ children }: { children: ReactNode }) {
+  const navigate = useNavigate()
   const { user, refresh } = useSession()
   const logout = useLogout()
   const { lang, toggle: toggleLang } = useLang()
@@ -79,6 +80,7 @@ export function Layout({ children }: { children: ReactNode }) {
   const onLogout = async () => {
     await logout()
     await refresh()
+    await navigate({ to: '/login' })
   }
 
   return (

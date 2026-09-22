@@ -38,5 +38,6 @@ export function useLogout() {
 }
 
 export function homeFor(user: User | null): string {
-  return user ? '/skills' : '/login'
+  if (!user) return '/login'
+  return user.role === 'admin' ? '/admin' : '/skills'
 }

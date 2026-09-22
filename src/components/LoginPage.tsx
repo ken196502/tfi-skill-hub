@@ -6,7 +6,7 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { login } from '../lib/api'
-import { useSession } from '../lib/auth'
+import { homeFor, useSession } from '../lib/auth'
 import { useT } from '../lib/i18n'
 import { ErrorBox } from './ui'
 
@@ -32,10 +32,10 @@ export function LoginPage() {
     setError('')
     try {
       await login(handle.trim(), password)
-      await refresh()
+      const session = await refresh()
       // Preserve a deep link when one was supplied, else land on the catalogue.
       const redirect = new URLSearchParams(window.location.search).get('redirect')
-      await navigate({ to: redirect && redirect.startsWith('/') ? redirect : '/skills' })
+      await navigate({ to: redirect && redirect.startsWith('/') ? redirect : homeFor(session.data ?? null) })
     } catch {
       setError(t('用户名或密码不正确。', 'Incorrect username or password.'))
     } finally {
