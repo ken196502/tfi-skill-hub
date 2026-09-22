@@ -24,8 +24,13 @@ import type { APIToken } from '../../lib/types'
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function listUsers(cursor: string) {
-  // `limit` is fixed at 20 upstream — a supplied value is ignored.
-  return users.list(cursor, 20)
+  // `limit` is fixed at 20 upstream — a supplied value is ignored. Strip the
+  // internal credential projection before returning it to an API handler.
+  const page = users.list(cursor, 20)
+  return {
+    ...page,
+    data: page.data.map(({ passwordHash: _passwordHash, ...user }) => user),
+  }
 }
 
 export function createUser(input: {

@@ -28,7 +28,7 @@ function UsersPage() {
   const [tokenForm, setTokenForm] = useState({ label: '', scope: 'full' })
 
   const users = useInfiniteQuery({
-    queryKey: ['admin-users'],
+    queryKey: ['admin-users-paged'],
     queryFn: ({ pageParam }) => adminListUsers(pageParam),
     initialPageParam: '',
     getNextPageParam: (lastPage) => lastPage.nextCursor || undefined,
@@ -39,16 +39,16 @@ function UsersPage() {
     onSuccess: () => {
       setCreateForm({ handle: '', displayName: '', email: '', role: 'user' })
       setShowCreate(false)
-      void client.invalidateQueries({ queryKey: ['admin-users'] })
+      void client.invalidateQueries({ queryKey: ['admin-users-paged'] })
     },
   })
   const role = useMutation({
     mutationFn: ({ id, nextRole }: { id: string; nextRole: string }) => adminSetRole(id, nextRole),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users-paged'] }),
   })
   const ban = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) => adminBanUser(id, reason),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users'] }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users-paged'] }),
   })
   const token = useMutation({
     mutationFn: () => adminCreateToken({ userId: showToken?.id ?? '', ...tokenForm }),

@@ -8,10 +8,39 @@
  * metrics stay close without a network fetch.
  */
 
+/* ═══════════════════════════════════════
+   D-DIN webfont — Datto / Monotype, SIL OFL 1.1
+   Bundled locally (src/styles/fonts) so there is no network fetch at runtime.
+   Family only ships Regular / Italic / Bold; weights 600 etc. fall back to
+   700. CJK glyphs are not covered by D-DIN, so every stack keeps PingFang /
+   Microsoft YaHei fallbacks.
+   ═══════════════════════════════════════ */
+@font-face {
+  font-family: "D-DIN";
+  src: url("./fonts/D-DIN.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "D-DIN";
+  src: url("./fonts/D-DIN-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "D-DIN";
+  src: url("./fonts/D-DIN-Italic.woff2") format("woff2");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   /* Typography */
-  --font-heading: "Space Grotesk", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-heading: "D-DIN", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-body: "D-DIN", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* Colors — matched to animus.run */
@@ -306,9 +335,9 @@ a:hover { text-decoration: none; color: var(--text); }
 }
 
 .logo {
-  font-family: "Arial Black", "Inter", system-ui, sans-serif;
+  font-family: var(--font-heading), sans-serif;
   font-size: 1rem;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.055em;
   color: var(--text);
   display: flex;

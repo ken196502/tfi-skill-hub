@@ -58,6 +58,10 @@ npm run smoke       # 必须全绿
   **不写运营/第三人称视角**。
 - 界面以中文为主，`Layout.tsx` 里的浅层文案表支持中英切换。
 - 视觉沿用 `src/styles/global.css`（深色为主 + `[data-theme=light]` 变体）。
+- **字体用 D-DIN**（Datto / Monotype，SIL OFL 1.1）：woff2 本地打包在 `src/styles/fonts/`，
+  经 `@font-face` 注入 `global.css`，`--font-heading` / `--font-body` 改为 `"D-DIN"`。
+  D-DIN 只含 Regular/Italic/Bold（无 Bold-Italic、无中文），所以每个字体栈都保留
+  PingFang SC / Microsoft YaHei 等中文回退，不要删。
 
 ## 有意与原实现的差异（不要"修回去"）
 
