@@ -149,6 +149,8 @@ export interface PublishRequest {
   changelog?: string
   displayName?: string
   summary?: string
+  displayNameEn?: string
+  summaryEn?: string
   category?: string
   kind?: string
   visibility?: string
@@ -275,6 +277,8 @@ export function publishVersion(
       slug: req.slug,
       displayName: req.displayName || null,
       summary: req.summary || null,
+      displayNameEn: req.displayNameEn || null,
+      summaryEn: req.summaryEn || null,
       ownerId: user.id,
       namespaceId: namespace.id,
       visibility,
@@ -349,6 +353,8 @@ export function publishVersion(
       skillRepo.updateMetadata(skill.id, {
         displayName: req.displayName,
         summary: req.summary,
+        displayNameEn: req.displayNameEn,
+        summaryEn: req.summaryEn,
         category: req.category && VALID_CATEGORIES.includes(req.category as never) ? req.category : undefined,
         tags: req.tags && req.tags.length > 0 ? req.tags : undefined,
         visibility: rawVisibility === '' ? undefined : (rawVisibility as Visibility),

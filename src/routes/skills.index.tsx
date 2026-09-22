@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { listSkills } from '../lib/api'
 import { SkillCard, Loading, ErrorBox, PageHeader } from '../components/ui'
+import { useT } from '../lib/i18n'
 
 interface SkillsSearch {
   sort?: string
@@ -19,14 +20,6 @@ export const Route = createFileRoute('/skills/')({
   component: SkillsPage,
 })
 
-const SORTS: Array<[string, string]> = [
-  ['created', '最新'],
-  ['updated', '最近更新'],
-  ['downloads', '下载量'],
-  ['stars', '收藏数'],
-  ['name', '名称'],
-]
-
 const CATEGORIES = [
   'devops',
   'security',
@@ -42,7 +35,16 @@ const CATEGORIES = [
 function SkillsPage() {
   const { sort = 'created', category = '' } = Route.useSearch()
   const navigate = useNavigate()
+  const t = useT()
   const [pages, setPages] = useState(1)
+
+  const SORTS: Array<[string, string]> = [
+    ['created', t('最新', 'Newest')],
+    ['updated', t('最近更新', 'Recently updated')],
+    ['downloads', t('下载量', 'Downloads')],
+    ['stars', t('收藏数', 'Stars')],
+    ['name', t('名称', 'Name')],
+  ]
 
   const query = useQuery({
     queryKey: ['skills', { sort, category, limit: 20 * pages }],
@@ -58,7 +60,10 @@ function SkillsPage() {
     <div className="home-page">
       <div className="home-backdrop" aria-hidden="true" />
       <div className="container home-container" style={{ paddingTop: 40 }}>
-        <PageHeader title="技能" subtitle="浏览、安装并发布智能体技能。" />
+        <PageHeader
+          title={t('技能', 'Skills')}
+          subtitle={t('浏览、安装并发布智能体技能。', 'Browse, install, and publish agent skills.')}
+        />
 
         <div className="filter-bar">
           {SORTS.map(([key, label]) => (
@@ -79,7 +84,7 @@ function SkillsPage() {
             className={`filter-btn${category === '' ? ' active' : ''}`}
             onClick={() => setCategory('')}
           >
-            全部分类
+            {t('全部分类', 'All categories')}
           </button>
           {CATEGORIES.map((c) => (
             <button
@@ -96,7 +101,7 @@ function SkillsPage() {
         {query.isLoading ? (
           <Loading />
         ) : query.isError ? (
-          <ErrorBox message="加载技能列表失败，请稍后重试。" />
+          <ErrorBox message={t('加载技能列表失败，请稍后重试。', 'Failed to load skills. Please try again later.')} />
         ) : (query.data?.data.length ?? 0) === 0 ? (
           null
         ) : (
@@ -113,7 +118,7 @@ function SkillsPage() {
                   type="button"
                   onClick={() => setPages((p) => p + 1)}
                 >
-                  加载更多
+                  {t('加载更多', 'Load more')}
                 </button>
               </div>
             )}

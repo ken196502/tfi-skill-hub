@@ -155,7 +155,7 @@ export function listFeaturedSkills() {
 
 export function replaceFeaturedSkills(actorId: string, skillIds: string[]): void {
   const ids = [...new Set(skillIds)]
-  if (ids.length > 12) fail('最多只能精选 12 个技能')
+  if (ids.length > 12) fail('at most 12 featured skills')
   for (const id of ids) {
     const skill = query.get<Row>('SELECT id FROM skills WHERE id = ? AND soft_deleted_at IS NULL', id)
     if (!skill) fail(`skill '${id}' not found`)

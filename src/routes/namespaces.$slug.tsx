@@ -3,6 +3,7 @@ import { createFileRoute, Link, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../lib/api'
 import { useSession } from '../lib/auth'
+import { useT } from '../lib/i18n'
 import { Loading, ErrorBox, PageHeader, formatDate } from '../components/ui'
 
 export const Route = createFileRoute('/namespaces/$slug')({
@@ -15,6 +16,7 @@ function NamespaceDetailPage() {
   const { slug } = useParams({ from: '/namespaces/$slug' })
   const { user } = useSession()
   const queryClient = useQueryClient()
+  const t = useT()
   const [tab, setTab] = useState<Tab>('members')
   const [error, setError] = useState('')
   const [newToken, setNewToken] = useState('')
@@ -46,18 +48,18 @@ function NamespaceDetailPage() {
     mutationFn: ({ handle, role }: { handle: string; role: string }) =>
       api.addNamespaceMember(slug, handle, role),
     onSuccess: invalidate,
-    onError: (e) => setError(e instanceof Error ? e.message : '添加成员失败'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('添加成员失败', 'Failed to add member')),
   })
   const removeMember = useMutation({
     mutationFn: (handle: string) => api.removeNamespaceMember(slug, handle),
     onSuccess: invalidate,
-    onError: (e) => setError(e instanceof Error ? e.message : '移除成员失败'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('移除成员失败', 'Failed to remove member')),
   })
   const invite = useMutation({
     mutationFn: ({ handle, role }: { handle: string; role: string }) =>
       api.inviteToNamespace(slug, handle, role),
     onSuccess: invalidate,
-    onError: (e) => setError(e instanceof Error ? e.message : '发送邀请失败'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('发送邀请失败', 'Failed to send invitation')),
   })
   const createToken = useMutation({
     mutationFn: (input: { label: string; scope: string; expiresIn: string }) =>
@@ -66,21 +68,21 @@ function NamespaceDetailPage() {
       setNewToken(result.token)
       void invalidate()
     },
-    onError: (e) => setError(e instanceof Error ? e.message : '创建 Token 失败'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('创建 Token 失败', 'Failed to create token')),
   })
   const revokeToken = useMutation({
     mutationFn: (id: string) => api.revokeNamespaceToken(slug, id),
     onSuccess: invalidate,
-    onError: (e) => setError(e instanceof Error ? e.message : '吊销 Token 失败'),
+    onError: (e) => setError(e instanceof Error ? e.message : t('吊销 Token 失败', 'Failed to revoke token')),
   })
 
   if (ns.isLoading) return <Loading />
   if (ns.isError) {
     return (
       <div className="container" style={{ paddingTop: 60 }}>
-        <h1 className="detail-title">命名空间不存在</h1>
+        <h1 className="detail-title">{t('命名空间不存在', 'Namespace not found')}</h1>
         <Link to="/namespaces" className="btn btn-secondary">
-          返回命名空间列表
+          {t('返回命名空间列表', 'Back to namespaces')}
         </Link>
       </div>
     )
@@ -94,10 +96,10 @@ function NamespaceDetailPage() {
     <div className="container" style={{ paddingTop: 40 }}>
       <PageHeader
         title={n.displayName || n.slug}
-        subtitle={n.description || '暂无描述'}
+        subtitle={n.description || t('暂无描述', 'No description yet')}
         actions={
           <Link to="/namespaces" className="btn btn-secondary btn-small">
-            返回命名空间列表
+            {t('返回命名空间列表', 'Back to namespaces')}
           </Link>
         }
       />
@@ -108,14 +110,14 @@ function NamespaceDetailPage() {
           className={`tab-btn${tab === 'members' ? ' active' : ''}`}
           onClick={() => setTab('members')}
         >
-          成员
+          {t('成员', 'Members')}
         </button>
         <button
           type="button"
           className={`tab-btn${tab === 'invitations' ? ' active' : ''}`}
           onClick={() => setTab('invitations')}
         >
-          邀请
+          {t('邀请', 'Invitations')}
         </button>
         {!isPersonal && (
           <button
@@ -123,7 +125,7 @@ function NamespaceDetailPage() {
             className={`tab-btn${tab === 'tokens' ? ' active' : ''}`}
             onClick={() => setTab('tokens')}
           >
-            团队 Token
+            {t('团队 Token', 'Team tokens')}
           </button>
         )}
       </div>
@@ -188,6 +190,7 @@ function MembersTab({
   onAdd: (handle: string, role: string) => void
   onRemove: (handle: string) => void
 }) {
+  const t = useT()
   const [handle, setHandle] = useState('')
   const [role, setRole] = useState('member')
 
@@ -207,8 +210,8 @@ function MembersTab({
           className="form-input"
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
-          placeholder="成员用户名"
-          aria-label="成员用户名"
+          placeholder={t('成员用户名', "Member's username")}
+          aria-label={t('成员用户名', "Member's username")}
         />
         <select className="form-input" value={role} onChange={(e) => setRole(e.target.value)} style={{ width: 140 }}>
           <option value="member">member</option>
@@ -216,7 +219,7 @@ function MembersTab({
           <option value="reader">reader</option>
         </select>
         <button className="btn btn-primary btn-small" type="submit">
-          添加
+          {t('添加', 'Add')}
         </button>
       </form>
 
@@ -233,11 +236,11 @@ function MembersTab({
               type="button"
               onClick={() => onRemove(m.handle)}
             >
-              移除
+              {t('移除', 'Remove')}
             </button>
           </li>
         ))}
-        {data.length === 0 && <li className="version-item">暂无成员。</li>}
+        {data.length === 0 && <li className="version-item">{t('暂无成员。', 'No members yet.')}</li>}
       </ul>
     </div>
   )
@@ -252,6 +255,7 @@ function InvitationsTab({
   data: Array<{ id: string; inviteeHandle: string; role: string; status: string; createdAt: string }>
   onInvite: (handle: string, role: string) => void
 }) {
+  const t = useT()
   const [handle, setHandle] = useState('')
   const [role, setRole] = useState('member')
 
@@ -271,8 +275,8 @@ function InvitationsTab({
           className="form-input"
           value={handle}
           onChange={(e) => setHandle(e.target.value)}
-          placeholder="被邀请人用户名"
-          aria-label="被邀请人用户名"
+          placeholder={t('被邀请人用户名', "Invitee's username")}
+          aria-label={t('被邀请人用户名', "Invitee's username")}
         />
         <select className="form-input" value={role} onChange={(e) => setRole(e.target.value)} style={{ width: 140 }}>
           <option value="member">member</option>
@@ -280,7 +284,7 @@ function InvitationsTab({
           <option value="reader">reader</option>
         </select>
         <button className="btn btn-primary btn-small" type="submit">
-          发出邀请
+          {t('发出邀请', 'Send invitation')}
         </button>
       </form>
 
@@ -293,7 +297,7 @@ function InvitationsTab({
             <span className="version-date">{formatDate(inv.createdAt)}</span>
           </li>
         ))}
-        {data.length === 0 && <li className="version-item">暂无邀请。</li>}
+        {data.length === 0 && <li className="version-item">{t('暂无邀请。', 'No invitations yet.')}</li>}
       </ul>
     </div>
   )
@@ -321,6 +325,7 @@ function TokensTab({
   onCreated: (input: { label: string; scope: string; expiresIn: string }) => void
   onRevoke: (id: string) => void
 }) {
+  const t = useT()
   const [label, setLabel] = useState('')
   const [scope, setScope] = useState('publish')
   const [expiresIn, setExpiresIn] = useState('720h')
@@ -332,7 +337,7 @@ function TokensTab({
       {newToken !== '' && (
         <div className="code-block" style={{ marginBottom: 20 }}>
           <div className="form-label" style={{ color: 'var(--text-muted)' }}>
-            请立即复制该 Token —— 关闭后将无法再次查看。
+            {t('请立即复制该 Token —— 关闭后将无法再次查看。', 'Copy this token now — it cannot be viewed again after you leave.')}
           </div>
           <code style={{ wordBreak: 'break-all' }}>{newToken}</code>
         </div>
@@ -351,8 +356,8 @@ function TokensTab({
             className="form-input"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="标签"
-            aria-label="Token 标签"
+            placeholder={t('标签', 'Label')}
+            aria-label={t('Token 标签', 'Token label')}
             style={{ maxWidth: 200 }}
           />
           <select className="form-input" value={scope} onChange={(e) => setScope(e.target.value)} style={{ width: 130 }}>
@@ -365,35 +370,35 @@ function TokensTab({
             onChange={(e) => setExpiresIn(e.target.value)}
             style={{ width: 140 }}
           >
-            <option value="24h">1 天</option>
-            <option value="168h">7 天</option>
-            <option value="720h">30 天</option>
-            <option value="2160h">90 天</option>
-            <option value="8760h">365 天</option>
+            <option value="24h">{t('1 天', '1 day')}</option>
+            <option value="168h">{t('7 天', '7 days')}</option>
+            <option value="720h">{t('30 天', '30 days')}</option>
+            <option value="2160h">{t('90 天', '90 days')}</option>
+            <option value="8760h">{t('365 天', '365 days')}</option>
           </select>
           <button className="btn btn-primary btn-small" type="submit">
-            创建 Token
+            {t('创建 Token', 'Create token')}
           </button>
         </form>
       )}
 
       <ul className="version-list">
-        {data.map((t) => (
-          <li className="version-item" key={t.id}>
-            <span>{t.label || '—'}</span>
+        {data.map((tk) => (
+          <li className="version-item" key={tk.id}>
+            <span>{tk.label || '—'}</span>
             <span className="version-date" style={{ fontFamily: 'var(--font-mono)' }}>
-              {t.prefix}…
+              {tk.prefix}…
             </span>
-            <span className="version-tag">{t.scope}</span>
+            <span className="version-tag">{tk.scope}</span>
             <span className="version-date">
-              {t.expiresAt ? `到期 ${formatDate(t.expiresAt)}` : '永久'}
+              {tk.expiresAt ? `${t('到期', 'Expires')} ${formatDate(tk.expiresAt)}` : t('永久', 'Never expires')}
             </span>
-            <button className="filter-btn" type="button" onClick={() => onRevoke(t.id)}>
-              吊销
+            <button className="filter-btn" type="button" onClick={() => onRevoke(tk.id)}>
+              {t('吊销', 'Revoke')}
             </button>
           </li>
         ))}
-        {data.length === 0 && <li className="version-item">暂无团队 Token。</li>}
+        {data.length === 0 && <li className="version-item">{t('暂无团队 Token。', 'No team tokens yet.')}</li>}
       </ul>
     </div>
   )

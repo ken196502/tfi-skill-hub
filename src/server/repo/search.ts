@@ -50,6 +50,9 @@ export interface SearchHit {
   slug: string
   displayName: string
   summary: string
+  /** English variant joined from the source table; `''` when not provided. */
+  displayNameEn: string
+  summaryEn: string
   skillMdContent: string
   category: string
   tags: string[]
@@ -105,12 +108,32 @@ const UNINDEXED_COLUMNS = [
 
 const ALL_COLUMNS = [...FTS_COLUMNS, ...UNINDEXED_COLUMNS]
 
+/**
+ * Joins the FTS document to its source table so hits also carry the optional
+ * English name/summary. The FTS5 table itself is left untouched (altering an
+ * FTS5 table is not supported); English text is read through the join instead.
+ */
+const HIT_SELECT = /* sql */ `
+  SELECT sd.*,
+         COALESCE(s.display_name_en, '') AS s_display_name_en,
+         COALESCE(s.summary_en, '')      AS s_summary_en,
+         COALESCE(p.display_name_en, '') AS p_display_name_en,
+         COALESCE(p.summary_en, '')      AS p_summary_en
+  FROM search_docs sd
+  LEFT JOIN skills  s ON sd.doc_type = 'skill'  AND s.id = sd.target_id
+  LEFT JOIN plugins p ON sd.doc_type = 'plugin' AND p.id = sd.target_id
+`
+
 function rowToHit(r: Row): SearchHit {
   return {
     id: asString(r.doc_id),
     slug: asString(r.slug),
     displayName: asString(r.display_name),
     summary: asString(r.summary),
+    displayNameEn:
+      asString(r.doc_type) === 'plugin' ? asString(r.p_display_name_en) : asString(r.s_display_name_en),
+    summaryEn:
+      asString(r.doc_type) === 'plugin' ? asString(r.p_summary_en) : asString(r.s_summary_en),
     skillMdContent: asString(r.skill_md_content),
     category: asString(r.category),
     tags: asString(r.tags).split(' ').filter(Boolean),
@@ -226,20 +249,21 @@ export function search(opts: SearchOptions): SearchResult {
   const limit = opts.limit > 0 && opts.limit <= 100 ? opts.limit : 20
   const offset = opts.offset >= 0 ? opts.offset : 0
 
-  // Always-applied filters.
+  // Always-applied filters. Columns are qualified because the hit query joins
+  // the source tables, which carry same-named columns (`visibility`, …).
   const filters: string[] = [
-    "visibility = 'public'",
-    "moderation_status = 'approved'",
-    'is_deleted = 0',
+    "sd.visibility = 'public'",
+    "sd.moderation_status = 'approved'",
+    'sd.is_deleted = 0',
   ]
   const filterParams: unknown[] = []
 
   if (opts.type === 'skill' || opts.type === 'plugin') {
-    filters.push('doc_type = ?')
+    filters.push('sd.doc_type = ?')
     filterParams.push(opts.type)
   }
   if (opts.namespace) {
-    filters.push('namespace_slug = ?')
+    filters.push('sd.namespace_slug = ?')
     filterParams.push(opts.namespace)
   }
   const filterSql = filters.join(' AND ')
@@ -251,9 +275,16 @@ export function search(opts: SearchOptions): SearchResult {
     const ftsQuery = buildFtsQuery(normalized)
     try {
       const rows = query.all<Row>(
-        `SELECT *, bm25(search_docs, ${BM25_WEIGHTS.join(', ')}) AS rank
-         FROM search_docs
-         WHERE search_docs MATCH ? AND ${filterSql}
+        `SELECT sd.*,
+           COALESCE(s.display_name_en, '') AS s_display_name_en,
+           COALESCE(s.summary_en, '')      AS s_summary_en,
+           COALESCE(p.display_name_en, '') AS p_display_name_en,
+           COALESCE(p.summary_en, '')      AS p_summary_en,
+           bm25(search_docs, ${BM25_WEIGHTS.join(', ')}) AS rank
+         FROM search_docs sd
+         LEFT JOIN skills  s ON sd.doc_type = 'skill'  AND s.id = sd.target_id
+         LEFT JOIN plugins p ON sd.doc_type = 'plugin' AND p.id = sd.target_id
+         WHERE sd MATCH ? AND ${filterSql}
          ORDER BY ${sortClause(opts.sort)}
          LIMIT ? OFFSET ?`,
         ftsQuery,
@@ -278,13 +309,13 @@ export function search(opts: SearchOptions): SearchResult {
   // LIKE fallback: short queries (trigram needs >= 3 chars) and FTS misses.
   const like = `%${normalized.replace(/[%_\\]/g, (c) => `\\${c}`)}%`
   const likeSql = `(
-    slug LIKE ? ESCAPE '\\' OR display_name LIKE ? ESCAPE '\\' OR summary LIKE ? ESCAPE '\\'
-    OR tags LIKE ? ESCAPE '\\' OR owner_handle LIKE ? ESCAPE '\\' OR skill_md_content LIKE ? ESCAPE '\\'
+    sd.slug LIKE ? ESCAPE '\\' OR sd.display_name LIKE ? ESCAPE '\\' OR sd.summary LIKE ? ESCAPE '\\'
+    OR sd.tags LIKE ? ESCAPE '\\' OR sd.owner_handle LIKE ? ESCAPE '\\' OR sd.skill_md_content LIKE ? ESCAPE '\\'
   )`
   const likeParams = [like, like, like, like, like, like]
 
   const rows = query.all<Row>(
-    `SELECT * FROM search_docs
+    `${HIT_SELECT}
      WHERE ${filterSql} AND ${likeSql}
      ORDER BY ${sortClause(opts.sort, 'downloads')}
      LIMIT ? OFFSET ?`,

@@ -58,23 +58,66 @@ export function seedBuiltinSkills(db: DatabaseSync, log: (msg: string) => void =
   )
 
   const skillStmt = db.prepare(`INSERT OR IGNORE INTO skills
-    (id, slug, display_name, summary, owner_id, namespace_id, latest_version_id, visibility,
-     moderation_status, is_suspicious, kind, category, tags, versions_count, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'public', 'approved', 0, 'builtin', ?, ?, 1, ?, ?)`)
+    (id, slug, display_name, summary, display_name_en, summary_en, owner_id, namespace_id,
+     latest_version_id, visibility, moderation_status, is_suspicious, kind, category, tags,
+     versions_count, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'public', 'approved', 0, 'builtin', ?, ?, 1, ?, ?)`)
+  const enStmt = db.prepare('UPDATE skills SET display_name_en = ?, summary_en = ? WHERE id = ?')
   const versionStmt = db.prepare(`INSERT OR IGNORE INTO skill_versions
     (id, skill_id, version, fingerprint, files, parsed, created_by, sha256_hash, created_at)
     VALUES (?, ?, '1.0.0', ?, ?, ?, ?, ?, ?)`)
   const fileStmt = db.prepare(`INSERT OR IGNORE INTO skill_version_files
     (version_id, path, seq, size, sha256, content_type, content) VALUES (?, 'SKILL.md', 0, ?, ?, 'text/markdown', ?)`)
+  // Builtin skills never flow through the publish path, so nothing else would
+  // index them — seed their search documents here (same column contract as
+  // `repo/search.ts`).
+  const unindexStmt = db.prepare('DELETE FROM search_docs WHERE doc_id = ?')
+  const searchStmt = db.prepare(`INSERT INTO search_docs
+    (slug, display_name, summary, skill_md_content, tags, owner_handle,
+     doc_id, doc_type, target_id, category, namespace_slug, visibility,
+     moderation_status, is_suspicious, is_deleted, downloads, stars, updated_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'skill', ?, ?, 'builtin', 'public', 'approved', 0, 0, 0, 0, ?, ?)`)
+  const nowMs = Date.parse(now)
   for (const skill of BUILTIN_SKILLS) {
     const skillId = `builtin-${skill.slug}`
     const versionId = `${skillId}-v1`
-    const content = `---\nname: ${skill.name}\ndescription: ${skill.description}\ncategory: ${skill.category}\nsource: ${skill.source}\n---\n\n# ${skill.name}\n\n${skill.description}\n\n这是 SkillHub 项目初始化自带的内置技能。执行任务时，请遵循上述能力范围，并结合当前项目上下文给出可验证的结果。\n\n来源：${skill.source}\n`
+    const content = `---\nname: ${skill.nameEn}\ndescription: ${skill.descriptionEn}\ncategory: ${skill.category}\nsource: ${skill.source}\n---\n\n# ${skill.nameEn}\n\n${skill.descriptionEn}\n\nThis skill ships with the SkillHub catalog. When executing tasks, stay within the scope above and combine it with the current project context to produce verifiable results.\n\nSource: ${skill.source}\n`
     const bytes = Buffer.from(content, 'utf8')
     const hash = crypto.createHash('sha256').update(bytes).digest('hex')
-    skillStmt.run(skillId, skill.slug, skill.name, skill.description, systemId, namespaceId, versionId, skill.category, JSON.stringify([skill.author]), now, now)
+    skillStmt.run(
+      skillId,
+      skill.slug,
+      skill.name,
+      skill.description,
+      skill.nameEn,
+      skill.descriptionEn,
+      systemId,
+      namespaceId,
+      versionId,
+      skill.category,
+      JSON.stringify([skill.author]),
+      now,
+      now,
+    )
+    // Existing installs already have the row (INSERT IGNORE skipped it); the
+    // English columns are still backfilled so the language switch works.
+    enStmt.run(skill.nameEn, skill.descriptionEn, skillId)
     versionStmt.run(versionId, skillId, hash, JSON.stringify([{ path: 'SKILL.md', size: bytes.length, sha256: hash, contentType: 'text/markdown' }]), JSON.stringify({}), systemId, hash, now)
     fileStmt.run(versionId, bytes.length, hash, bytes)
+    unindexStmt.run(skillId)
+    searchStmt.run(
+      skill.slug,
+      skill.name,
+      skill.description,
+      content,
+      skill.author,
+      'skillhub',
+      skillId,
+      skillId,
+      skill.category,
+      nowMs,
+      nowMs,
+    )
   }
   log(`bootstrap: seeded ${BUILTIN_SKILLS.length} builtin skills`)
 }

@@ -42,6 +42,8 @@ function mapSkill(r: Row): Skill {
     slug: asString(r.slug),
     ...(r.display_name != null ? { displayName: asString(r.display_name) } : {}),
     ...(r.summary != null ? { summary: asString(r.summary) } : {}),
+    ...(r.display_name_en != null ? { displayNameEn: asString(r.display_name_en) } : {}),
+    ...(r.summary_en != null ? { summaryEn: asString(r.summary_en) } : {}),
     ownerId: asString(r.owner_id),
     ...(r.namespace_id != null ? { namespaceId: asString(r.namespace_id) } : {}),
     ...(r.latest_version_id != null ? { latestVersionId: asString(r.latest_version_id) } : {}),
@@ -307,6 +309,8 @@ export const skills = {
     slug: string
     displayName?: string | null
     summary?: string | null
+    displayNameEn?: string | null
+    summaryEn?: string | null
     ownerId: string
     namespaceId: string
     visibility: Visibility
@@ -319,13 +323,15 @@ export const skills = {
     const now = nowIso()
     query.run(
       `INSERT INTO skills
-        (id, slug, display_name, summary, owner_id, namespace_id, visibility, moderation_status,
-         is_suspicious, kind, category, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+        (id, slug, display_name, summary, display_name_en, summary_en, owner_id, namespace_id,
+         visibility, moderation_status, is_suspicious, kind, category, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
       id,
       input.slug,
       input.displayName ?? null,
       input.summary ?? null,
+      input.displayNameEn ?? null,
+      input.summaryEn ?? null,
       input.ownerId,
       input.namespaceId,
       input.visibility,
@@ -345,6 +351,8 @@ export const skills = {
     fields: {
       displayName?: string
       summary?: string
+      displayNameEn?: string
+      summaryEn?: string
       category?: string
       tags?: string[]
       visibility?: Visibility
@@ -359,6 +367,14 @@ export const skills = {
     if (fields.summary) {
       sets.push('summary = ?')
       params.push(fields.summary)
+    }
+    if (fields.displayNameEn) {
+      sets.push('display_name_en = ?')
+      params.push(fields.displayNameEn)
+    }
+    if (fields.summaryEn) {
+      sets.push('summary_en = ?')
+      params.push(fields.summaryEn)
     }
     if (fields.category) {
       sets.push('category = ?')

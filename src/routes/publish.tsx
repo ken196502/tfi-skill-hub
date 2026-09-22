@@ -3,6 +3,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { publishSkillWithProgress, categories } from '../lib/api'
 import { useSession } from '../lib/auth'
+import { useT } from '../lib/i18n'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
 
 export const Route = createFileRoute('/publish')({
@@ -19,6 +20,7 @@ export const Route = createFileRoute('/publish')({
 function PublishPage() {
   const { user, booting } = useSession()
   const queryClient = useQueryClient()
+  const t = useT()
 
   const [files, setFiles] = useState<File[]>([])
   const [dragover, setDragover] = useState(false)
@@ -59,15 +61,15 @@ function PublishPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!form.slug.trim() || !form.version.trim()) {
-      setError('请填写所有必填字段。')
+      setError(t('请填写所有必填字段。', 'Please fill in all required fields.'))
       return
     }
     if (files.length === 0) {
-      setError('请至少添加一个文件（SKILL.md 为必需）。')
+      setError(t('请至少添加一个文件（SKILL.md 为必需）。', 'Add at least one file (SKILL.md is required).'))
       return
     }
     if (!hasSkillMd) {
-      setError('上传根目录必须包含 SKILL.md 文件。')
+      setError(t('上传根目录必须包含 SKILL.md 文件。', 'The upload root must contain a SKILL.md file.'))
       return
     }
 
@@ -97,7 +99,12 @@ function PublishPage() {
       setFiles([])
       await queryClient.invalidateQueries({ queryKey: ['skills'] })
     } catch (err) {
-      setError(err instanceof Error ? err.message : '未知错误')
+      const message = err instanceof Error ? err.message : ''
+      const known: Record<string, string> = {
+        'Network error': t('网络错误', 'Network error'),
+        'Upload timed out': t('上传超时', 'Upload timed out'),
+      }
+      setError(known[message] ?? message ?? t('未知错误', 'Unknown error'))
     } finally {
       setBusy(false)
     }
@@ -107,9 +114,12 @@ function PublishPage() {
   if (!user) {
     return (
       <div className="container" style={{ paddingTop: 60 }}>
-        <PageHeader title="发布技能" subtitle="请先登录后再发布技能。" />
+        <PageHeader
+          title={t('发布技能', 'Publish a skill')}
+          subtitle={t('请先登录后再发布技能。', 'Please log in before publishing a skill.')}
+        />
         <Link to="/login" className="btn btn-primary">
-          登录后发布
+          {t('登录后发布', 'Log in to publish')}
         </Link>
       </div>
     )
@@ -117,7 +127,10 @@ function PublishPage() {
 
   return (
     <div className="container" style={{ paddingTop: 40, maxWidth: 760 }}>
-      <PageHeader title="发布技能" subtitle="直接上传技能文件或使用 API。" />
+      <PageHeader
+        title={t('发布技能', 'Publish a skill')}
+        subtitle={t('直接上传技能文件或使用 API。', 'Upload skill files directly, or use the API.')}
+      />
 
       {error && <ErrorBox message={error} />}
       {done && (
@@ -129,16 +142,16 @@ function PublishPage() {
             color: 'var(--accent)',
           }}
         >
-          发布成功！{' '}
+          {t('发布成功！', 'Published!')}{' '}
           <Link to="/skills/$" params={{ _splat: done.ref }} style={{ textDecoration: 'underline' }}>
-            查看技能页面
+            {t('查看技能页面', 'View the skill page')}
           </Link>
         </div>
       )}
 
       <form onSubmit={onSubmit}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-          <Field label="标识名" hint="仅限小写字母、数字和连字符，如 code-review">
+          <Field label={t('标识名', 'Slug')} hint={t('仅限小写字母、数字和连字符，如 code-review', 'Lowercase letters, digits, and hyphens only, e.g. code-review')}>
             <input
               className="form-input"
               value={form.slug}
@@ -146,7 +159,7 @@ function PublishPage() {
               placeholder="my-skill"
             />
           </Field>
-          <Field label="版本号" hint="语义化版本格式：1.0.0">
+          <Field label={t('版本号', 'Version')} hint={t('语义化版本格式：1.0.0', 'Semantic version, e.g. 1.0.0')}>
             <input
               className="form-input"
               value={form.version}
@@ -156,7 +169,7 @@ function PublishPage() {
           </Field>
         </div>
 
-        <Field label="显示名称">
+        <Field label={t('显示名称', 'Display name')}>
           <input
             className="form-input"
             value={form.displayName}
@@ -164,7 +177,7 @@ function PublishPage() {
           />
         </Field>
 
-        <Field label="简介">
+        <Field label={t('简介', 'Summary')}>
           <input
             className="form-input"
             value={form.summary}
@@ -173,7 +186,7 @@ function PublishPage() {
         </Field>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-          <Field label="分类">
+          <Field label={t('分类', 'Category')}>
             <select
               className="form-input"
               value={form.category}
@@ -186,17 +199,17 @@ function PublishPage() {
               ))}
             </select>
           </Field>
-          <Field label="可见性">
+          <Field label={t('可见性', 'Visibility')}>
             <select
               className="form-input"
               value={form.visibility}
               onChange={(e) => set('visibility', e.target.value)}
             >
-              <option value="private">私有</option>
-              <option value="public">公开（需审核）</option>
+              <option value="private">{t('私有', 'Private')}</option>
+              <option value="public">{t('公开（需审核）', 'Public (review required)')}</option>
             </select>
           </Field>
-          <Field label="归属命名空间" hint="留空则发布到你的个人空间">
+          <Field label={t('归属命名空间', 'Namespace')} hint={t('留空则发布到你的个人空间', 'Leave empty to publish to your personal namespace')}>
             <input
               className="form-input"
               value={form.namespace}
@@ -206,7 +219,7 @@ function PublishPage() {
           </Field>
         </div>
 
-        <Field label="标签" hint="用逗号分隔">
+        <Field label={t('标签', 'Tags')} hint={t('用逗号分隔', 'Separate with commas')}>
           <input
             className="form-input"
             value={form.tags}
@@ -215,17 +228,17 @@ function PublishPage() {
           />
         </Field>
 
-        <Field label="更新日志">
+        <Field label={t('更新日志', 'Changelog')}>
           <textarea
             className="form-input"
             rows={3}
             value={form.changelog}
             onChange={(e) => set('changelog', e.target.value)}
-            placeholder="本版本变更说明..."
+            placeholder={t('本版本变更说明...', "What changed in this version...")}
           />
         </Field>
 
-        <Field label="技能文件" hint="必须包含 SKILL.md，支持文件夹和多文件。">
+        <Field label={t('技能文件', 'Skill files')} hint={t('必须包含 SKILL.md，支持文件夹和多文件。', 'Must include SKILL.md; folders and multiple files are supported.')}>
           <div
             className={`drop-zone${dragover ? ' dragover' : ''}`}
             onDragOver={(e) => {
@@ -235,10 +248,10 @@ function PublishPage() {
             onDragLeave={() => setDragover(false)}
             onDrop={onDrop}
           >
-            <p style={{ marginBottom: 12 }}>拖放文件夹或文件到这里</p>
+            <p style={{ marginBottom: 12 }}>{t('拖放文件夹或文件到这里', 'Drop a folder or files here')}</p>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
               <label className="btn btn-secondary btn-small" style={{ cursor: 'pointer' }}>
-                选择文件夹
+                {t('选择文件夹', 'Choose folder')}
                 <input
                   type="file"
                   multiple
@@ -248,7 +261,7 @@ function PublishPage() {
                 />
               </label>
               <label className="btn btn-secondary btn-small" style={{ cursor: 'pointer' }}>
-                选择文件
+                {t('选择文件', 'Choose files')}
                 <input
                   type="file"
                   multiple
@@ -271,15 +284,15 @@ function PublishPage() {
               }}
             >
               <span className="form-hint" style={{ marginTop: 0 }}>
-                已选择 {files.length} 个文件
-                {hasSkillMd ? '' : '（缺少 SKILL.md）'}
+                {t('已选择', 'Selected')} {files.length} {t('个文件', 'files')}
+                {hasSkillMd ? '' : t('（缺少 SKILL.md）', ' (SKILL.md missing)')}
               </span>
               <button
                 type="button"
                 className="filter-btn"
                 onClick={() => setFiles([])}
               >
-                清除全部
+                {t('清除全部', 'Clear all')}
               </button>
             </div>
             <ul className="version-list">
@@ -296,7 +309,7 @@ function PublishPage() {
         )}
 
         <button className="btn btn-primary" type="submit" disabled={busy}>
-          {busy ? `上传中... ${progress}%` : '发布技能'}
+          {busy ? `${t('上传中...', 'Uploading...')} ${progress}%` : t('发布技能', 'Publish skill')}
         </button>
       </form>
     </div>

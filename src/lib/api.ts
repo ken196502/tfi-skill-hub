@@ -87,8 +87,8 @@ export function uploadWithProgress<T>(
       if (xhr.status >= 200 && xhr.status < 300) resolve(body as T)
       else reject(new ApiError(xhr.status, body))
     }
-    xhr.onerror = () => reject(new Error('网络错误'))
-    xhr.ontimeout = () => reject(new Error('上传超时'))
+    xhr.onerror = () => reject(new Error('Network error'))
+    xhr.ontimeout = () => reject(new Error('Upload timed out'))
     xhr.send(form)
   })
 }
@@ -210,6 +210,8 @@ export interface SearchHit {
   slug: string
   displayName: string
   summary: string
+  displayNameEn: string
+  summaryEn: string
   category: string
   tags: string[]
   ownerHandle: string

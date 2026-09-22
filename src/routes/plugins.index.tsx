@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { listPlugins } from '../lib/api'
 import { PluginCard, Loading, ErrorBox, PageHeader } from '../components/ui'
+import { useT } from '../lib/i18n'
 
 interface PluginsSearch {
   sort?: string
@@ -14,16 +15,17 @@ export const Route = createFileRoute('/plugins/')({
   component: PluginsPage,
 })
 
-const SORTS: Array<[string, string]> = [
-  ['created', '最新'],
-  ['downloads', '下载'],
-  ['stars', '收藏'],
-  ['name', '名称'],
-]
-
 function PluginsPage() {
   const { sort = 'created' } = Route.useSearch()
   const navigate = useNavigate()
+  const t = useT()
+
+  const SORTS: Array<[string, string]> = [
+    ['created', t('最新', 'Newest')],
+    ['downloads', t('下载', 'Downloads')],
+    ['stars', t('收藏', 'Stars')],
+    ['name', t('名称', 'Name')],
+  ]
 
   const query = useQuery({
     queryKey: ['plugins', { sort }],
@@ -32,7 +34,10 @@ function PluginsPage() {
 
   return (
     <div className="container" style={{ paddingTop: 40 }}>
-      <PageHeader title="插件" subtitle="浏览打包了技能与 MCP 服务的插件包。" />
+      <PageHeader
+        title={t('插件', 'Plugins')}
+        subtitle={t('浏览打包了技能与 MCP 服务的插件包。', 'Browse plugin packages bundling skills and MCP services.')}
+      />
 
       <div className="filter-bar">
         {SORTS.map(([key, label]) => (
@@ -50,7 +55,7 @@ function PluginsPage() {
       {query.isLoading ? (
         <Loading />
       ) : query.isError ? (
-        <ErrorBox message="加载插件列表失败，请稍后重试。" />
+        <ErrorBox message={t('加载插件列表失败，请稍后重试。', 'Failed to load plugins. Please try again later.')} />
       ) : (query.data?.data.length ?? 0) === 0 ? (
         null
       ) : (

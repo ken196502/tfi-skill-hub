@@ -3,6 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { listFeatures, listSkills } from '../lib/api'
 import { SkillCard, Loading } from '../components/ui'
+import { useT } from '../lib/i18n'
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -13,6 +14,7 @@ export const Route = createFileRoute('/')({
 // still giving the catalog a varied set of featured capabilities.
 function HomePage() {
   const navigate = useNavigate()
+  const t = useT()
   const [query, setQuery] = useState('')
   const popular = useQuery({
     queryKey: ['skills', { sort: 'downloads', limit: 6 }],
@@ -45,7 +47,7 @@ function HomePage() {
               className="home-search-input"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search skills, capabilities, and more..."
+              placeholder={t('搜索技能、能力等...', 'Search skills, capabilities, and more...')}
               aria-label="Search skills"
             />
             <button className="home-search-button" type="submit" aria-label="Search">
@@ -60,8 +62,8 @@ function HomePage() {
         <section className="home-popular" aria-labelledby="featured-skills-title">
           <div className="home-section-heading">
             <div>
-              <h2 id="featured-skills-title">Featured skills</h2>
-              <p className="muted">精选一些适合马上开始使用的内置能力</p>
+              <h2 id="featured-skills-title">{t('精选技能', 'Featured skills')}</h2>
+              <p className="muted">{t('精选一些适合马上开始使用的内置能力', 'A curated set of builtin capabilities, ready to use right away')}</p>
             </div>
           </div>
 
@@ -77,7 +79,7 @@ function HomePage() {
         <section className="home-popular" aria-labelledby="popular-skills-title">
           <div className="home-section-heading">
             <div>
-              <h2 id="popular-skills-title">Popular skills</h2>
+              <h2 id="popular-skills-title">{t('热门技能', 'Popular skills')}</h2>
             </div>
           </div>
 

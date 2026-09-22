@@ -8,6 +8,10 @@ import { Link } from '@tanstack/react-router'
 import type { Plugin, SkillWithOwner } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
 import type { PluginJson } from '../lib/api'
+import { useLang, useT, localizedName, localizedSummary } from '../lib/i18n'
+
+// Re-exported so page components can pull everything from one module.
+export { localizedName, localizedSummary }
 
 /** Human label for a skill: display name when set, otherwise the slug. */
 export function displayNameOf(entity: { displayName?: string; slug: string }): string {
@@ -35,10 +39,14 @@ export function formatNumber(n: number | undefined): string {
 }
 
 export function SkillCard({ skill }: { skill: SkillWithOwner }) {
+  const { lang } = useLang()
+  const t = useT()
+  const name = localizedName(skill, lang)
+  const summary = localizedSummary(skill, lang)
   return (
     <Link to="/skills/$" params={{ _splat: skillPath(skill) }}>
       <div className="card">
-        <div className="card-title">{displayNameOf(skill)}</div>
+        <div className="card-title">{name}</div>
         {skill.tags.length > 0 && (
           <div className="card-tags">
             {skill.tags.slice(0, 3).map((tag) => (
@@ -48,7 +56,7 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
             ))}
           </div>
         )}
-        <div className="card-summary">{skill.summary || '暂无描述'}</div>
+        <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
           <span>↓ {formatNumber(skill.downloads)}</span>
           <span>★ {formatNumber(skill.starsCount)}</span>
@@ -60,12 +68,16 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
 }
 
 export function PluginCard({ plugin }: { plugin: Plugin | PluginJson }) {
+  const { lang } = useLang()
+  const t = useT()
+  const name = localizedName(plugin, lang)
+  const summary = localizedSummary(plugin, lang)
   const namespaceSlug = (plugin as PluginJson).namespaceSlug
   const ref = namespaceSlug ? `@${namespaceSlug}/${plugin.slug}` : plugin.slug
   return (
     <Link to="/plugins/$" params={{ _splat: ref }}>
       <div className="card">
-        <div className="card-title">{displayNameOf(plugin)}</div>
+        <div className="card-title">{name}</div>
         {plugin.tags.length > 0 && (
           <div className="card-tags">
             {plugin.tags.slice(0, 3).map((tag) => (
@@ -75,7 +87,7 @@ export function PluginCard({ plugin }: { plugin: Plugin | PluginJson }) {
             ))}
           </div>
         )}
-        <div className="card-summary">{plugin.summary || '暂无描述'}</div>
+        <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
           <span>↓ {formatNumber(plugin.downloads)}</span>
           {typeof (plugin as PluginJson).version === 'string' && (
@@ -95,6 +107,7 @@ export function CodeBlock({
   prefix?: string
 }) {
   const [copied, setCopied] = useState(false)
+  const t = useT()
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(command)
@@ -107,7 +120,7 @@ export function CodeBlock({
   return (
     <div className="code-block">
       <button className="copy-btn" onClick={copy} type="button">
-        {copied ? '已复制！' : '复制'}
+        {copied ? t('已复制！', 'Copied!') : t('复制', 'Copy')}
       </button>
       <span className="prefix">{prefix} </span>
       <span className="cmd">{command}</span>
@@ -116,8 +129,9 @@ export function CodeBlock({
 }
 
 export function Markdown({ source }: { source: string }) {
+  const t = useT()
   if (source.trim() === '') {
-    return <p className="detail-summary">暂无 SKILL.md 内容。</p>
+    return <p className="detail-summary">{t('暂无 SKILL.md 内容。', 'No SKILL.md content yet.')}</p>
   }
   // Safe by construction: `renderMarkdown` escapes before formatting, so no
   // user-supplied HTML can survive into the output.
@@ -126,12 +140,13 @@ export function Markdown({ source }: { source: string }) {
   )
 }
 
-export function Loading({ label = '加载中...' }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const t = useT()
   return (
     <div style={{ padding: '48px 0', textAlign: 'center' }}>
       <div className="spinner" />
       <p className="detail-summary" style={{ marginTop: 12 }}>
-        {label}
+        {label ?? t('加载中...', 'Loading...')}
       </p>
     </div>
   )

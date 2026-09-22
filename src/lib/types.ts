@@ -53,6 +53,10 @@ export interface Skill {
   slug: string
   displayName?: string
   summary?: string
+  /** English display name for the zh/en switch; absent when not provided. */
+  displayNameEn?: string
+  /** English summary; absent when not provided. */
+  summaryEn?: string
   ownerId: string
   namespaceId?: string
   latestVersionId?: string
@@ -128,6 +132,8 @@ export interface Plugin {
   slug: string
   displayName?: string
   summary?: string
+  displayNameEn?: string
+  summaryEn?: string
   ownerId: string
   namespaceId?: string
   latestVersionId?: string

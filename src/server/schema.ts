@@ -412,6 +412,19 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_featured_skills_position ON featured_skills(position);
     `,
   },
+  {
+    // Bilingual catalogue: an optional English variant for every skill/plugin
+    // display name and summary. Columns stay NULL when no English text exists
+    // (e.g. user-published entries), and the UI falls back to the base value.
+    v: 3,
+    name: 'english display name and summary',
+    sql: `
+      ALTER TABLE skills ADD COLUMN display_name_en TEXT;
+      ALTER TABLE skills ADD COLUMN summary_en TEXT;
+      ALTER TABLE plugins ADD COLUMN display_name_en TEXT;
+      ALTER TABLE plugins ADD COLUMN summary_en TEXT;
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

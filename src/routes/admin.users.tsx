@@ -9,6 +9,7 @@ import {
   adminSetRole,
 } from '../lib/api'
 import { useSession } from '../lib/auth'
+import { useT } from '../lib/i18n'
 import { AdminNav, AdminStatus } from '../components/AdminShell'
 import { ErrorBox, Loading, PageHeader, formatDate } from '../components/ui'
 import type { User, UserRole } from '../lib/types'
@@ -20,6 +21,7 @@ const ROLES: UserRole[] = ['user', 'moderator', 'admin']
 function UsersPage() {
   const { user, booting } = useSession()
   const client = useQueryClient()
+  const t = useT()
   const [filter, setFilter] = useState('')
   const [showCreate, setShowCreate] = useState(false)
   const [showToken, setShowToken] = useState<User | null>(null)
@@ -64,57 +66,56 @@ function UsersPage() {
   if (booting) return <Loading />
   if (!user || user.role !== 'admin') return <Navigate to="/login" />
 
+  const roleLabel = (value: string): string =>
+    ({ user: t('普通用户', 'User'), moderator: t('审核员', 'Moderator'), admin: t('管理员', 'Admin') })[value] ?? value
+
   const error = create.error ?? role.error ?? ban.error ?? token.error
   return <div className="container page-container">
     <AdminNav active="users" />
     <PageHeader
-      title="用户管理"
-      subtitle={`共 ${allUsers.length}${users.hasNextPage ? '+' : ''} 位用户；管理员操作会写入审计日志。`}
-      actions={<button className="btn btn-primary" type="button" onClick={() => setShowCreate((value) => !value)}>{showCreate ? '收起表单' : '创建用户'}</button>}
+      title={t('用户管理', 'Users')}
+      subtitle={`${t('共', 'Total')} ${allUsers.length}${users.hasNextPage ? '+' : ''} ${t('位用户；管理员操作会写入审计日志。', 'users; admin actions are written to the audit log.')}`}
+      actions={<button className="btn btn-primary" type="button" onClick={() => setShowCreate((value) => !value)}>{showCreate ? t('收起表单', 'Hide form') : t('创建用户', 'Create user')}</button>}
     />
 
     {showCreate && <form className="admin-form-card" onSubmit={(event) => { event.preventDefault(); create.mutate() }}>
       <div className="admin-form-grid">
         <label><span className="form-label">Handle *</span><input className="form-input" required value={createForm.handle} onChange={(event) => setCreateForm({ ...createForm, handle: event.target.value })} /></label>
-        <label><span className="form-label">显示名称</span><input className="form-input" value={createForm.displayName} onChange={(event) => setCreateForm({ ...createForm, displayName: event.target.value })} /></label>
-        <label><span className="form-label">邮箱</span><input className="form-input" type="email" value={createForm.email} onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })} /></label>
-        <label><span className="form-label">角色</span><select className="form-input" value={createForm.role} onChange={(event) => setCreateForm({ ...createForm, role: event.target.value })}>{ROLES.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>
+        <label><span className="form-label">{t('显示名称', 'Display name')}</span><input className="form-input" value={createForm.displayName} onChange={(event) => setCreateForm({ ...createForm, displayName: event.target.value })} /></label>
+        <label><span className="form-label">{t('邮箱', 'Email')}</span><input className="form-input" type="email" value={createForm.email} onChange={(event) => setCreateForm({ ...createForm, email: event.target.value })} /></label>
+        <label><span className="form-label">{t('角色', 'Role')}</span><select className="form-input" value={createForm.role} onChange={(event) => setCreateForm({ ...createForm, role: event.target.value })}>{ROLES.map((item) => <option key={item} value={item}>{roleLabel(item)}</option>)}</select></label>
       </div>
-      <div className="admin-form-actions"><button className="btn btn-primary" disabled={create.isPending} type="submit">{create.isPending ? '创建中…' : '确认创建'}</button></div>
+      <div className="admin-form-actions"><button className="btn btn-primary" disabled={create.isPending} type="submit">{create.isPending ? t('创建中…', 'Creating…') : t('确认创建', 'Create')}</button></div>
     </form>}
 
     {showToken && <div className="admin-token-card">
-      <div className="admin-token-header"><div><strong>为 {showToken.handle} 签发 API Token</strong><p className="muted">完整 Token 只会显示这一次，请立即复制并妥善保存。</p></div><button className="icon-btn" type="button" onClick={() => { setShowToken(null); setTokenValue('') }}>×</button></div>
+      <div className="admin-token-header"><div><strong>{t('为', 'Mint an API token for')} {showToken.handle}</strong><p className="muted">{t('完整 Token 只会显示这一次，请立即复制并妥善保存。', 'The full token is shown only once — copy and store it now.')}</p></div><button className="icon-btn" type="button" onClick={() => { setShowToken(null); setTokenValue('') }}>×</button></div>
       {!tokenValue ? <form className="admin-form-grid" onSubmit={(event) => { event.preventDefault(); token.mutate() }}>
-        <label><span className="form-label">标签</span><input className="form-input" placeholder="例如 CI 发布" value={tokenForm.label} onChange={(event) => setTokenForm({ ...tokenForm, label: event.target.value })} /></label>
-        <label><span className="form-label">权限范围</span><select className="form-input" value={tokenForm.scope} onChange={(event) => setTokenForm({ ...tokenForm, scope: event.target.value })}><option value="full">Full（读写）</option><option value="read">Read（只读）</option><option value="publish">Publish（发布）</option></select></label>
-        <div className="admin-form-actions"><button className="btn btn-primary" disabled={token.isPending} type="submit">{token.isPending ? '签发中…' : '签发 Token'}</button></div>
-      </form> : <div className="admin-secret-row"><code>{tokenValue}</code><button className="btn btn-secondary btn-small" type="button" onClick={() => void navigator.clipboard?.writeText(tokenValue)}>复制</button></div>}
+        <label><span className="form-label">{t('标签', 'Label')}</span><input className="form-input" placeholder={t('例如 CI 发布', 'e.g. CI publishing')} value={tokenForm.label} onChange={(event) => setTokenForm({ ...tokenForm, label: event.target.value })} /></label>
+        <label><span className="form-label">{t('权限范围', 'Scope')}</span><select className="form-input" value={tokenForm.scope} onChange={(event) => setTokenForm({ ...tokenForm, scope: event.target.value })}><option value="full">{t('Full（读写）', 'Full (read/write)')}</option><option value="read">{t('Read（只读）', 'Read (read-only)')}</option><option value="publish">{t('Publish（发布）', 'Publish')}</option></select></label>
+        <div className="admin-form-actions"><button className="btn btn-primary" disabled={token.isPending} type="submit">{token.isPending ? t('签发中…', 'Minting…') : t('签发 Token', 'Mint token')}</button></div>
+      </form> : <div className="admin-secret-row"><code>{tokenValue}</code><button className="btn btn-secondary btn-small" type="button" onClick={() => void navigator.clipboard?.writeText(tokenValue)}>{t('复制', 'Copy')}</button></div>}
     </div>}
 
-    {error && <ErrorBox message={error instanceof Error ? error.message : '操作失败，请重试。'} />}
-    <div className="admin-toolbar"><input className="form-input admin-search" placeholder="搜索 handle、名称或邮箱" value={filter} onChange={(event) => setFilter(event.target.value)} /><span className="muted">显示 {filteredUsers.length} 位</span></div>
+    {error && <ErrorBox message={error instanceof Error ? error.message : t('操作失败，请重试。', 'Action failed. Please try again.')} />}
+    <div className="admin-toolbar"><input className="form-input admin-search" placeholder={t('搜索 handle、名称或邮箱', 'Search handle, name, or email')} value={filter} onChange={(event) => setFilter(event.target.value)} /><span className="muted">{t('显示', 'Showing')} {filteredUsers.length} {t('位', '')}</span></div>
 
-    {users.isLoading ? <Loading /> : users.isError ? <ErrorBox message="加载用户失败，请稍后重试。" /> : <div className="admin-table-wrap">
-      <table className="admin-table"><thead><tr><th>用户</th><th>角色</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead><tbody>
+    {users.isLoading ? <Loading /> : users.isError ? <ErrorBox message={t('加载用户失败，请稍后重试。', 'Failed to load users. Please try again later.')} /> : <div className="admin-table-wrap">
+      <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
         {filteredUsers.map((item) => <tr key={item.id}>
           <td><strong>{item.displayName || item.handle}</strong><small className="admin-cell-sub">@{item.handle}{item.email ? ` · ${item.email}` : ''}</small></td>
-          <td><select className="admin-inline-select" value={item.role} disabled={role.isPending || item.id === user.id} title={item.id === user.id ? '不能修改自己的角色' : undefined} onChange={(event) => role.mutate({ id: item.id, nextRole: event.target.value })}>{ROLES.map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></td>
+          <td><select className="admin-inline-select" value={item.role} disabled={role.isPending || item.id === user.id} title={item.id === user.id ? t('不能修改自己的角色', 'You cannot change your own role') : undefined} onChange={(event) => role.mutate({ id: item.id, nextRole: event.target.value })}>{ROLES.map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></td>
           <td><AdminStatus value={item.isBanned ? 'banned' : 'active'} />{item.banReason && <small className="admin-cell-sub">{item.banReason}</small>}</td>
           <td className="muted">{formatDate(item.createdAt)}</td>
-          <td><div className="admin-actions"><button className="btn btn-secondary btn-small" type="button" onClick={() => { setShowToken(item); setTokenValue('') }}>签发 Token</button><button className="btn btn-danger btn-small" disabled={item.isBanned || item.id === user.id || ban.isPending} type="button" onClick={() => handleBan(item, () => ban.mutate({ id: item.id, reason: window.prompt('请输入封禁原因（可选）', '') ?? '' }))}>{item.isBanned ? '已封禁' : '封禁'}</button></div></td>
+          <td><div className="admin-actions"><button className="btn btn-secondary btn-small" type="button" onClick={() => { setShowToken(item); setTokenValue('') }}>{t('签发 Token', 'Mint token')}</button><button className="btn btn-danger btn-small" disabled={item.isBanned || item.id === user.id || ban.isPending} type="button" onClick={() => handleBan(item, t, () => ban.mutate({ id: item.id, reason: window.prompt(t('请输入封禁原因（可选）', 'Enter a ban reason (optional)'), '') ?? '' }))}>{item.isBanned ? t('已封禁', 'Banned') : t('封禁', 'Ban')}</button></div></td>
         </tr>)}
-        {filteredUsers.length === 0 && <tr><td colSpan={5} className="admin-empty">没有匹配的用户。</td></tr>}
+        {filteredUsers.length === 0 && <tr><td colSpan={5} className="admin-empty">{t('没有匹配的用户。', 'No matching users.')}</td></tr>}
       </tbody></table>
     </div>}
-    {users.hasNextPage && <div className="load-more"><button className="btn btn-secondary" disabled={users.isFetchingNextPage} type="button" onClick={() => void users.fetchNextPage()}>{users.isFetchingNextPage ? '加载中…' : '加载更多用户'}</button></div>}
+    {users.hasNextPage && <div className="load-more"><button className="btn btn-secondary" disabled={users.isFetchingNextPage} type="button" onClick={() => void users.fetchNextPage()}>{users.isFetchingNextPage ? t('加载中…', 'Loading…') : t('加载更多用户', 'Load more users')}</button></div>}
   </div>
 }
 
-function roleLabel(role: string): string {
-  return { user: '普通用户', moderator: '审核员', admin: '管理员' }[role] ?? role
-}
-
-function handleBan(item: User, action: () => void): void {
-  if (window.confirm(`确定封禁 ${item.handle} 吗？封禁后该账号将无法继续使用。`)) action()
+function handleBan(item: User, t: (zh: string, en: string) => string, action: () => void): void {
+  if (window.confirm(`${t('确定封禁', 'Ban')} ${item.handle} ${t('吗？封禁后该账号将无法继续使用。', "? The account will no longer be usable.")}`)) action()
 }

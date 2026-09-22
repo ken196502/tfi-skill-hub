@@ -7,11 +7,13 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { login } from '../lib/api'
 import { useSession } from '../lib/auth'
+import { useT } from '../lib/i18n'
 import { ErrorBox } from './ui'
 
 export function LoginPage() {
   const navigate = useNavigate()
   const { refresh } = useSession()
+  const t = useT()
   const [handle, setHandle] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
@@ -23,7 +25,7 @@ export function LoginPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (!canSubmit) {
-      setError('用户名和密码为必填项。')
+      setError(t('用户名和密码为必填项。', 'Username and password are required.'))
       return
     }
     setBusy(true)
@@ -35,7 +37,7 @@ export function LoginPage() {
       const redirect = new URLSearchParams(window.location.search).get('redirect')
       await navigate({ to: redirect && redirect.startsWith('/') ? redirect : '/skills' })
     } catch {
-      setError('用户名或密码不正确。')
+      setError(t('用户名或密码不正确。', 'Incorrect username or password.'))
     } finally {
       setBusy(false)
     }
@@ -51,15 +53,15 @@ export function LoginPage() {
             <path d="M8 10V7a4 4 0 0 1 8 0v3" />
           </svg>
         </div>
-        <h1 className="login-title">登录</h1>
-        <p className="login-subtitle">登录以发布和管理技能。</p>
+        <h1 className="login-title">{t('登录', 'Log in')}</h1>
+        <p className="login-subtitle">{t('登录以发布和管理技能。', 'Log in to publish and manage skills.')}</p>
 
         <form className="login-form" onSubmit={onSubmit}>
           {error && <ErrorBox message={error} />}
 
           <div className="login-field">
             <label className="form-label" htmlFor="handle">
-              用户名
+              {t('用户名', 'Username')}
             </label>
             <div className="login-input-wrap">
               <span className="login-input-icon">
@@ -74,14 +76,14 @@ export function LoginPage() {
                 value={handle}
                 onChange={(e) => setHandle(e.target.value)}
                 autoComplete="username"
-                placeholder="请输入用户名"
+                placeholder={t('请输入用户名', 'Enter your username')}
               />
             </div>
           </div>
 
           <div className="login-field">
             <label className="form-label" htmlFor="password">
-              密码
+              {t('密码', 'Password')}
             </label>
             <div className="login-input-wrap">
               <span className="login-input-icon">
@@ -97,13 +99,13 @@ export function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password"
-                placeholder="请输入密码"
+                placeholder={t('请输入密码', 'Enter your password')}
               />
               <button
                 className="login-eye-btn"
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                aria-label={showPassword ? t('隐藏密码', 'Hide password') : t('显示密码', 'Show password')}
               >
                 {showPassword ? (
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
@@ -122,7 +124,7 @@ export function LoginPage() {
 
           <button className="btn btn-primary login-submit" type="submit" disabled={!canSubmit}>
             {busy && <span className="login-spinner" />}
-            {busy ? '登录中...' : '登录'}
+            {busy ? t('登录中...', 'Logging in...') : t('登录', 'Log in')}
           </button>
         </form>
       </div>

@@ -1,13 +1,15 @@
 import { createFileRoute, Link, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../../lib/api'
+import { useLang, useT } from '../../lib/i18n'
 import {
   Markdown,
   Loading,
   ErrorBox,
   formatDate,
   formatNumber,
-  displayNameOf,
+  localizedName,
+  localizedSummary,
 } from '../../components/ui'
 
 /**
@@ -22,6 +24,8 @@ export const Route = createFileRoute('/skills/$')({
 
 function SkillDetailPage() {
   const { _splat: ref = '' } = useParams({ from: '/skills/$' })
+  const { lang } = useLang()
+  const t = useT()
 
   const skill = useQuery({
     queryKey: ['skill', ref],
@@ -44,9 +48,9 @@ function SkillDetailPage() {
   if (skill.isError || !skill.data) {
     return (
       <div className="container" style={{ paddingTop: 60 }}>
-        <PageTitle title="技能未找到" />
+        <PageTitle title={t('技能未找到', 'Skill not found')} />
         <Link to="/skills" className="btn btn-secondary">
-          返回技能列表
+          {t('返回技能列表', 'Back to skills')}
         </Link>
       </div>
     )
@@ -59,23 +63,25 @@ function SkillDetailPage() {
   return (
     <div className="container" style={{ paddingTop: 40 }}>
       <div className="detail-header">
-        <h1 className="detail-title">{displayNameOf(s)}</h1>
-        <p className="detail-summary">{s.summary || '暂无描述'}</p>
+        <h1 className="detail-title">{localizedName(s, lang)}</h1>
+        <p className="detail-summary">
+          {localizedSummary(s, lang) || t('暂无描述', 'No description yet')}
+        </p>
         <div className="detail-stats">
-          <Stat label="下载" value={formatNumber(s.downloads)} />
-          <Stat label="版本" value={formatNumber(s.versionsCount)} />
+          <Stat label={t('下载', 'Downloads')} value={formatNumber(s.downloads)} />
+          <Stat label={t('版本', 'Versions')} value={formatNumber(s.versionsCount)} />
         </div>
       </div>
 
       <div className="detail-layout">
         <div>
           <div className="tab-bar">
-            <span className="tab-btn active">说明</span>
+            <span className="tab-btn active">{t('说明', 'Readme')}</span>
           </div>
           {readme.isLoading ? (
             <Loading />
           ) : readme.isError ? (
-            <ErrorBox message="无法读取该技能的 SKILL.md。" />
+            <ErrorBox message={t('无法读取该技能的 SKILL.md。', 'Unable to read this skill\'s SKILL.md.')} />
           ) : (
             <Markdown source={readme.data ?? ''} />
           )}
@@ -83,19 +89,19 @@ function SkillDetailPage() {
 
         <aside className="detail-sidebar">
           <div className="sidebar-section">
-            <div className="sidebar-label">安装</div>
+            <div className="sidebar-label">{t('安装', 'Install')}</div>
             <a className="btn btn-primary" href={downloadHref} style={{ width: '100%', justifyContent: 'center' }}>
-              下载 ZIP
+              {t('下载 ZIP', 'Download ZIP')}
             </a>
           </div>
 
           <div className="sidebar-section">
-            <div className="sidebar-label">最新版本</div>
+            <div className="sidebar-label">{t('最新版本', 'Latest version')}</div>
             <div className="sidebar-value">{latest?.version ?? '—'}</div>
           </div>
 
           <div className="sidebar-section">
-            <div className="sidebar-label">发布者</div>
+            <div className="sidebar-label">{t('发布者', 'Publisher')}</div>
             <div className="owner-info">
               <span className="owner-avatar">{s.ownerHandle.slice(0, 1).toUpperCase()}</span>
               <span className="sidebar-value">{s.ownerHandle}</span>
@@ -103,17 +109,17 @@ function SkillDetailPage() {
           </div>
 
           <div className="sidebar-section">
-            <div className="sidebar-label">创建时间</div>
+            <div className="sidebar-label">{t('创建时间', 'Created')}</div>
             <div className="sidebar-value">{formatDate(s.createdAt)}</div>
           </div>
           <div className="sidebar-section">
-            <div className="sidebar-label">更新时间</div>
+            <div className="sidebar-label">{t('更新时间', 'Updated')}</div>
             <div className="sidebar-value">{formatDate(s.updatedAt)}</div>
           </div>
 
           {s.tags.length > 0 && (
             <div className="sidebar-section">
-              <div className="sidebar-label">标签</div>
+              <div className="sidebar-label">{t('标签', 'Tags')}</div>
               <div className="card-tags" style={{ marginBottom: 0 }}>
                 {s.tags.map((tag) => (
                   <span className="tag" key={tag}>
@@ -125,7 +131,7 @@ function SkillDetailPage() {
           )}
 
           <div className="sidebar-section">
-            <div className="sidebar-label">版本历史</div>
+            <div className="sidebar-label">{t('版本历史', 'Version history')}</div>
             {(versions.data?.versions ?? []).length === 0 ? (
               <div className="sidebar-value">—</div>
             ) : (
@@ -133,7 +139,9 @@ function SkillDetailPage() {
                 {versions.data!.versions!.slice(0, 8).map((v) => (
                   <li className="version-item" key={v.id}>
                     <span className="version-tag">{v.version}</span>
-                    {v.yankedAt && <span className="version-date">已撤回</span>}
+                    {v.yankedAt && (
+                      <span className="version-date">{t('已撤回', 'yanked')}</span>
+                    )}
                     <span className="version-date">{formatDate(v.createdAt)}</span>
                   </li>
                 ))}

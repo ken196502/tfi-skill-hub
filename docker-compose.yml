@@ -18,7 +18,21 @@ services:
     restart: unless-stopped
     init: true                       # 用 tini 作为 PID 1，正确转发 SIGTERM / 回收僵尸
     ports:
-      - "10070:10070"
+      - "10070:10070"                 # 直连兜底；经 Traefik 走 443 时此端口可注释掉
+
+    # ---- Traefik 反向代理 + Let's Encrypt 自动证书 ----
+    # 前提：宿主机已运行 Traefik，且存在名为 traefik 的外部网络、
+    # entrypoints 为 websecure(443)、certresolver 名为 letsencrypt。
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.skillhub.rule=Host(`skills.subx.fun`)"
+      - "traefik.http.routers.skillhub.entrypoints=websecure"
+      - "traefik.http.routers.skillhub.tls=true"
+      - "traefik.http.routers.skillhub.tls.certresolver=letsencrypt"
+      - "traefik.http.services.skillhub.loadbalancer.server.port=10070"
+
+    networks:
+      - traefik
     environment:
       NODE_ENV: "production"
       SKILLHUB_HOST: "0.0.0.0"
@@ -30,7 +44,7 @@ services:
       SKILLHUB_ADMIN_PASSWORD: "admin12345"
 
       # 可选：公开访问地址，用于设备码校验等回链
-      # SKILLHUB_BASE_URL: "https://skillhub.example.com"
+      SKILLHUB_BASE_URL: "https://skills.subx.fun"
 
       # 可选：限流调整（次数 / 时间窗，单位秒）
       # SKILLHUB_RATE_READ_LIMIT: "120"
@@ -57,3 +71,7 @@ services:
 volumes:
   skillhub-data:
     driver: local
+
+networks:
+  traefik:
+    external: true

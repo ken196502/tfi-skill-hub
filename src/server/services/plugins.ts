@@ -71,6 +71,8 @@ export function pluginToJSON(plugin: Plugin): Record<string, unknown> {
 
   if (plugin.displayName !== undefined) out.displayName = plugin.displayName
   if (plugin.summary !== undefined) out.summary = plugin.summary
+  if (plugin.displayNameEn !== undefined) out.displayNameEn = plugin.displayNameEn
+  if (plugin.summaryEn !== undefined) out.summaryEn = plugin.summaryEn
 
   if (plugin.latestVersionId) {
     const version = pluginVersions.getById(plugin.latestVersionId)
@@ -186,6 +188,8 @@ export interface PluginPublishRequest {
   category?: string
   displayName?: string
   summary?: string
+  displayNameEn?: string
+  summaryEn?: string
   changelog?: string
   tags?: string
   namespaceSlug?: string
@@ -297,6 +301,8 @@ export function publishPlugin(
       slug: req.slug,
       displayName: req.displayName || null,
       summary: req.summary || null,
+      displayNameEn: req.displayNameEn || null,
+      summaryEn: req.summaryEn || null,
       ownerId: user.id,
       namespaceId: namespace.id,
       visibility,
@@ -346,6 +352,8 @@ export function publishPlugin(
     pluginRepo.updateMetadata(plugin.id, {
       displayName: req.displayName,
       summary: req.summary,
+      displayNameEn: req.displayNameEn,
+      summaryEn: req.summaryEn,
       category: req.category,
       tags: req.tags ? req.tags.split(',') : undefined,
     })

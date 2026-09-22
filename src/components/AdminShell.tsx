@@ -1,26 +1,36 @@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { useT } from '../lib/i18n'
 
 export type AdminSection = 'overview' | 'users' | 'content' | 'features' | 'audit'
 
-const ITEMS: Array<{ key: AdminSection; label: string; to: string }> = [
-  { key: 'overview', label: '总览', to: '/admin' },
-  { key: 'users', label: '用户管理', to: '/admin/users' },
-  { key: 'content', label: '内容审核', to: '/admin/content' },
-  { key: 'features', label: '首页精选', to: '/admin/features' },
-  { key: 'audit', label: '审计日志', to: '/admin/audit-logs' },
+const ITEMS: Array<{ key: AdminSection; labelKey: 'overview' | 'users' | 'content' | 'features' | 'audit'; to: string }> = [
+  { key: 'overview', labelKey: 'overview', to: '/admin' },
+  { key: 'users', labelKey: 'users', to: '/admin/users' },
+  { key: 'content', labelKey: 'content', to: '/admin/content' },
+  { key: 'features', labelKey: 'features', to: '/admin/features' },
+  { key: 'audit', labelKey: 'audit', to: '/admin/audit-logs' },
 ]
 
+const LABELS = {
+  overview: ['总览', 'Overview'],
+  users: ['用户管理', 'Users'],
+  content: ['内容审核', 'Content review'],
+  features: ['首页精选', 'Featured'],
+  audit: ['审计日志', 'Audit logs'],
+} as const
+
 export function AdminNav({ active }: { active: AdminSection }) {
+  const t = useT()
   return (
-    <nav className="admin-nav" aria-label="管理后台模块">
+    <nav className="admin-nav" aria-label={t('管理后台模块', 'Admin sections')}>
       {ITEMS.map((item) => (
         <Link
           key={item.key}
           to={item.to}
           className={`admin-nav-link${active === item.key ? ' active' : ''}`}
         >
-          {item.label}
+          {t(LABELS[item.labelKey][0], LABELS[item.labelKey][1])}
         </Link>
       ))}
     </nav>
@@ -28,19 +38,25 @@ export function AdminNav({ active }: { active: AdminSection }) {
 }
 
 export function AdminStatus({ value }: { value: string }) {
-  const labels: Record<string, string> = {
-    public: '公开',
-    private: '私有',
-    approved: '已通过',
-    pending_review: '待审核',
-    rejected: '已拒绝',
-    active: '正常',
-    banned: '已封禁',
+  const t = useT()
+  const labels: Record<string, [string, string]> = {
+    public: ['公开', 'Public'],
+    private: ['私有', 'Private'],
+    approved: ['已通过', 'Approved'],
+    pending_review: ['待审核', 'Pending review'],
+    rejected: ['已拒绝', 'Rejected'],
+    active: ['正常', 'Active'],
+    banned: ['已封禁', 'Banned'],
   }
   const tone = value === 'approved' || value === 'public' || value === 'active' ? 'success'
     : value === 'rejected' || value === 'private' || value === 'banned' ? 'danger'
       : 'warning'
-  return <span className={`admin-status admin-status-${tone}`}>{labels[value] ?? value}</span>
+  const pair = labels[value]
+  return (
+    <span className={`admin-status admin-status-${tone}`}>
+      {pair ? t(pair[0], pair[1]) : value}
+    </span>
+  )
 }
 
 export function AdminGuard({ children, user, booting }: {

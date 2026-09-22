@@ -56,7 +56,18 @@ npm run smoke       # 必须全绿
 
 - 页面是给最终用户看的：**不写实现说明**（"密码以 scrypt 存储"、"仅隐藏 XX 标签"）、
   **不写运营/第三人称视角**。
-- 界面以中文为主，`Layout.tsx` 里的浅层文案表支持中英切换。
+- **全站双语（2026-09 起，覆盖旧的"以中文为主"）**：语言切换（`skillhub.lang`，默认 en）
+  影响所有页面 + 技能/插件的名称与简介。写法约定：
+  - i18n 基础在 `src/lib/i18n.tsx`：`LangProvider`（挂在 `__root.tsx`）、`useLang()`、
+    `useT()` 返回 `(zh, en) => string`，**内联双语字面量**，不建中央 key 表；
+  - 实体名/简介用 `localizedName(entity, lang)` / `localizedSummary(entity, lang)`；
+  - 数据层：`skills`/`plugins` 表有 `display_name_en` / `summary_en` 列（migration v3），
+    API 字段 `displayNameEn` / `summaryEn`（omitempty）；EN 缺失时回退中文字段；
+  - 内置技能在 `src/server/builtinSkills.ts` 里 `name`/`nameEn` 成对维护；
+    bootstrap 播种时同时写两列并回填旧库，还负责把内置技能写入 search_docs
+    （内置技能不走 publish，**不会**被自动索引）；
+  - 搜索结果的英文字段通过 search 查询 JOIN skills/plugins 取得，**不改 FTS5 表结构**
+    （FTS5 不支持 ADD COLUMN）；join 后 filter 列必须加 `sd.` 前缀避免歧义。
 - 视觉沿用 `src/styles/global.css`（深色为主 + `[data-theme=light]` 变体）。
 - **字体用 D-DIN**（Datto / Monotype，SIL OFL 1.1）：woff2 本地打包在 `src/styles/fonts/`，
   经 `@font-face` 注入 `global.css`，`--font-heading` / `--font-body` 改为 `"D-DIN"`。
@@ -72,6 +83,11 @@ npm run smoke       # 必须全绿
 5. `POST /login` 额外兼容 JSON body（超集）
 6. 插件发布支持可选 `visibility`（原实现没有）
 7. `/metrics` 是精简版；`/openapi.json`、`/docs` 未实现
+8. 全站双语是本重写新增能力（原 Go 版无）；`displayNameEn`/`summaryEn`/`display_name_en`/
+   `summary_en` 为新增字段，内置技能 README 以英文生成（旧库存量 README 仍为中文，
+   只有 name/summary 被回填双语）
+9. `manage.ts` 精选上限错误文案由中文改为英文（'at most 12 featured skills'），与其余
+   API 错误文案语言统一
 
 ## 未覆盖（按约定不做）
 
