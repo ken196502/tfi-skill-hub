@@ -310,7 +310,6 @@ a:hover { text-decoration: none; color: var(--text); }
 .header {
   background: transparent;
   border-bottom: 1px solid var(--card-border);
-  margin-bottom: calc(-1 * var(--header-height));
   position: sticky;
   top: 0;
   z-index: 100;
