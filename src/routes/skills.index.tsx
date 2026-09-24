@@ -21,14 +21,9 @@ export const Route = createFileRoute('/skills/')({
 })
 
 const CATEGORIES: Array<[string, string, string]> = [
-  ['devops', 'DevOps', 'DevOps'],
-  ['security', '安全', 'Security'],
-  ['data', '数据', 'Data'],
-  ['frontend', '前端', 'Frontend'],
-  ['backend', '后端', 'Backend'],
-  ['infra', '基础设施', 'Infra'],
-  ['testing', '测试', 'Testing'],
-  ['ai', 'AI', 'AI'],
+  ['finance', '金融', 'Finance'],
+  ['personal', '个人', 'Personal'],
+  ['workspace', '工作区', 'Workspace'],
   ['general', '通用', 'General'],
 ]
 

@@ -9,60 +9,50 @@
  */
 
 /* ═══════════════════════════════════════
-   D-DIN webfont — Datto / Monotype, SIL OFL 1.1
-   Bundled locally (src/styles/fonts) so there is no network fetch at runtime.
-   Family only ships Regular / Italic / Bold; weights 600 etc. fall back to
-   700. CJK glyphs are not covered by D-DIN, so every stack keeps PingFang /
-   Microsoft YaHei fallbacks.
+   Brand typography — Helvetica (TFI brand font).
+   Helvetica / Helvetica Neue are system faces on macOS; Arial is the
+   cross-platform fallback. CJK glyphs are not covered by Helvetica, so every
+   stack keeps PingFang SC / Microsoft YaHei fallbacks.
    ═══════════════════════════════════════ */
-@font-face {
-  font-family: "D-DIN";
-  src: url("./fonts/D-DIN.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "D-DIN";
-  src: url("./fonts/D-DIN-Bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "D-DIN";
-  src: url("./fonts/D-DIN-Italic.woff2") format("woff2");
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-}
 
 :root {
-  /* Typography */
-  --font-heading: "D-DIN", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
-  --font-body: "D-DIN", system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  /* Typography — Helvetica (TFI brand font) */
+  --font-heading: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-body: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-  /* Colors — matched to animus.run */
-  --bg: #090a0b;
-  --bg-secondary: #0f1012;
-  --surface: #161819;
-  --card-bg: #141618;
-  --card-border: #1e2024;
-  --card-border-hover: #2a2d32;
-  --text: #ededef;
-  --text-secondary: #a0a3ab;
-  --text-muted: #72757e;
-  --accent: #22c55e;
-  --accent-hover: #16a34a;
-  --accent-bg: rgba(34, 197, 94, 0.08);
-  --accent-glow: rgba(34, 197, 94, 0.15);
-  --link: #22c55e;
-  --code-bg: #0d0e10;
-  --tag-bg: rgba(34, 197, 94, 0.08);
-  --tag-text: #22c55e;
-  --input-bg: #141618;
-  --input-border: #1e2024;
+  /* Colors — TFI brand palette
+     Brand   #004123
+     Secondary #BAA6EE #DCD2FA #FAE752 #FDF898 #53553F #858667 */
+  --brand: #004123;
+  --brand-purple: #BAA6EE;
+  --brand-purple-soft: #DCD2FA;
+  --brand-yellow: #FAE752;
+  --brand-yellow-soft: #FDF898;
+  --brand-olive: #53553F;
+  --brand-khaki: #858667;
+
+  --accent: #2f9e63;          /* brightened TFI green — readable on dark */
+  --accent-hover: #3fb574;
+  --accent-bg: rgba(47, 158, 99, 0.10);
+  --accent-glow: rgba(47, 158, 99, 0.18);
+  --link: #2f9e63;
+  --logo-color: #ffffff;      /* TFI logo (reversed) on the dark nav */
+
+  --bg: #0a0e0b;
+  --bg-secondary: #0f1411;
+  --surface: #141a16;
+  --card-bg: #121714;
+  --card-border: #1e2620;
+  --card-border-hover: #2a352c;
+  --text: #edf2ee;
+  --text-secondary: #a3b0a6;
+  --text-muted: #6f7d72;
+  --code-bg: #0c100d;
+  --tag-bg: rgba(47, 158, 99, 0.10);
+  --tag-text: #2f9e63;
+  --input-bg: #121714;
+  --input-border: #1e2620;
   --shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
   --danger: #ef4444;
@@ -75,25 +65,26 @@
 }
 
 [data-theme="light"] {
-  --bg: #fafafa;
-  --bg-secondary: #f5f5f5;
+  --bg: #f7f9f7;
+  --bg-secondary: #eef2ee;
   --surface: #ffffff;
   --card-bg: #ffffff;
-  --card-border: #e5e5e5;
-  --card-border-hover: #d4d4d4;
-  --text: #171717;
-  --text-secondary: #525252;
-  --text-muted: #a3a3a3;
-  --accent: #16a34a;
-  --accent-hover: #15803d;
-  --accent-bg: rgba(22, 163, 74, 0.08);
-  --accent-glow: rgba(22, 163, 74, 0.1);
-  --link: #16a34a;
-  --code-bg: #f3f4f6;
-  --tag-bg: rgba(22, 163, 74, 0.08);
-  --tag-text: #16a34a;
+  --card-border: #dfe6e0;
+  --card-border-hover: #c8d2c9;
+  --text: #112017;
+  --text-secondary: #44564b;
+  --text-muted: #7c8a80;
+  --accent: #004123;          /* deep TFI green — strong on white */
+  --accent-hover: #006b3a;
+  --accent-bg: rgba(0, 65, 35, 0.08);
+  --accent-glow: rgba(0, 65, 35, 0.10);
+  --link: #004123;
+  --code-bg: #eef2ee;
+  --tag-bg: rgba(0, 65, 35, 0.08);
+  --tag-text: #004123;
   --input-bg: #ffffff;
-  --input-border: #d4d4d4;
+  --input-border: #c8d2c9;
+  --logo-color: #004123;      /* TFI logo in brand green on the light nav */
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.1);
 }
@@ -124,7 +115,7 @@ a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: none; color: var(--text); }
 
 ::selection {
-  background: rgba(34, 197, 94, 0.25);
+  background: rgba(47, 158, 99, 0.28);
 }
 
 .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; width: 100%; }
@@ -169,20 +160,21 @@ a:hover { text-decoration: none; color: var(--text); }
   min-height: calc(100vh - var(--header-height));
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 14%, rgba(61, 130, 44, 0.18), transparent 30rem),
-    linear-gradient(180deg, #111a16 0%, var(--bg) 58%, #050607 100%);
+    radial-gradient(circle at 50% 14%, rgba(47, 158, 99, 0.18), transparent 30rem),
+    linear-gradient(180deg, #0c1812 0%, var(--bg) 58%, #040806 100%);
 }
 
 .home-backdrop {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  opacity: 0.4;
+  opacity: 0.45;
   background-image:
-    radial-gradient(circle, rgba(123, 185, 69, 0.8) 0 1px, transparent 1.5px),
-    linear-gradient(118deg, transparent 49.7%, rgba(123, 185, 69, 0.2) 50%, transparent 50.3%),
-    linear-gradient(27deg, transparent 49.7%, rgba(113, 154, 103, 0.16) 50%, transparent 50.3%);
-  background-size: 180px 180px, 280px 280px, 340px 340px;
+    radial-gradient(circle at 82% 12%, rgba(186, 166, 238, 0.10), transparent 38%),
+    radial-gradient(circle, rgba(47, 158, 99, 0.7) 0 1px, transparent 1.5px),
+    linear-gradient(118deg, transparent 49.7%, rgba(47, 158, 99, 0.18) 50%, transparent 50.3%),
+    linear-gradient(27deg, transparent 49.7%, rgba(60, 130, 90, 0.12) 50%, transparent 50.3%);
+  background-size: 100% 100%, 180px 180px, 280px 280px, 340px 340px;
   mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 92%);
 }
 
@@ -206,7 +198,7 @@ a:hover { text-decoration: none; color: var(--text); }
 }
 
 .home-title span {
-  background: linear-gradient(120deg, #e9f3e4 0%, #8fca42 68%, #5e9f24 100%);
+  background: linear-gradient(120deg, #d8f1e3 0%, #3fb574 55%, #004123 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -226,14 +218,14 @@ a:hover { text-decoration: none; color: var(--text); }
   margin: 0 auto;
   padding: 7px;
   background: rgba(2, 4, 3, 0.9);
-  border: 1px solid #3a443d;
+  border: 1px solid #2c3a31;
   border-radius: 6px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(124, 185, 68, 0.05);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.38), 0 0 0 1px rgba(47, 158, 99, 0.05);
 }
 
 .home-search:focus-within {
-  border-color: #679c31;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42), 0 0 0 3px rgba(118, 184, 42, 0.12);
+  border-color: #2f9e63;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42), 0 0 0 3px rgba(47, 158, 99, 0.14);
 }
 
 .home-search-input {
@@ -257,12 +249,12 @@ a:hover { text-decoration: none; color: var(--text); }
   border: 0;
   border-radius: 4px;
   color: #071004;
-  background: #76b82a;
+  background: #2f9e63;
   cursor: pointer;
   transition: background 0.15s, transform 0.15s;
 }
 
-.home-search-button:hover { background: #8dcc3a; transform: scale(1.02); }
+.home-search-button:hover { background: #3fb574; transform: scale(1.02); }
 .home-search-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; }
 
 .home-popular { max-width: 1120px; margin: 0 auto; }
@@ -291,10 +283,10 @@ a:hover { text-decoration: none; color: var(--text); }
   background: rgba(11, 14, 12, 0.82);
   border-color: rgba(121, 144, 126, 0.36);
 }
-.home-popular .card:hover { border-color: rgba(118, 184, 42, 0.7); }
+.home-popular .card:hover { border-color: rgba(47, 158, 99, 0.6); }
 
 [data-theme="light"] .home-page {
-  background: radial-gradient(circle at 50% 14%, rgba(118, 184, 42, 0.14), transparent 30rem), var(--bg);
+  background: radial-gradient(circle at 50% 14%, rgba(0, 65, 35, 0.16), transparent 30rem), var(--bg);
 }
 [data-theme="light"] .home-title { color: #172017; }
 [data-theme="light"] .home-subtitle { color: var(--text-secondary); }
@@ -337,7 +329,7 @@ a:hover { text-decoration: none; color: var(--text); }
   font-family: var(--font-heading), sans-serif;
   font-size: 1rem;
   font-weight: 700;
-  letter-spacing: 0.055em;
+  letter-spacing: 0.04em;
   color: var(--text);
   display: flex;
   align-items: center;
@@ -345,18 +337,18 @@ a:hover { text-decoration: none; color: var(--text); }
   text-decoration: none !important;
 }
 
-.logo-icon {
-  background: var(--accent);
-  border-radius: 8px;
-  color: #fff;
-  display: inline-grid;
-  font-size: 0.75rem;
-  height: 1.75rem;
-  place-items: center;
-  width: 1.75rem;
+/* TFI logo — rendered as a CSS mask so it can be tinted per theme
+   (white on the dark nav, brand green on the light nav). Source: tfisec.com */
+.logo-mark {
+  width: 72px;
+  height: 28px;
+  flex: 0 0 auto;
+  background-color: var(--logo-color);
+  -webkit-mask: url("./logo.svg") no-repeat center / contain;
+  mask: url("./logo.svg") no-repeat center / contain;
 }
 
-.logo-spark { width: 1rem; height: 1rem; }
+.logo-text { letter-spacing: 0.06em; }
 
 .nav { display: flex; align-items: center; gap: 24px; }
 .nav a, .nav-link {
@@ -367,7 +359,30 @@ a:hover { text-decoration: none; color: var(--text); }
   transition: color 0.15s;
 }
 .nav a:hover, .nav-link:hover { color: var(--text); }
-.nav-user { color: var(--text-secondary); font-size: 0.875rem; font-weight: 500; }
+.nav-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 4px 12px 4px 4px;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: var(--card-bg);
+}
+.nav-user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--brand);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
 
 .icon-btn {
   background: none;
@@ -417,8 +432,8 @@ main { flex: 1; }
   height: 200px;
 }
 .card:hover {
-  border-color: rgba(34, 197, 94, 0.3);
-  box-shadow: 0 4px 32px rgba(34, 197, 94, 0.08), 0 0 0 1px rgba(34, 197, 94, 0.1);
+  border-color: rgba(47, 158, 99, 0.3);
+  box-shadow: 0 4px 32px rgba(47, 158, 99, 0.10), 0 0 0 1px rgba(47, 158, 99, 0.12);
   transform: translateY(-2px);
 }
 .card-title {
@@ -580,11 +595,11 @@ main { flex: 1; }
 .btn-primary {
   background: var(--accent);
   color: #fff;
-  box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+  box-shadow: 0 0 20px rgba(47, 158, 99, 0.22);
 }
 .btn-primary:hover {
   background: var(--accent-hover);
-  box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+  box-shadow: 0 0 30px rgba(47, 158, 99, 0.32);
 }
 .btn-secondary {
   background: var(--surface);
@@ -1096,7 +1111,7 @@ main { flex: 1; }
   align-items: center;
   justify-content: center;
   background: var(--accent-bg);
-  border: 1px solid rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(47, 158, 99, 0.2);
   border-radius: var(--radius-lg);
   color: var(--accent);
 }

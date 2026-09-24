@@ -41,6 +41,7 @@ import * as agentSvc from '../services/agentSkills'
 import { readMultipart, formValue } from '../content'
 import { users, tokens as tokenRepo, members, type UserRecord } from '../repo/core'
 import type { TokenScope } from '../../lib/types'
+import { VALID_CATEGORIES } from '../../lib/types'
 import type { Handler } from '../http'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -278,7 +279,7 @@ export const skillRead: Record<string, Handler> = {
     }
   },
 
-  categories: () => json({ categories: ['devops', 'security', 'data', 'frontend', 'backend', 'infra', 'testing', 'ai', 'general'] }),
+  categories: () => json({ categories: [...VALID_CATEGORIES] }),
 
   listSkills: (ctx) => {
     try {

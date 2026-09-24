@@ -89,11 +89,16 @@ npm run smoke       # 必须全绿
     （内置技能不走 publish，**不会**被自动索引）；
   - 搜索结果的英文字段通过 search 查询 JOIN skills/plugins 取得，**不改 FTS5 表结构**
     （FTS5 不支持 ADD COLUMN）；join 后 filter 列必须加 `sd.` 前缀避免歧义。
-- 视觉沿用 `src/styles/global.css`（深色为主 + `[data-theme=light]` 变体）。
-- **字体用 D-DIN**（Datto / Monotype，SIL OFL 1.1）：woff2 本地打包在 `src/styles/fonts/`，
-  经 `@font-face` 注入 `global.css`，`--font-heading` / `--font-body` 改为 `"D-DIN"`。
-  D-DIN 只含 Regular/Italic/Bold（无 Bold-Italic、无中文），所以每个字体栈都保留
-  PingFang SC / Microsoft YaHei 等中文回退，不要删。
+- 视觉沿用 `src/styles/global.css`（深色为主 + `[data-theme=light]` 变体），**已套用 TFI 品牌色（2026-09-24）**：
+  品牌色 `#004123`；暗色主题用提亮绿 `#2f9e63` 作可读强调色、亮色主题直接用 `#004123`；
+  辅助色（`#BAA6EE #DCD2FA #FAE752 #FDF898 #53553F #858667`）作为 CSS 变量令牌，
+  并在首页 backdrop 以极淡紫 `#BAA6EE` 点缀。改配色只动 `global.css` 的 `:root` / `[data-theme="light"]` 变量与少量硬编码绿。
+- **字体用 Helvetica**（TFI 品牌字体，2026-09-24 由 D-DIN 替换）：系统字族
+  `"Helvetica Neue", Helvetica, Arial` + CJK 回退（PingFang SC / Microsoft YaHei），**不打包任何 woff2**；
+  `@font-face` 已删除、`src/styles/fonts/` 已移除。改字体只动 `global.css` 的 `--font-heading`/`--font-body`。
+- 头图 logo：`src/styles/logo.svg`（取自 tfisec.com，反白版，原文件经 `feColorMatrix` 强制白色）
+  以 CSS `mask` 渲染，靠 `--logo-color` 在暗色=白、亮色=`#004123` 间切换（`.logo-mark`）。
+  logo 本身是红/橙/灰多色标，反白版更适合暗色导航；亮色导航用品牌绿重染。改 logo 只换该 svg + 变量。
 
 ## 有意与原实现的差异（不要"修回去"）
 

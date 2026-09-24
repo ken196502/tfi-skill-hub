@@ -87,20 +87,21 @@ export function Layout({ children }: { children: ReactNode }) {
     <>
       <header className={`header${isScrolled ? ' scrolled' : ''}`}>
         <div className="container header-inner">
-          <Link to="/" className="logo">
-            <span className="logo-icon" aria-hidden="true">
-              <svg className="logo-spark" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 1.5 14.1 9.9 22.5 12l-8.4 2.1L12 22.5l-2.1-8.4L1.5 12l8.4-2.1L12 1.5Z" />
-              </svg>
-            </span>
-            <span>TFI SKILL HUB</span>
+          <Link to="/" className="logo" aria-label="TFI SKILL HUB">
+            <span className="logo-mark" aria-hidden="true" />
+            <span className="logo-text">SKILL HUB</span>
           </Link>
           <nav className="nav">
             <Link to="/skills">{t('技能', 'Skills')}</Link>
             {user ? (
               <>
                 {user.role === 'admin' && <Link to="/admin">{t('管理', 'Admin')}</Link>}
-                <span className="nav-user">{user.handle}</span>
+                <span className="nav-user" title={user.handle}>
+                  <span className="nav-user-avatar" aria-hidden="true">
+                    {(user.displayName || user.handle).charAt(0).toUpperCase()}
+                  </span>
+                  {user.displayName || user.handle}
+                </span>
                 <button className="btn btn-secondary btn-small" onClick={onLogout} type="button">
                   {t('退出', 'Log out')}
                 </button>

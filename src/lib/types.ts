@@ -35,14 +35,9 @@ export const API_KEY_SCOPES: ApiKeyScope[] = [
 export type SignatureStatus = 'unsigned' | 'unverified' | 'verified' | 'invalid'
 
 export const VALID_CATEGORIES = [
-  'devops',
-  'security',
-  'data',
-  'frontend',
-  'backend',
-  'infra',
-  'testing',
-  'ai',
+  'finance',
+  'personal',
+  'workspace',
   'general',
 ] as const
 
