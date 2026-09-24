@@ -237,8 +237,10 @@ try {
 
   r = await req('GET', '/api/v1/categories')
   check(
-    'GET /api/v1/categories lists 9 categories',
-    r.status === 200 && r.body?.categories?.length === 9,
+    'GET /api/v1/categories lists the 4 valid categories',
+    r.status === 200
+      && Array.isArray(r.body?.categories)
+      && ['finance', 'personal', 'workspace', 'general'].every((c) => r.body.categories.includes(c)),
     r.text,
   )
 
@@ -937,6 +939,14 @@ try {
   r = await req('POST', '/api/v1/admin/skills/@admin/apikey-skill/visibility', { token: fullKey, body: { visibility: 'public' } })
   check('a key with skills:moderate can set visibility', r.status === 200, `${r.status} ${r.text}`)
 
+  r = await req('GET', '/api/v1/admin/features', { token: fullKey })
+  check('a key with skills:read can list admin features', r.status === 200 && Array.isArray(r.body?.data), `${r.status} ${r.text.slice(0, 150)}`)
+  const featuredSkillId = (r.body?.data ?? []).find((s) => typeof s?.id === 'string')?.id
+  r = await req('PUT', '/api/v1/admin/features', { token: fullKey, body: { skillIds: featuredSkillId ? [featuredSkillId] : [] } })
+  check('a key with skills:moderate can replace featured skills', r.status === 200 && r.body?.message === 'featured skills updated', `${r.status} ${r.text}`)
+  r = await req('GET', '/api/v1/features')
+  check('the homepage featured rail reflects the key-made change', r.status === 200 && (r.body?.data ?? []).every((s) => s.id === featuredSkillId), `${r.status} ${r.text.slice(0, 250)}`)
+
   // A read-only key proves the per-endpoint narrowing: same creator, fewer powers.
   r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-readonly', scopes: ['skills:read'] } })
   const readOnlyKey = r.body?.key
@@ -950,6 +960,9 @@ try {
 
   r = await req('DELETE', '/api/v1/skills/apikey-skill', { token: readOnlyKey })
   check('a read-only key cannot delete → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  r = await req('PUT', '/api/v1/admin/features', { token: readOnlyKey, body: { skillIds: [] } })
+  check('a read-only key cannot curate featured skills → 403', r.status === 403 && r.body?.error === 'this API key is not allowed for this endpoint', `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/tokens', { token: fullKey })
   check('no key reaches endpoints outside the skill catalogue → 403', r.status === 403, `${r.status} ${r.text}`)

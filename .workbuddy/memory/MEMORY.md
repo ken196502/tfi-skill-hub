@@ -17,6 +17,8 @@
   与 `clh_` 个人 token 完全分开；个人 token 行为未改。
 - 权限用 `ApiKeyScope`（`skills:read|publish|delete|moderate`），逐路由标 `apiKeyScope`；
   **未标注的路由一律拒绝 key**，所以 key 只能管技能。
+- 精选接口已开放（2026-09-24）：`GET /admin/features → skills:read`、
+  `PUT /admin/features → skills:moderate`（skillIds 数组，≤12，audit 记 replace_featured_skills）。
 - key 认证得到的是签发者身份，但签发者必须是仍是 admin 且未封禁，否则视为无效。
 - 页面在 `/admin/api-keys`（AdminShell 的 `apikeys` 导航项）。
 
@@ -126,3 +128,5 @@ WorkBuddy 沙箱在单个 turn 内拦截 **>50 个文件的批量删除**（`SAF
 `fs.rmSync` 和 Python `shutil.rmtree` 都被拦 ⇒ `vite build` 清理 outDir 会失败。
 绕过：**用 `mv` 把 `dist` 移出工作区**（移动不算删除）再构建；
 或设 `SKILLHUB_SERVER_ENTRY` / `SKILLHUB_CLIENT_DIR` 把产物放到别处验证。
+另外 `npm run smoke` 跑的是 `dist/server/server.js`——**改了源码必须重新 build 再跑 smoke**，
+否则验证的是旧代码（曾把"路由没生效 403"误判成实现错误，其实是旧 dist）。
