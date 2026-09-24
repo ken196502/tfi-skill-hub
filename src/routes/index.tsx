@@ -63,7 +63,6 @@ function HomePage() {
           <div className="home-section-heading">
             <div>
               <h2 id="featured-skills-title">{t('精选技能', 'Featured skills')}</h2>
-              <p className="muted">{t('精选一些适合马上开始使用的内置能力', 'A curated set of builtin capabilities, ready to use right away')}</p>
             </div>
           </div>
 

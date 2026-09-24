@@ -318,10 +318,21 @@ a:hover { text-decoration: none; color: var(--text); }
 
 .home-section-heading h2 {
   margin-top: 8px;
-  color: #eff3ef;
+  color: var(--accent);
   font-family: var(--font-heading), sans-serif;
   font-size: clamp(1.6rem, 3vw, 2.25rem);
   letter-spacing: -0.04em;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.home-section-heading h2::before {
+  content: "";
+  width: 5px;
+  height: 1.05em;
+  border-radius: 3px;
+  background: var(--accent);
+  flex-shrink: 0;
 }
 
 .home-popular .skill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -350,7 +361,7 @@ a:hover { text-decoration: none; color: var(--text); }
 [data-theme="light"] .home-subtitle { color: var(--text-secondary); }
 [data-theme="light"] .home-search { background: rgba(255, 255, 255, 0.94); }
 [data-theme="light"] .home-search-input { color: var(--text); }
-[data-theme="light"] .home-section-heading h2 { color: var(--text); }
+[data-theme="light"] .home-section-heading h2 { color: var(--accent); }
 [data-theme="light"] .home-popular .card { background: rgba(255, 255, 255, 0.82); }
 
 /* ═══════════════════════════════════════

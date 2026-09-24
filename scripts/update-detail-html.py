@@ -40,10 +40,12 @@ def body_html(s, lang):
     h.append(f"<h2>{'典型场景' if zh else 'When to use'}</h2><p>{triggers}</p>")
     h.append(f"<h2>{'产出与交付' if zh else 'Outputs'}</h2><p>{outputs}</p>")
     for card in s.get("cards", []):
-        png = base64.b64encode(open(os.path.join(MANIFEST["base"], s["group"], s["slug"], card["file"]), "rb").read()).decode()
+        path = os.path.join(MANIFEST["base"], s["group"], s["slug"], card["file"])
+        mime = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        png = base64.b64encode(open(path, "rb").read()).decode()
         cap = card["capZh"] if zh else card["capEn"]
         h.append(f"<h2>{'案例截图' if zh else 'Case study'}</h2>")
-        h.append(f"<figure><img src=\"data:image/png;base64,{png}\" alt=\"{cap}\">"
+        h.append(f"<figure><img src=\"data:{mime};base64,{png}\" alt=\"{cap}\">"
                  f"<figcaption>{cap}</figcaption></figure>")
     h.append(f"<blockquote>{notes}</blockquote>")
     return "".join(h)
