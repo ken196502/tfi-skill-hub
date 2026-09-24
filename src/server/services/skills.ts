@@ -87,12 +87,14 @@ export function getSkill(ref: SkillRef, viewer: Viewer | null): SkillWithOwner |
  * same row mapper and must stay small, so they never see the body.
  */
 function withDetailHtml(skill: SkillWithOwner): SkillWithOwner {
-  const { html, updatedAt } = skillRepo.getDetailHtml(skill.id)
-  if (html === null) return skill
+  const { html, updatedAt, htmlEn, updatedAtEn } = skillRepo.getDetailHtml(skill.id)
+  if (html === null && htmlEn === null) return skill
   return {
     ...skill,
-    detailHtml: html,
+    ...(html !== null ? { detailHtml: html } : {}),
     ...(updatedAt !== null ? { detailHtmlUpdatedAt: updatedAt } : {}),
+    ...(htmlEn !== null ? { detailHtmlEn: htmlEn } : {}),
+    ...(updatedAtEn !== null ? { detailHtmlEnUpdatedAt: updatedAtEn } : {}),
   }
 }
 
@@ -100,39 +102,52 @@ function withDetailHtml(skill: SkillWithOwner): SkillWithOwner {
 export const MAX_DETAIL_HTML_BYTES = 1024 * 1024
 
 /**
- * Replaces a skill's detail HTML.
+ * Replaces a skill's detail HTML, per language.
  *
- * The value is sanitised here, at the trust boundary, so anything read back —
- * from this endpoint or from a row written by other means — is safe to render.
- * The page sanitises again at render time rather than trusting the column.
- *
- * An empty or markup-only body clears the column, which returns the page to
- * rendering SKILL.md.
+ * `html` is the Chinese body, `htmlEn` the English one; either may be omitted
+ * to leave that language untouched, and an empty or markup-only value clears
+ * it — English then falls back to the Chinese body, which falls back to
+ * SKILL.md. Values are sanitised here, at the trust boundary, so anything read
+ * back — from this endpoint or from a row written by other means — is safe to
+ * render. The page sanitises again at render time rather than trusting the
+ * column.
  */
 export function setDetailHtml(
   user: UserRecord,
   ref: SkillRef,
-  html: string,
+  html: string | undefined,
+  htmlEn: string | undefined,
   tokenNamespaceId: string | null = null,
 ): SkillWithOwner {
   const skill = resolveSkillRef(ref, { id: user.id, role: user.role })
   if (!skill) notFound('skill not found')
   authorizeSkillWrite(skill, user, tokenNamespaceId)
+  if (html === undefined && htmlEn === undefined) fail('html or htmlEn is required')
 
-  const raw = (html ?? '').trim()
-  if (raw !== '' && Buffer.byteLength(raw, 'utf8') > MAX_DETAIL_HTML_BYTES) {
-    fail(`detail html exceeds ${MAX_DETAIL_HTML_BYTES} bytes`)
+  const clean = (raw: string | undefined): string | null | undefined => {
+    if (raw === undefined) return undefined
+    const text = raw.trim()
+    if (text !== '' && Buffer.byteLength(text, 'utf8') > MAX_DETAIL_HTML_BYTES) {
+      fail(`detail html exceeds ${MAX_DETAIL_HTML_BYTES} bytes`)
+    }
+    return text === '' || isBlankHtml(text) ? null : sanitizeHtml(text)
   }
 
-  const cleaned = raw === '' || isBlankHtml(raw) ? null : sanitizeHtml(raw)
-  skillRepo.setDetailHtml(skill.id, cleaned)
+  const cleaned = clean(html)
+  const cleanedEn = clean(htmlEn)
+  skillRepo.setDetailHtml(skill.id, cleaned, cleanedEn)
 
+  const touched: string[] = []
+  if (cleaned !== undefined) touched.push(cleaned === null ? 'zh:clear' : `zh:${cleaned.length}b`)
+  if (cleanedEn !== undefined) {
+    touched.push(cleanedEn === null ? 'en:clear' : `en:${cleanedEn.length}b`)
+  }
   auditLog({
     actorId: user.id,
-    action: cleaned === null ? 'clear_detail_html' : 'update_detail_html',
+    action: 'update_detail_html',
     resourceType: 'skill',
     resourceId: skill.id,
-    details: cleaned === null ? null : `bytes=${Buffer.byteLength(cleaned, 'utf8')}`,
+    details: touched.join(','),
   })
   return withDetailHtml(skillRepo.getWithOwnerById(skill.id)!)
 }

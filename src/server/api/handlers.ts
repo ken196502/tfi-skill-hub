@@ -894,14 +894,23 @@ export const skillWrite: Record<string, Handler> = {
    */
   updateDetailHtml: async (ctx) => {
     const user = requireUser(ctx)
-    const body = await jsonBody<{ html?: string }>(ctx.request)
+    const body = await jsonBody<{ html?: string; htmlEn?: string }>(ctx.request)
     if (body === null) return errorJson('invalid request body', 400)
     if (body.html !== undefined && typeof body.html !== 'string') {
       return errorJson('html must be a string', 400)
     }
+    if (body.htmlEn !== undefined && typeof body.htmlEn !== 'string') {
+      return errorJson('htmlEn must be a string', 400)
+    }
     try {
       return json(
-        skillSvc.setDetailHtml(user, refFromCtx(ctx), body.html ?? '', ctx.tokenNamespaceId),
+        skillSvc.setDetailHtml(
+          user,
+          refFromCtx(ctx),
+          body.html,
+          body.htmlEn,
+          ctx.tokenNamespaceId,
+        ),
       )
     } catch (e) {
       return serviceError(e)

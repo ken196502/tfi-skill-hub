@@ -39,11 +39,14 @@ function SkillDetailPage() {
     enabled: skill.isSuccess,
   })
   // Detail markup replaces SKILL.md on the page; only fetch the file when there
-  // is none, so a skill with a detail body costs one less request.
+  // is none for the current language, so a skill with a detail body costs one
+  // less request. English falls back to the Chinese body, then to SKILL.md.
+  const activeDetailHtml =
+    lang === 'en' ? (skill.data?.detailHtmlEn ?? skill.data?.detailHtml) : skill.data?.detailHtml
   const readme = useQuery({
     queryKey: ['skill', ref, 'file', 'SKILL.md'],
     queryFn: () => api.getSkillFile(ref, 'latest', 'SKILL.md'),
-    enabled: skill.isSuccess && !skill.data?.detailHtml,
+    enabled: skill.isSuccess && !activeDetailHtml,
     retry: false,
   })
 
@@ -81,8 +84,8 @@ function SkillDetailPage() {
           <div className="tab-bar">
             <span className="tab-btn active">{t('说明', 'Readme')}</span>
           </div>
-          {s.detailHtml ? (
-            <HtmlContent html={s.detailHtml} />
+          {activeDetailHtml ? (
+            <HtmlContent html={activeDetailHtml} />
           ) : readme.isLoading ? (
             <Loading />
           ) : readme.isError ? (

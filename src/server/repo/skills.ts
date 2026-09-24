@@ -413,31 +413,51 @@ export const skills = {
    * should not carry every body in full — so `detailHtml` is not part of the
    * row mapper and only the detail endpoint asks for it.
    */
-  getDetailHtml(id: string): { html: string | null; updatedAt: string | null } {
+  getDetailHtml(id: string): {
+    html: string | null
+    updatedAt: string | null
+    htmlEn: string | null
+    updatedAtEn: string | null
+  } {
     const row = query.get<Row>(
-      'SELECT detail_html, detail_html_updated_at FROM skills WHERE id = ?',
+      'SELECT detail_html, detail_html_updated_at, detail_html_en, detail_html_en_updated_at FROM skills WHERE id = ?',
       id,
     )
-    if (!row) return { html: null, updatedAt: null }
+    if (!row) return { html: null, updatedAt: null, htmlEn: null, updatedAtEn: null }
     return {
       html: row.detail_html == null ? null : asString(row.detail_html),
-      updatedAt: row.detail_html_updated_at == null ? null : asString(row.detail_html_updated_at),
+      updatedAt:
+        row.detail_html_updated_at == null ? null : asString(row.detail_html_updated_at),
+      htmlEn: row.detail_html_en == null ? null : asString(row.detail_html_en),
+      updatedAtEn:
+        row.detail_html_en_updated_at == null ? null : asString(row.detail_html_en_updated_at),
     }
   },
 
   /**
-   * Writes the detail markup. `null` clears it, which sends the page back to
-   * rendering SKILL.md. The caller is expected to have sanitised the value.
+   * Writes the detail markup. `null` clears a language, which sends that
+   * language back to its fallback (English → Chinese body → SKILL.md). Either
+   * language may be written independently; passing `undefined` leaves it
+   * untouched. The caller is expected to have sanitised the values.
    */
-  setDetailHtml(id: string, html: string | null): void {
+  setDetailHtml(
+    id: string,
+    html: string | null | undefined,
+    htmlEn: string | null | undefined,
+  ): void {
     const now = nowIso()
-    query.run(
-      'UPDATE skills SET detail_html = ?, detail_html_updated_at = ?, updated_at = ? WHERE id = ?',
-      html,
-      html === null ? null : now,
-      now,
-      id,
-    )
+    const sets: string[] = ['updated_at = ?']
+    const params: (string | null)[] = [now]
+    if (html !== undefined) {
+      sets.push('detail_html = ?', 'detail_html_updated_at = ?')
+      params.push(html, html === null ? null : now)
+    }
+    if (htmlEn !== undefined) {
+      sets.push('detail_html_en = ?', 'detail_html_en_updated_at = ?')
+      params.push(htmlEn, htmlEn === null ? null : now)
+    }
+    params.push(id)
+    query.run(`UPDATE skills SET ${sets.join(', ')} WHERE id = ?`, ...params)
   },
 
   setLatestVersion(id: string, versionId: string, at: string): void {

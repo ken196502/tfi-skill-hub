@@ -464,6 +464,17 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE skills ADD COLUMN detail_html_updated_at TEXT;
     `,
   },
+  {
+    // English variant of the rich detail text, mirroring the v3 bilingual
+    // catalogue columns. NULL means no English body yet — the page falls back
+    // to the Chinese detail_html (or SKILL.md when that is missing too).
+    v: 6,
+    name: 'skill detail html (english)',
+    sql: `
+      ALTER TABLE skills ADD COLUMN detail_html_en TEXT;
+      ALTER TABLE skills ADD COLUMN detail_html_en_updated_at TEXT;
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

@@ -86,6 +86,13 @@ export interface Skill {
    */
   detailHtml?: string
   detailHtmlUpdatedAt?: string
+  /**
+   * English variant of the rich detail body. Absent when not set — the page
+   * then renders the Chinese `detailHtml` (or SKILL.md) in English mode too.
+   * Same carriage rules as `detailHtml`: detail endpoint only, sanitised.
+   */
+  detailHtmlEn?: string
+  detailHtmlEnUpdatedAt?: string
   category: string
   tags: string[]
   downloads: number

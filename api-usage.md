@@ -77,13 +77,19 @@ curl -X PUT -H "Authorization: Bearer shk_Dc8r_AffkQsAluKZJu2OTTBXJqkimubuHGlBvU
   "https://skills.subx.fun/api/v1/skills/@admin/<slug>/detail-html"
 ```
 
-- 有 HTML 时详情页渲染 HTML、隐藏 SKILL.md 正文；**传空串 `""` 清除**，页面回退到 SKILL.md。
+- **双语正文**：`html` 是中文正文、`htmlEn` 是英文正文，可只传其一（只更新对应语言），
+  传空串 `""` 清除该语言。页面按站点语言渲染对应列：英文缺失时回退中文正文，
+  两者都没有时回退 SKILL.md；两个都不传返回 400。
+  ```bash
+  -d '{"html":"<h2>简介</h2>…","htmlEn":"<h2>Overview</h2>…"}'
+  ```
+- 有对应语言的 HTML 时详情页渲染 HTML、隐藏 SKILL.md 正文；清空后回退。
 - 服务端会做白名单消毒：`<script>`、`on*` 事件、`javascript:` 链接等会被剔除。
 - **在详情页里放截图（推荐 base64 内嵌）**：消毒器放行 `<img src="data:image/png|jpeg|webp|gif;base64,…">`，
   图片直接嵌进 HTML，不占技能包、不发新版本，更新图片只需重 PUT 一次 detail-html：
   ```bash
-  # 注意：整段 HTML（含 base64）≤ 1MB；纯图片的 HTML 不会被判为空内容
-  python3 scripts/update-detail-html.py            # 按清单重刷全部详情页
+  # 注意：单语言正文（含 base64）≤ 1MB；纯图片的正文不会被判为空内容
+  python3 scripts/update-detail-html.py            # 按清单重刷全部详情页（双语一次写入）
   python3 scripts/update-detail-html.py <slug>…    # 只刷指定技能
   ```
 - 也可以引用外链 `https://` 图片或包内文件

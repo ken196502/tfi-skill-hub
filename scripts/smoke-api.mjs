@@ -1100,8 +1100,8 @@ try {
 
   r = await req('GET', '/api/v1/skills?limit=20')
   check(
-    'list responses never carry the body',
-    r.status === 200 && (r.body?.data ?? []).every((s) => s.detailHtml === undefined),
+    'list responses never carry the body (either language)',
+    r.status === 200 && (r.body?.data ?? []).every((s) => s.detailHtml === undefined && s.detailHtmlEn === undefined),
     r.text.slice(0, 150),
   )
 
@@ -1129,6 +1129,25 @@ try {
     !dataUriHtml.includes('data:text/html') && !dataUriHtml.includes('data:image/svg') && dataUriHtml.split('src="#"').length >= 3,
     dataUriHtml.slice(0, 200),
   )
+
+  // The English body is its own column: it updates and clears independently,
+  // and the page falls back to the Chinese body while it is absent.
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { htmlEn: '<p>English body</p>' } })
+  check(
+    'htmlEn updates only the English body',
+    r.status === 200 && r.body?.detailHtmlEn === '<p>English body</p>' && r.body?.detailHtml === dataUriHtml,
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: {} })
+  check('a body without html or htmlEn → 400', r.status === 400 && r.body?.error === 'html or htmlEn is required', `${r.status} ${r.text}`)
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { htmlEn: '' } })
+  check(
+    'blank htmlEn clears only the English body',
+    r.status === 200 && r.body?.detailHtmlEn === undefined && r.body?.detailHtml === dataUriHtml,
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('GET', '/api/v1/skills/@admin/smoke-skill')
+  check('the English body clears independently on the skill endpoint', r.status === 200 && r.body?.detailHtmlEn === undefined && r.body?.detailHtml === dataUriHtml, `${r.status} ${r.text.slice(0, 150)}`)
 
   // The page picks one source or the other; the published file itself is
   // untouched and still served either way.

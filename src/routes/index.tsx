@@ -38,9 +38,9 @@ function HomePage() {
       <div className="container home-container">
         <section className="home-hero">
           <h1 className="home-title">
-            {t('用 AI 技能构建。', 'Build with AI Skills.')}
+            {t('为智能体打造的金融技能', 'Build with AGENT Skills')}
           </h1>
-          <p className="home-subtitle">{t('为你的 AI 智能体探索强大的能力。', 'Discover powerful capabilities for your AI agents.')}</p>
+          <p className="home-subtitle">{t('赋予你的AI智能体专业金融技能', 'Discover powerful capabilities for your AI agents.')}</p>
 
           <form className="home-search" onSubmit={onSearch} role="search">
             <input
