@@ -116,9 +116,20 @@ function HitCard({ hit }: { hit: SearchHit }) {
         </div>
         <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
-          <span>↓ {formatNumber(hit.downloads)}</span>
-          <span>★ {formatNumber(hit.stars)}</span>
-          {hit.ownerHandle && <span>@{hit.ownerHandle}</span>}
+          <span className="stat-downloads" title={t('下载量', 'Downloads')}>
+            <i className="stat-icon" aria-hidden="true">↓</i>
+            <b>{formatNumber(hit.downloads)}</b>
+          </span>
+          <span className="stat-stars" title={t('收藏数', 'Stars')}>
+            <i className="stat-icon" aria-hidden="true">★</i>
+            <b>{formatNumber(hit.stars)}</b>
+          </span>
+          {hit.ownerHandle && (
+            <span className="stat-owner">
+              <i className="stat-icon" aria-hidden="true">@</i>
+              {hit.ownerHandle}
+            </span>
+          )}
         </div>
       </div>
     </Link>

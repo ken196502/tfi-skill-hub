@@ -22,6 +22,7 @@ import { namespaces } from '../repo/core'
 import { search, type SearchOptions } from '../repo/search'
 import { isUuidLike, canViewSkill, type Viewer } from './shared'
 import { createZip } from '../zip'
+import { contentTypeFor } from '../content'
 
 const RUNTIME_API_VERSION = '2026-06-17'
 const MAX_REFS = 100
@@ -402,6 +403,9 @@ export function file(ctx: RequestContext): Response {
     status: 200,
     headers: {
       ETag: etag,
+      // Without a Content-Type, `X-Content-Type-Options: nosniff` makes strict
+      // browsers refuse to render images served from skill packages.
+      'Content-Type': contentTypeFor(clean),
       'X-Saker-File-SHA256': sha,
       'Cache-Control': digestSupplied
         ? 'public, max-age=31536000, immutable'

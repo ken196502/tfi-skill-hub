@@ -61,9 +61,18 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
         </div>
         <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
-          <span>↓ {formatNumber(skill.downloads)}</span>
-          <span>★ {formatNumber(skill.starsCount)}</span>
-          <span>@{skill.ownerHandle}</span>
+          <span className="stat-downloads" title={t('下载量', 'Downloads')}>
+            <i className="stat-icon" aria-hidden="true">↓</i>
+            <b>{formatNumber(skill.downloads)}</b>
+          </span>
+          <span className="stat-stars" title={t('收藏数', 'Stars')}>
+            <i className="stat-icon" aria-hidden="true">★</i>
+            <b>{formatNumber(skill.starsCount)}</b>
+          </span>
+          <span className="stat-owner">
+            <i className="stat-icon" aria-hidden="true">@</i>
+            {skill.ownerHandle}
+          </span>
         </div>
       </div>
     </Link>
@@ -94,9 +103,15 @@ export function PluginCard({ plugin }: { plugin: Plugin | PluginJson }) {
         </div>
         <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
-          <span>↓ {formatNumber(plugin.downloads)}</span>
+          <span className="stat-downloads" title={t('下载量', 'Downloads')}>
+            <i className="stat-icon" aria-hidden="true">↓</i>
+            <b>{formatNumber(plugin.downloads)}</b>
+          </span>
           {typeof (plugin as PluginJson).version === 'string' && (
-            <span>v{(plugin as PluginJson).version}</span>
+            <span className="stat-version">
+              <i className="stat-icon" aria-hidden="true">v</i>
+              {(plugin as PluginJson).version}
+            </span>
           )}
         </div>
       </div>

@@ -110,10 +110,17 @@ function safeChar(code: number): string {
 /**
  * Keeps http(s), mailto, tel and site-relative targets; everything else —
  * `javascript:`, `data:`, `vbscript:`, `file:` — becomes `#`.
+ *
+ * Exception: inline raster images (`data:image/…;base64`) are allowed so detail
+ * pages can embed screenshots without hosting. SVG data URIs stay blocked —
+ * SVG can carry scripts when loaded outside an `<img>` context.
  */
-function safeUrl(raw: string): string {
+const SAFE_DATA_IMAGE = /^data:image\/(png|jpe?g|webp|gif);base64,[a-z0-9+/=]+$/i
+
+function safeUrl(raw: string, tag = '', attr = ''): string {
   const value = decodeEntities(raw).replace(URL_NOISE, '').trim()
   if (value === '') return '#'
+  if (tag === 'img' && attr === 'src' && SAFE_DATA_IMAGE.test(value)) return value
   if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
     return /^(https?:|mailto:|tel:)/i.test(value) ? value : '#'
   }
@@ -169,7 +176,7 @@ function renderAttrs(tag: string, attrs: Attr[]): string {
     if (!perTag?.has(attr.name) && !globalAttrs.has(attr.name)) continue
 
     if (isUrlAttr(tag, attr.name)) {
-      out.push(`${attr.name}="${escapeHtml(safeUrl(attr.value))}"`)
+      out.push(`${attr.name}="${escapeHtml(safeUrl(attr.value, tag, attr.name))}"`)
       continue
     }
     if (attr.name === 'class') {
@@ -381,6 +388,9 @@ function escapeText(text: string): string {
 /** `true` when nothing but tags and whitespace would be rendered. */
 export function isBlankHtml(input: string): boolean {
   const text = sanitizeHtml(input)
+    // An <img> is content even without any text around it — a detail body made
+    // purely of screenshots must not be treated as blank.
+    .replace(/<img\b[^>]*>/gi, 'x')
     .replace(/<[^>]*>/g, '')
     .replace(/&[a-z]+;/gi, '')
     .trim()

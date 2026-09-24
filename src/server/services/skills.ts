@@ -96,8 +96,8 @@ function withDetailHtml(skill: SkillWithOwner): SkillWithOwner {
   }
 }
 
-/** Detail markup cap. Generous for a page, small enough to keep rows sane. */
-export const MAX_DETAIL_HTML_BYTES = 256 * 1024
+/** Detail markup cap. Generous enough for a page with inlined screenshots. */
+export const MAX_DETAIL_HTML_BYTES = 1024 * 1024
 
 /**
  * Replaces a skill's detail HTML.

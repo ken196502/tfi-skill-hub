@@ -39,17 +39,17 @@ function AdminPage() {
         <span className="admin-module-arrow">→</span>
       </Link>
       <Link className="admin-module-card" to="/admin/users">
-        <span className="admin-module-icon">◎</span>
+        <span className="admin-module-icon admin-module-icon-hue-label">◎</span>
         <span><strong>{t('用户管理', 'Users')}</strong><small>{t('创建用户、调整角色、封禁账号并签发 Token', 'Create users, change roles, ban accounts, and mint tokens')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
       <Link className="admin-module-card" to="/admin/content">
-        <span className="admin-module-icon">◇</span>
+        <span className="admin-module-icon admin-module-icon-hue-meta">◇</span>
         <span><strong>{t('内容审核', 'Content review')}</strong><small>{t('审核技能与插件，并管理公开或私有状态', 'Review skills and plugins, and manage their public/private state')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
       <Link className="admin-module-card" to="/admin/audit-logs">
-        <span className="admin-module-icon">≋</span>
+        <span className="admin-module-icon admin-module-icon-hue-hint">≋</span>
         <span><strong>{t('审计日志', 'Audit logs')}</strong><small>{t('追踪用户、审核与精选配置的管理员操作', 'Trace admin actions on users, reviews, and featured curation')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>

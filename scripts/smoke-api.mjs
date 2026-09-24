@@ -857,6 +857,22 @@ try {
     `${bundleRes.status}`,
   )
 
+  // Package files must carry a real Content-Type: the site sends
+  // `X-Content-Type-Options: nosniff`, so a typeless image is not rendered.
+  const ICON_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  r = await req(
+    'POST',
+    '/api/v1/skills',
+    { token: adminToken, body: multipart({ slug: 'smoke-skill', version: '1.2.0' }, { 'SKILL.md': skillMd('smoke-skill'), 'assets/icon.png': Buffer.from(ICON_PNG, 'base64') }) },
+  )
+  check('publish with a package image → 200', r.status === 200 && r.body?.version?.version === '1.2.0', `${r.status} ${r.text.slice(0, 200)}`)
+  const iconRes = await fetch(`${base}/api/runtime/skills/files?slug=${encodeURIComponent(skillRef)}&path=assets%2Ficon.png`)
+  check(
+    'runtime file serves images with a proper Content-Type',
+    iconRes.status === 200 && iconRes.headers.get('content-type') === 'image/png',
+    `${iconRes.status} ${iconRes.headers.get('content-type')}`,
+  )
+
   // ── 14. admin ─────────────────────────────────────────────────────────────
   section('Admin')
 
@@ -1087,6 +1103,31 @@ try {
     'list responses never carry the body',
     r.status === 200 && (r.body?.data ?? []).every((s) => s.detailHtml === undefined),
     r.text.slice(0, 150),
+  )
+
+  // Inline raster images may be embedded so detail pages can carry screenshots
+  // without hosting; every other data: URI (including SVG) stays neutralised.
+  // Image-only bodies are content too — isBlankHtml must not clear them.
+  const PNG_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', {
+    token: adminToken,
+    body: {
+      html:
+        `<img src="data:image/png;base64,${PNG_PIXEL}">` +
+        '<img src="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">' +
+        '<img src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=">',
+    },
+  })
+  const dataUriHtml = r.body?.detailHtml ?? ''
+  check(
+    'inline raster data images survive on img src',
+    dataUriHtml.includes(`data:image/png;base64,${PNG_PIXEL}`),
+    dataUriHtml.slice(0, 200) || `empty; status=${r.status} text=${r.text.slice(0, 200)}`,
+  )
+  check(
+    'non-image data URIs are neutralised (html, svg)',
+    !dataUriHtml.includes('data:text/html') && !dataUriHtml.includes('data:image/svg') && dataUriHtml.split('src="#"').length >= 3,
+    dataUriHtml.slice(0, 200),
   )
 
   // The page picks one source or the other; the published file itself is

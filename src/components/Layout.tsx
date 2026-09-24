@@ -89,7 +89,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="container header-inner">
           <Link to="/" className="logo" aria-label="TFI SKILL HUB">
             <span className="logo-mark" aria-hidden="true" />
-            <span className="logo-text">SKILL HUB</span>
+            <span className="logo-text">SKILLHUB</span>
           </Link>
           <nav className="nav">
             <Link to="/skills">{t('技能', 'Skills')}</Link>
