@@ -141,6 +141,7 @@ export function listSkills(params: {
   sort?: string
   category?: string
   namespace?: string
+  q?: string
 }): Promise<SkillListResponse> {
   const qs = new URLSearchParams()
   if (params.limit) qs.set('limit', String(params.limit))
@@ -148,6 +149,7 @@ export function listSkills(params: {
   if (params.sort) qs.set('sort', params.sort)
   if (params.category) qs.set('category', params.category)
   if (params.namespace) qs.set('namespace', params.namespace)
+  if (params.q) qs.set('q', params.q)
   const suffix = qs.toString()
   return request<SkillListResponse>(`/skills${suffix ? `?${suffix}` : ''}`)
 }

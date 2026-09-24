@@ -361,6 +361,27 @@ try {
   )
   check('the list response always includes nextCursor', typeof r.body?.nextCursor === 'string')
 
+  r = await req('GET', '/api/v1/skills?limit=10&q=smoke-skill')
+  check(
+    'the list q filter matches by slug',
+    r.status === 200 && r.body?.data?.some((s) => s.slug === 'smoke-skill'),
+    `${r.status} count=${r.body?.data?.length}`,
+  )
+
+  r = await req('GET', `/api/v1/skills?limit=10&q=${encodeURIComponent('冒烟测试')}`)
+  check(
+    'the list q filter matches by summary',
+    r.status === 200 && r.body?.data?.some((s) => s.slug === 'smoke-skill'),
+    `${r.status} count=${r.body?.data?.length}`,
+  )
+
+  r = await req('GET', '/api/v1/skills?limit=10&q=no-such-keyword-xyz')
+  check(
+    'the list q filter drops non-matching skills',
+    r.status === 200 && r.body?.data?.length === 0,
+    `${r.status} count=${r.body?.data?.length}`,
+  )
+
   r = await req('GET', `/api/v1/skills/${skillRef}`)
   check('GET namespaced skill detail → 200', r.status === 200 && r.body?.slug === 'smoke-skill', `${r.status} ${r.text.slice(0, 200)}`)
   check('ownerHandle is populated', r.body?.ownerHandle === ADMIN_USER, r.body?.ownerHandle)

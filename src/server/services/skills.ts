@@ -60,6 +60,7 @@ export interface ListOptions {
   cursor: string
   sort: string
   category: string
+  q: string
   namespaceSlug: string
   viewer: Viewer | null
 }
@@ -70,6 +71,7 @@ export function listSkills(opts: ListOptions) {
     cursor: opts.cursor,
     sort: opts.sort,
     category: opts.category,
+    q: opts.q,
     namespaceSlug: opts.namespaceSlug,
     viewer: opts.viewer,
   })

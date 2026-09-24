@@ -168,6 +168,8 @@ export interface ListOptions {
   cursor: string
   sort: string
   category: string
+  /** Free-text filter matched against slug, display name and summary (both languages). */
+  q: string
   /** Namespace **slug**; an unknown slug applies no filter (upstream quirk). */
   namespaceSlug: string
   viewer: Viewer | null
@@ -233,6 +235,17 @@ export const skills = {
     if (opts.category) {
       where.push('s.category = ?')
       params.push(opts.category)
+    }
+
+    if (opts.q) {
+      // Same escaping contract as the search LIKE fallback in repo/search.ts.
+      const like = `%${opts.q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`
+      where.push(
+        `(s.slug LIKE ? ESCAPE '\\' OR s.display_name LIKE ? ESCAPE '\\'` +
+          ` OR s.display_name_en LIKE ? ESCAPE '\\' OR s.summary LIKE ? ESCAPE '\\'` +
+          ` OR s.summary_en LIKE ? ESCAPE '\\')`,
+      )
+      params.push(like, like, like, like, like)
     }
 
     if (opts.namespaceSlug) {

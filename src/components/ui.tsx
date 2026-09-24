@@ -47,16 +47,18 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
   return (
     <Link to="/skills/$" params={{ _splat: skillPath(skill) }}>
       <div className="card">
-        <div className="card-title">{name}</div>
-        {skill.tags.length > 0 && (
-          <div className="card-tags">
-            {skill.tags.slice(0, 3).map((tag) => (
-              <span className="tag" key={tag}>
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="card-head">
+          <div className="card-title">{name}</div>
+          {skill.tags.length > 0 && (
+            <div className="card-tags">
+              {skill.tags.slice(0, 3).map((tag) => (
+                <span className="tag" key={tag}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
           <span>↓ {formatNumber(skill.downloads)}</span>
@@ -78,16 +80,18 @@ export function PluginCard({ plugin }: { plugin: Plugin | PluginJson }) {
   return (
     <Link to="/plugins/$" params={{ _splat: ref }}>
       <div className="card">
-        <div className="card-title">{name}</div>
-        {plugin.tags.length > 0 && (
-          <div className="card-tags">
-            {plugin.tags.slice(0, 3).map((tag) => (
-              <span className="tag" key={tag}>
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="card-head">
+          <div className="card-title">{name}</div>
+          {plugin.tags.length > 0 && (
+            <div className="card-tags">
+              {plugin.tags.slice(0, 3).map((tag) => (
+                <span className="tag" key={tag}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
           <span>↓ {formatNumber(plugin.downloads)}</span>

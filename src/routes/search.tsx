@@ -102,16 +102,18 @@ function HitCard({ hit }: { hit: SearchHit }) {
   return (
     <Link to={to} params={{ _splat: ref }}>
       <div className="card">
-        <div className="card-title">{name}</div>
-        {hit.tags.length > 0 && (
-          <div className="card-tags">
-            {hit.tags.slice(0, 3).map((tag) => (
-              <span className="tag" key={tag}>
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
+        <div className="card-head">
+          <div className="card-title">{name}</div>
+          {hit.tags.length > 0 && (
+            <div className="card-tags">
+              {hit.tags.slice(0, 3).map((tag) => (
+                <span className="tag" key={tag}>
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
         <div className="card-meta">
           <span>↓ {formatNumber(hit.downloads)}</span>
