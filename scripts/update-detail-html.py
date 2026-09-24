@@ -41,7 +41,8 @@ def body_html(s, lang):
     h.append(f"<h2>{'产出与交付' if zh else 'Outputs'}</h2><p>{outputs}</p>")
     for card in s.get("cards", []):
         path = os.path.join(MANIFEST["base"], s["group"], s["slug"], card["file"])
-        mime = "image/jpeg" if path.lower().endswith((".jpg", ".jpeg")) else "image/png"
+        ext = path.lower().rsplit(".", 1)[-1]
+        mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "webp": "image/webp"}.get(ext, "image/png")
         png = base64.b64encode(open(path, "rb").read()).decode()
         cap = card["capZh"] if zh else card["capEn"]
         h.append(f"<h2>{'案例截图' if zh else 'Case study'}</h2>")
