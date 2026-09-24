@@ -8,6 +8,7 @@
  */
 
 import type {
+  AdminApiKey,
   APIToken,
   AuditLog,
   CommentWithUser,
@@ -167,6 +168,14 @@ export function getSkillFile(ref: string, version: string, path: string): Promis
 
 export function deleteSkill(ref: string): Promise<{ message: string }> {
   return request<{ message: string }>(`/skills/${encodeURI(ref)}`, { method: 'DELETE' })
+}
+
+/** `ref` is `slug` or `@namespace/slug`. An empty `html` clears the detail. */
+export function updateSkillDetailHtml(ref: string, html: string): Promise<SkillWithOwner> {
+  return request<SkillWithOwner>(`/skills/${encodeURI(ref)}/detail-html`, {
+    method: 'PUT',
+    body: JSON.stringify({ html }),
+  })
 }
 
 export function requestPublic(ref: string): Promise<{ message: string }> {
@@ -563,6 +572,26 @@ export function adminSetPluginVisibility(ref: string, visibility: string): Promi
     method: 'POST',
     body: JSON.stringify({ visibility }),
   })
+}
+
+export function adminListApiKeys(): Promise<{ data: AdminApiKey[] }> {
+  return request<{ data: AdminApiKey[] }>('/admin/api-keys')
+}
+
+export function adminCreateApiKey(input: {
+  name: string
+  scopes: string[]
+  namespaceSlug?: string
+  expiresIn?: string
+}): Promise<{ key: string; metadata: AdminApiKey }> {
+  return request<{ key: string; metadata: AdminApiKey }>('/admin/api-keys', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+export function adminRevokeApiKey(id: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/admin/api-keys/${id}`, { method: 'DELETE' })
 }
 
 export function adminAuditLogs(options: {

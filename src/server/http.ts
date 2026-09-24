@@ -14,9 +14,18 @@
  */
 
 import { getConfig } from './config'
-import { clearSessionCookie, extractPrefix, normalizeScope, readSessionCookie, tokenMatches } from './auth'
+import {
+  clearSessionCookie,
+  extractPrefix,
+  extractApiKeyPrefix,
+  isApiKey,
+  normalizeScope,
+  readSessionCookie,
+  tokenMatches,
+} from './auth'
 import { tokens, users, type UserRecord } from './repo/core'
-import type { TokenScope } from '../lib/types'
+import { apiKeys } from './repo/apiKeys'
+import type { ApiKeyScope, TokenScope } from '../lib/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -25,6 +34,13 @@ import type { TokenScope } from '../lib/types'
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
 export type RateBucket = 'read' | 'write' | 'download' | 'none'
 export type AuthLevel = 'public' | 'optional' | 'required' | 'admin'
+
+/** Set only when the caller authenticated with an admin API key. */
+export interface ApiKeyIdentity {
+  id: string
+  scopes: ApiKeyScope[]
+  namespaceId: string | null
+}
 
 export interface RequestContext {
   request: Request
@@ -39,6 +55,11 @@ export interface RequestContext {
   tokenScope: TokenScope | null
   /** Set only for team (namespace-bound) tokens. */
   tokenNamespaceId: string | null
+  /**
+   * Admin API key the request was made with, if any. A key acts as its creator
+   * but is additionally narrowed to the endpoints its scopes cover.
+   */
+  apiKey: ApiKeyIdentity | null
   clientIp: string
   requestId: string
 }
@@ -51,6 +72,12 @@ export interface RouteDef {
   handler: Handler
   bucket?: RateBucket
   auth?: AuthLevel
+  /**
+   * Capability an admin API key must hold to call this route. Routes without
+   * one reject every API key, which keeps a key scoped to the job it was
+   * minted for rather than to its creator's whole role.
+   */
+  apiKeyScope?: ApiKeyScope
   /** Adds `Deprecation: true` + `Sunset: <date>` headers. */
   deprecate?: string
 }
@@ -228,9 +255,10 @@ export interface Identity {
   user: UserRecord | null
   scope: TokenScope | null
   namespaceId: string | null
+  apiKey: ApiKeyIdentity | null
 }
 
-const ANONYMOUS: Identity = { user: null, scope: null, namespaceId: null }
+const ANONYMOUS: Identity = { user: null, scope: null, namespaceId: null, apiKey: null }
 
 /**
  * Resolution order: `Authorization: Bearer` first, then the `session_token`
@@ -255,24 +283,57 @@ export function resolveIdentity(request: Request): Identity {
 
 function authenticate(raw: string): Identity {
   try {
-    const prefix = extractPrefix(raw)
-    const rows = tokens.getByPrefix(prefix)
-    for (const row of rows) {
-      if (!tokenMatches(row.tokenHash, raw)) continue
-      if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) continue
-
-      const user = users.getById(row.userId)
-      if (!user || user.isBanned) return ANONYMOUS
-
-      tokens.touchLastUsed(row.id)
-      return {
-        user,
-        scope: normalizeScope(row.scope),
-        namespaceId: row.namespaceId ?? null,
-      }
-    }
+    return isApiKey(raw) ? authenticateApiKey(raw) : authenticateToken(raw)
   } catch {
     // Any lookup failure is simply "unauthenticated".
+  }
+  return ANONYMOUS
+}
+
+function authenticateToken(raw: string): Identity {
+  const prefix = extractPrefix(raw)
+  const rows = tokens.getByPrefix(prefix)
+  for (const row of rows) {
+    if (!tokenMatches(row.tokenHash, raw)) continue
+    if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) continue
+
+    const user = users.getById(row.userId)
+    if (!user || user.isBanned) return ANONYMOUS
+
+    tokens.touchLastUsed(row.id)
+    return {
+      user,
+      scope: normalizeScope(row.scope),
+      namespaceId: row.namespaceId ?? null,
+      apiKey: null,
+    }
+  }
+  return ANONYMOUS
+}
+
+/**
+ * An API key acts as the admin who minted it — but only while that admin still
+ * is one: demoting or banning the creator invalidates every key it issued, so
+ * a key can never outlive the authority it was granted under.
+ */
+function authenticateApiKey(raw: string): Identity {
+  const rows = apiKeys.getByPrefix(extractApiKeyPrefix(raw))
+  for (const row of rows) {
+    if (!tokenMatches(row.keyHash, raw)) continue
+    if (row.revokedAt) return ANONYMOUS
+    if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) return ANONYMOUS
+
+    const user = users.getById(row.createdBy)
+    if (!user || user.isBanned || user.role !== 'admin') return ANONYMOUS
+
+    const namespaceId = row.namespaceId ?? null
+    apiKeys.touchLastUsed(row.id)
+    return {
+      user,
+      scope: null,
+      namespaceId,
+      apiKey: { id: row.id, scopes: row.scopes, namespaceId },
+    }
   }
   return ANONYMOUS
 }
@@ -407,6 +468,20 @@ export async function dispatch(
     }
   }
 
+  // API-key callers are narrowed to the endpoints their scopes cover. The check
+  // sits after authentication so a revoked or expired key still reports 401.
+  if (identity.apiKey) {
+    const required = route.apiKeyScope
+    if (!required || !identity.apiKey.scopes.includes(required)) {
+      return {
+        matched: true,
+        response: withSecurityHeaders(
+          json({ error: 'this API key is not allowed for this endpoint' }, 403, baseHeaders),
+        ),
+      }
+    }
+  }
+
   const ctx: RequestContext = {
     request,
     url,
@@ -415,6 +490,7 @@ export async function dispatch(
     user: identity.user,
     tokenScope: identity.scope,
     tokenNamespaceId: identity.namespaceId,
+    apiKey: identity.apiKey,
     clientIp,
     requestId,
   }

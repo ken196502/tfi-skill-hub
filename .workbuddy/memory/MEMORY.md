@@ -11,6 +11,27 @@
   （ZIP、Markdown、semver、scrypt、JWT 式 token 全部自己实现）
 - 新增第三方依赖前先问：Node 标准库能不能满足
 
+## 管理端 API Key（2026-09-24 新增）
+
+- 独立表 `api_keys`（migration v4）+ `shk_` 前缀（`SKILLHUB_API_KEY_PREFIX`），
+  与 `clh_` 个人 token 完全分开；个人 token 行为未改。
+- 权限用 `ApiKeyScope`（`skills:read|publish|delete|moderate`），逐路由标 `apiKeyScope`；
+  **未标注的路由一律拒绝 key**，所以 key 只能管技能。
+- key 认证得到的是签发者身份，但签发者必须是仍是 admin 且未封禁，否则视为无效。
+- 页面在 `/admin/api-keys`（AdminShell 的 `apikeys` 导航项）。
+
+## 技能详情 HTML（2026-09-24 新增）
+
+- `PUT /api/v1/skills/:slug/detail-html`（及 `@:namespace/:slug` 版），`{ html }`；空串清除，
+  页面回退 SKILL.md。存在 `skills.detail_html`（migration v5），不进版本表。
+- **列表接口绝不能带正文**：`detail_html` 不在 `mapSkill` 里，只有详情路径单独取。
+- 消毒器在 `src/lib/sanitizeHtml.ts`（零依赖、白名单重建式），**服务端入库前 + 页面渲染前各跑一次**。
+- 权限走 `authorizeSkillWrite`（owner / 命名空间成员 / admin），路由标 `K_PUBLISH`。
+- **HTML 与 SKILL.md 二选一**：有 `detailHtml` 时页面渲染 HTML，且连 SKILL.md 请求都不发；
+  清空后回到 md。二选一只影响展示，已发布的 SKILL.md 文件不受影响。
+- 页面「API usage」区 + 每行「复制调用说明」：示例按该 key 的 scopes 过滤；
+  明文只在创建后那一刻可得，其余行只能嵌入 16 位前缀掩码。
+
 ## 目录职责（不要越界）
 
 - `src/server/repo/*.ts` —— **唯一**写 SQL 的地方

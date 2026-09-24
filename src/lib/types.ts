@@ -14,6 +14,24 @@ export type UserRole = 'user' | 'moderator' | 'admin' | 'agent'
 export type NamespaceType = 'personal' | 'team'
 export type NamespaceRole = 'owner' | 'admin' | 'member' | 'reader'
 export type TokenScope = 'full' | 'read' | 'publish'
+
+/**
+ * Capabilities an admin API key can hold.
+ *
+ * Unlike personal tokens (which carry a broad `full`/`read`/`publish` scope),
+ * an API key is minted for one job — managing the skill catalogue over HTTP —
+ * so its powers are enumerated per endpoint group. A route declares the single
+ * capability it needs (`apiKeyScope` in the route table) and a key is refused
+ * unless it holds that one.
+ */
+export type ApiKeyScope = 'skills:read' | 'skills:publish' | 'skills:delete' | 'skills:moderate'
+
+export const API_KEY_SCOPES: ApiKeyScope[] = [
+  'skills:read',
+  'skills:publish',
+  'skills:delete',
+  'skills:moderate',
+]
 export type SignatureStatus = 'unsigned' | 'unverified' | 'verified' | 'invalid'
 
 export const VALID_CATEGORIES = [
@@ -64,6 +82,15 @@ export interface Skill {
   moderationStatus: ModerationStatus
   isSuspicious: boolean
   kind: SkillKind
+  /**
+   * Rich detail markup rendered on the skill's page instead of SKILL.md.
+   * Sanitised on the way in; absent when the publisher has not set one, in
+   * which case the page falls back to the SKILL.md of the latest version.
+   * Only the detail endpoint carries it — list responses never do, because a
+   * page of skills would otherwise ship every body in full.
+   */
+  detailHtml?: string
+  detailHtmlUpdatedAt?: string
   category: string
   tags: string[]
   downloads: number
@@ -211,6 +238,30 @@ export interface APIToken {
   label?: string
   prefix: string
   scope: TokenScope
+  lastUsedAt?: string
+  expiresAt?: string
+  createdAt: string
+  revokedAt?: string
+}
+
+/**
+ * An admin-issued API key. New in this rewrite — the Go registry had no
+ * equivalent, so the shape follows the conventions of the rest of this file:
+ * camelCase, and optional keys absent rather than `null`.
+ *
+ * The secret itself is never stored or returned: only the display `prefix`
+ * survives, and the raw value is handed back once, at creation time.
+ */
+export interface AdminApiKey {
+  id: string
+  name: string
+  createdBy: string
+  /** Joined for the admin listing; absent when the creator was deleted. */
+  createdByHandle?: string
+  namespaceId?: string
+  namespaceSlug?: string
+  prefix: string
+  scopes: ApiKeyScope[]
   lastUsedAt?: string
   expiresAt?: string
   createdAt: string

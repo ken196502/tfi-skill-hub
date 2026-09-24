@@ -29,6 +29,7 @@ import {
   type FileMap,
 } from '../content'
 import { createZip } from '../zip'
+import { sanitizeHtml, isBlankHtml } from '../../lib/sanitizeHtml'
 import { isValid as isValidSemver, compare as compareSemver, nextPatch } from '../semver'
 import { members, namespaces, type UserRecord } from '../repo/core'
 import {
@@ -75,7 +76,63 @@ export function listSkills(opts: ListOptions) {
 }
 
 export function getSkill(ref: SkillRef, viewer: Viewer | null): SkillWithOwner | null {
-  return resolveSkillRef(ref, viewer)
+  const skill = resolveSkillRef(ref, viewer)
+  return skill ? withDetailHtml(skill) : null
+}
+
+/**
+ * Detail markup is fetched on the detail path only. Listing endpoints share the
+ * same row mapper and must stay small, so they never see the body.
+ */
+function withDetailHtml(skill: SkillWithOwner): SkillWithOwner {
+  const { html, updatedAt } = skillRepo.getDetailHtml(skill.id)
+  if (html === null) return skill
+  return {
+    ...skill,
+    detailHtml: html,
+    ...(updatedAt !== null ? { detailHtmlUpdatedAt: updatedAt } : {}),
+  }
+}
+
+/** Detail markup cap. Generous for a page, small enough to keep rows sane. */
+export const MAX_DETAIL_HTML_BYTES = 256 * 1024
+
+/**
+ * Replaces a skill's detail HTML.
+ *
+ * The value is sanitised here, at the trust boundary, so anything read back —
+ * from this endpoint or from a row written by other means — is safe to render.
+ * The page sanitises again at render time rather than trusting the column.
+ *
+ * An empty or markup-only body clears the column, which returns the page to
+ * rendering SKILL.md.
+ */
+export function setDetailHtml(
+  user: UserRecord,
+  ref: SkillRef,
+  html: string,
+  tokenNamespaceId: string | null = null,
+): SkillWithOwner {
+  const skill = resolveSkillRef(ref, { id: user.id, role: user.role })
+  if (!skill) notFound('skill not found')
+  authorizeSkillWrite(skill, user, tokenNamespaceId)
+
+  const raw = (html ?? '').trim()
+  if (raw !== '' && Buffer.byteLength(raw, 'utf8') > MAX_DETAIL_HTML_BYTES) {
+    fail(`detail html exceeds ${MAX_DETAIL_HTML_BYTES} bytes`)
+  }
+
+  const cleaned = raw === '' || isBlankHtml(raw) ? null : sanitizeHtml(raw)
+  skillRepo.setDetailHtml(skill.id, cleaned)
+
+  auditLog({
+    actorId: user.id,
+    action: cleaned === null ? 'clear_detail_html' : 'update_detail_html',
+    resourceType: 'skill',
+    resourceId: skill.id,
+    details: cleaned === null ? null : `bytes=${Buffer.byteLength(cleaned, 'utf8')}`,
+  })
+  return withDetailHtml(skillRepo.getWithOwnerById(skill.id)!)
 }
 
 /** Version history, newest first. Invisible skills yield an empty list. */

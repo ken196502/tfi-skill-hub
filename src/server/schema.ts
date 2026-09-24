@@ -425,6 +425,45 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE plugins ADD COLUMN summary_en TEXT;
     `,
   },
+  {
+    // Admin-issued API keys. Deliberately separate from `api_tokens`: those are
+    // a user's personal credentials (session-ish, `clh_` prefix, broad scope)
+    // while these are minted for one job — driving the skill catalogue over
+    // HTTP — carry per-endpoint capabilities, and are listed/revoked from the
+    // admin console as their own resource.
+    v: 4,
+    name: 'admin api keys',
+    sql: `
+      CREATE TABLE api_keys (
+        id           TEXT PRIMARY KEY,
+        name         TEXT NOT NULL,
+        created_by   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        namespace_id TEXT REFERENCES namespaces(id) ON DELETE CASCADE,
+        prefix       TEXT NOT NULL,
+        key_hash     TEXT NOT NULL UNIQUE,
+        scopes       TEXT NOT NULL DEFAULT '[]',
+        last_used_at TEXT,
+        expires_at   TEXT,
+        created_at   TEXT NOT NULL,
+        revoked_at   TEXT
+      );
+      CREATE INDEX idx_api_keys_creator  ON api_keys (created_by);
+      CREATE INDEX idx_api_keys_prefix   ON api_keys (prefix);
+      CREATE INDEX idx_api_keys_namespace ON api_keys (namespace_id);
+    `,
+  },
+  {
+    // Rich detail text for a skill, rendered on its detail page instead of
+    // SKILL.md when present. Kept out of `skill_versions` deliberately: it is
+    // presentation, not versioned content, so correcting it must not require
+    // publishing a new release. Stored already sanitised (see lib/sanitizeHtml).
+    v: 5,
+    name: 'skill detail html',
+    sql: `
+      ALTER TABLE skills ADD COLUMN detail_html TEXT;
+      ALTER TABLE skills ADD COLUMN detail_html_updated_at TEXT;
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

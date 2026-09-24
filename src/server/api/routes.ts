@@ -13,11 +13,22 @@
 
 import { compileRoutes, dispatch, type RouteDef } from '../http'
 import * as h from './handlers'
+import type { ApiKeyScope } from '../../lib/types'
 
 // Shorthands for the three middleware postures used across the table.
 const pub = { auth: 'public', bucket: 'read' } as const
 const opt = { auth: 'optional', bucket: 'read' } as const
 const authed = { auth: 'required', bucket: 'write' } as const
+
+/**
+ * Capability an admin API key needs to call a route. Routes left unannotated
+ * reject every key, so a key issued to drive the skill catalogue cannot drift
+ * into user, plugin or namespace administration.
+ */
+const K_READ = { apiKeyScope: 'skills:read' } as const satisfies { apiKeyScope: ApiKeyScope }
+const K_PUBLISH = { apiKeyScope: 'skills:publish' } as const satisfies { apiKeyScope: ApiKeyScope }
+const K_DELETE = { apiKeyScope: 'skills:delete' } as const satisfies { apiKeyScope: ApiKeyScope }
+const K_MODERATE = { apiKeyScope: 'skills:moderate' } as const satisfies { apiKeyScope: ApiKeyScope }
 
 /** Response headers marking the legacy slug-addressed skill routes as deprecated. */
 const SUNSET = '2026-12-31'
@@ -45,30 +56,30 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/api/v1/auth/device/token', handler: h.auth.deviceToken, auth: 'public', bucket: 'write' },
 
     // ── Search & browsing ────────────────────────────────────────────────────
-    { method: 'GET', path: '/api/v1/search', handler: h.skillRead.search, ...opt },
-    { method: 'GET', path: '/api/v1/categories', handler: h.skillRead.categories, ...opt },
-    { method: 'GET', path: '/api/v1/features', handler: h.skillRead.listFeatures, ...opt },
-    { method: 'GET', path: '/api/v1/skills', handler: h.skillRead.listSkills, ...opt },
-    { method: 'GET', path: '/api/v1/resolve', handler: h.skillRead.resolve, ...opt },
-    { method: 'GET', path: '/api/v1/namespaces/:slug/skills', handler: h.skillRead.listByNamespace, ...opt },
+    { method: 'GET', path: '/api/v1/search', handler: h.skillRead.search, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/categories', handler: h.skillRead.categories, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/features', handler: h.skillRead.listFeatures, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/skills', handler: h.skillRead.listSkills, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/resolve', handler: h.skillRead.resolve, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/namespaces/:slug/skills', handler: h.skillRead.listByNamespace, ...opt, ...K_READ },
 
     // Legacy slug-only skill reads (deprecated) and their namespace-qualified twins.
-    { method: 'GET', path: '/api/v1/skills/:slug', handler: h.skillRead.getSkill, ...opt, deprecate: SUNSET },
-    { method: 'GET', path: '/api/v1/skills/:slug/versions', handler: h.skillRead.getVersions, ...opt, deprecate: SUNSET },
-    { method: 'GET', path: '/api/v1/skills/:slug/versions/:version', handler: h.skillRead.getVersion, ...opt, deprecate: SUNSET },
-    { method: 'GET', path: '/api/v1/skills/:slug/file', handler: h.skillRead.getFile, ...opt, deprecate: SUNSET },
+    { method: 'GET', path: '/api/v1/skills/:slug', handler: h.skillRead.getSkill, ...opt, ...K_READ, deprecate: SUNSET },
+    { method: 'GET', path: '/api/v1/skills/:slug/versions', handler: h.skillRead.getVersions, ...opt, ...K_READ, deprecate: SUNSET },
+    { method: 'GET', path: '/api/v1/skills/:slug/versions/:version', handler: h.skillRead.getVersion, ...opt, ...K_READ, deprecate: SUNSET },
+    { method: 'GET', path: '/api/v1/skills/:slug/file', handler: h.skillRead.getFile, ...opt, ...K_READ, deprecate: SUNSET },
     { method: 'GET', path: '/api/v1/skills/:slug/ratings', handler: h.social.listRatings, ...opt },
     { method: 'GET', path: '/api/v1/skills/:slug/comments', handler: h.social.listComments, ...opt },
 
-    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillRead.getSkill, ...opt },
-    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/versions', handler: h.skillRead.getVersions, ...opt },
-    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/versions/:version', handler: h.skillRead.getVersion, ...opt },
-    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillRead.getFile, ...opt },
+    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillRead.getSkill, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/versions', handler: h.skillRead.getVersions, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/versions/:version', handler: h.skillRead.getVersion, ...opt, ...K_READ },
+    { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillRead.getFile, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/ratings', handler: h.social.listRatings, ...opt },
     { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/comments', handler: h.social.listComments, ...opt },
 
     // ── Download ─────────────────────────────────────────────────────────────
-    { method: 'GET', path: '/api/v1/download', handler: h.skillRead.download, auth: 'optional', bucket: 'download' },
+    { method: 'GET', path: '/api/v1/download', handler: h.skillRead.download, auth: 'optional', bucket: 'download', ...K_READ },
 
     // ── Plugins (reads) ──────────────────────────────────────────────────────
     { method: 'GET', path: '/api/v1/plugins', handler: h.pluginRead.listPlugins, ...opt },
@@ -81,37 +92,39 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug/versions', handler: h.pluginRead.pluginVersions, ...opt },
 
     // ── Identity & personal tokens ───────────────────────────────────────────
-    { method: 'GET', path: '/api/v1/whoami', handler: h.auth.whoami, ...authed },
+    { method: 'GET', path: '/api/v1/whoami', handler: h.auth.whoami, ...authed, ...K_READ },
     { method: 'GET', path: '/api/v1/tokens', handler: h.personalTokens.list, ...authed },
     { method: 'POST', path: '/api/v1/tokens', handler: h.personalTokens.create, ...authed },
     { method: 'DELETE', path: '/api/v1/tokens/:id', handler: h.personalTokens.revoke, ...authed },
 
     // ── Skill publishing & lifecycle ─────────────────────────────────────────
-    { method: 'POST', path: '/api/v1/skills', handler: h.skillWrite.publish, ...authed },
+    { method: 'POST', path: '/api/v1/skills', handler: h.skillWrite.publish, ...authed, ...K_PUBLISH },
     { method: 'POST', path: '/api/v1/skills/direct-upload', handler: h.skillWrite.directUploadPlan, ...authed },
     { method: 'POST', path: '/api/v1/skills/direct-upload/complete', handler: h.skillWrite.directUploadComplete, ...authed },
 
-    { method: 'DELETE', path: '/api/v1/skills/:slug', handler: h.skillWrite.remove, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/purge', handler: h.skillWrite.purge, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/undelete', handler: h.skillWrite.undelete, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/request-public', handler: h.skillWrite.requestPublic, ...authed },
-    { method: 'PUT', path: '/api/v1/skills/:slug/file', handler: h.skillWrite.updateFile, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/transfer', handler: h.skillWrite.transfer, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...authed },
+    { method: 'DELETE', path: '/api/v1/skills/:slug', handler: h.skillWrite.remove, ...authed, ...K_DELETE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/purge', handler: h.skillWrite.purge, ...authed, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/:slug/undelete', handler: h.skillWrite.undelete, ...authed, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/:slug/request-public', handler: h.skillWrite.requestPublic, ...authed, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...authed, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/:slug/file', handler: h.skillWrite.updateFile, ...authed, ...K_PUBLISH },
+    { method: 'POST', path: '/api/v1/skills/:slug/transfer', handler: h.skillWrite.transfer, ...authed, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...authed, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...authed, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...authed, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...authed, ...K_MODERATE },
 
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillWrite.remove, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/purge', handler: h.skillWrite.purge, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/undelete', handler: h.skillWrite.undelete, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/request-public', handler: h.skillWrite.requestPublic, ...authed },
-    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillWrite.updateFile, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/transfer', handler: h.skillWrite.transfer, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...authed },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillWrite.remove, ...authed, ...K_DELETE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/purge', handler: h.skillWrite.purge, ...authed, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/undelete', handler: h.skillWrite.undelete, ...authed, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/request-public', handler: h.skillWrite.requestPublic, ...authed, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...authed, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillWrite.updateFile, ...authed, ...K_PUBLISH },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/transfer', handler: h.skillWrite.transfer, ...authed, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...authed, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...authed, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...authed, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...authed, ...K_MODERATE },
 
     // ── Stars / ratings / comments ───────────────────────────────────────────
     { method: 'POST', path: '/api/v1/stars/:slug', handler: h.social.star, ...authed },
@@ -170,13 +183,16 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/admin/users', handler: h.admin.listUsers, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/users', handler: h.admin.createUser, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/tokens', handler: h.admin.createToken, auth: 'admin' },
-    { method: 'GET', path: '/api/v1/admin/skills', handler: h.admin.listSkills, auth: 'admin' },
+    { method: 'GET', path: '/api/v1/admin/api-keys', handler: h.admin.listApiKeys, auth: 'admin', bucket: 'write' },
+    { method: 'POST', path: '/api/v1/admin/api-keys', handler: h.admin.createApiKey, auth: 'admin', bucket: 'write' },
+    { method: 'DELETE', path: '/api/v1/admin/api-keys/:id', handler: h.admin.revokeApiKey, auth: 'admin', bucket: 'write' },
+    { method: 'GET', path: '/api/v1/admin/skills', handler: h.admin.listSkills, auth: 'admin', ...K_MODERATE },
     { method: 'GET', path: '/api/v1/admin/features', handler: h.admin.listFeaturedSkills, auth: 'admin' },
     { method: 'PUT', path: '/api/v1/admin/features', handler: h.admin.replaceFeaturedSkills, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/skills/:slug/review', handler: h.admin.reviewSkill, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/skills/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/review', handler: h.admin.reviewSkill, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin' },
+    { method: 'POST', path: '/api/v1/admin/skills/:slug/review', handler: h.admin.reviewSkill, auth: 'admin', ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/admin/skills/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin', ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/review', handler: h.admin.reviewSkill, auth: 'admin', ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin', ...K_MODERATE },
     { method: 'GET', path: '/api/v1/admin/plugins', handler: h.admin.listPlugins, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/plugins/:slug/review', handler: h.admin.reviewPlugin, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/plugins/:slug/visibility', handler: h.admin.setPluginVisibility, auth: 'admin' },

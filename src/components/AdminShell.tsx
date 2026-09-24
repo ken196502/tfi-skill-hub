@@ -2,13 +2,14 @@ import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useT } from '../lib/i18n'
 
-export type AdminSection = 'overview' | 'users' | 'content' | 'features' | 'audit'
+export type AdminSection = 'overview' | 'users' | 'content' | 'features' | 'apikeys' | 'audit'
 
-const ITEMS: Array<{ key: AdminSection; labelKey: 'overview' | 'users' | 'content' | 'features' | 'audit'; to: string }> = [
+const ITEMS: Array<{ key: AdminSection; labelKey: 'overview' | 'users' | 'content' | 'features' | 'apikeys' | 'audit'; to: string }> = [
   { key: 'overview', labelKey: 'overview', to: '/admin' },
   { key: 'users', labelKey: 'users', to: '/admin/users' },
   { key: 'content', labelKey: 'content', to: '/admin/content' },
   { key: 'features', labelKey: 'features', to: '/admin/features' },
+  { key: 'apikeys', labelKey: 'apikeys', to: '/admin/api-keys' },
   { key: 'audit', labelKey: 'audit', to: '/admin/audit-logs' },
 ]
 
@@ -17,6 +18,7 @@ const LABELS = {
   users: ['用户管理', 'Users'],
   content: ['内容审核', 'Content review'],
   features: ['首页精选', 'Featured'],
+  apikeys: ['API Keys', 'API Keys'],
   audit: ['审计日志', 'Audit logs'],
 } as const
 
@@ -47,9 +49,11 @@ export function AdminStatus({ value }: { value: string }) {
     rejected: ['已拒绝', 'Rejected'],
     active: ['正常', 'Active'],
     banned: ['已封禁', 'Banned'],
+    revoked: ['已撤销', 'Revoked'],
+    expired: ['已过期', 'Expired'],
   }
   const tone = value === 'approved' || value === 'public' || value === 'active' ? 'success'
-    : value === 'rejected' || value === 'private' || value === 'banned' ? 'danger'
+    : value === 'rejected' || value === 'private' || value === 'banned' || value === 'revoked' || value === 'expired' ? 'danger'
       : 'warning'
   const pair = labels[value]
   return (

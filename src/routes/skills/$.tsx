@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import * as api from '../../lib/api'
 import { useLang, useT } from '../../lib/i18n'
 import {
+  HtmlContent,
   Markdown,
   Loading,
   ErrorBox,
@@ -37,10 +38,12 @@ function SkillDetailPage() {
     queryFn: () => api.getSkillVersions(ref),
     enabled: skill.isSuccess,
   })
+  // Detail markup replaces SKILL.md on the page; only fetch the file when there
+  // is none, so a skill with a detail body costs one less request.
   const readme = useQuery({
     queryKey: ['skill', ref, 'file', 'SKILL.md'],
     queryFn: () => api.getSkillFile(ref, 'latest', 'SKILL.md'),
-    enabled: skill.isSuccess,
+    enabled: skill.isSuccess && !skill.data?.detailHtml,
     retry: false,
   })
 
@@ -78,7 +81,9 @@ function SkillDetailPage() {
           <div className="tab-bar">
             <span className="tab-btn active">{t('说明', 'Readme')}</span>
           </div>
-          {readme.isLoading ? (
+          {s.detailHtml ? (
+            <HtmlContent html={s.detailHtml} />
+          ) : readme.isLoading ? (
             <Loading />
           ) : readme.isError ? (
             <ErrorBox message={t('无法读取该技能的 SKILL.md。', 'Unable to read this skill\'s SKILL.md.')} />

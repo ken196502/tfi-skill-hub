@@ -51,6 +51,28 @@ export function extractPrefix(raw: string): string {
   return raw.length < want ? raw : raw.slice(0, want)
 }
 
+/**
+ * Admin API keys use their own prefix (`shk_` by default) so the resolver can
+ * tell a personal token from a management key before touching the database.
+ * Everything else — the random body, the prefix length, the sha256 storage
+ * format — matches the personal-token scheme.
+ */
+export function generateApiKey(): string {
+  const { apiKeyPrefix } = getConfig()
+  return `${apiKeyPrefix}${crypto.randomBytes(TOKEN_BYTES).toString('base64url')}`
+}
+
+export function extractApiKeyPrefix(raw: string): string {
+  const { apiKeyPrefix } = getConfig()
+  const want = apiKeyPrefix.length + PREFIX_BODY_LEN
+  return raw.length < want ? raw : raw.slice(0, want)
+}
+
+export function isApiKey(raw: string): boolean {
+  const { apiKeyPrefix, tokenPrefix } = getConfig()
+  return apiKeyPrefix !== tokenPrefix && raw.startsWith(apiKeyPrefix)
+}
+
 /** Constant-time comparison of two hex digests. */
 export function tokenMatches(candidateHash: string, raw: string): boolean {
   const a = Buffer.from(candidateHash, 'utf8')

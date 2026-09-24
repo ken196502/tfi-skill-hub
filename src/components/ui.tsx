@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { Plugin, SkillWithOwner } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
+import { sanitizeHtml } from '../lib/sanitizeHtml'
 import type { PluginJson } from '../lib/api'
 import { useLang, useT, localizedName, localizedSummary } from '../lib/i18n'
 
@@ -137,6 +138,19 @@ export function Markdown({ source }: { source: string }) {
   // user-supplied HTML can survive into the output.
   return (
     <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(source) }} />
+  )
+}
+
+/**
+ * Publisher-supplied detail markup.
+ *
+ * The server sanitises on the way in, and this runs the same filter again
+ * before the string reaches `dangerouslySetInnerHTML` — so content that was
+ * written to the database by any other route is still cleaned at render time.
+ */
+export function HtmlContent({ html }: { html: string }) {
+  return (
+    <div className="markdown-body" dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} />
   )
 }
 

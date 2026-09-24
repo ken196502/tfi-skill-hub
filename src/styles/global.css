@@ -1237,6 +1237,19 @@ main { flex: 1; }
 .btn-danger:hover { background: rgba(239, 68, 68, .2); }
 .admin-empty { padding: 36px 16px !important; color: var(--text-muted); text-align: center; }
 .admin-details { max-width: 360px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.admin-scope-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 4px; }
+.admin-scope-item { min-height: 64px; }
+.admin-scope-item small { font-family: var(--font-body), sans-serif; font-size: .72rem; }
+.admin-tag-row { display: flex; gap: 5px; flex-wrap: wrap; }
+.admin-tag-row .tag { padding: 2px 9px; font-size: .68rem; }
+.admin-secret-hint { margin-top: 16px; }
+.admin-usage { margin-top: 34px; }
+.admin-usage-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.admin-usage-header p { margin: 6px 0 0; max-width: 680px; font-size: .82rem; }
+.admin-usage-list { display: grid; gap: 14px; }
+.admin-usage-label { display: block; margin-bottom: 6px; font-size: .78rem; font-weight: 600; color: var(--text-secondary); }
+/* Samples are long one-liners; wrap them instead of hiding most of the command. */
+.admin-usage-item .code-block { white-space: pre-wrap; word-break: break-word; line-height: 1.6; padding-right: 76px; }
 
 @media (max-width: 860px) {
   .admin-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1244,7 +1257,7 @@ main { flex: 1; }
 
 @media (max-width: 680px) {
   .admin-stats, .admin-module-grid { grid-template-columns: 1fr 1fr; }
-  .admin-feature-list { grid-template-columns: 1fr; }
+  .admin-feature-list, .admin-scope-list { grid-template-columns: 1fr; }
   .admin-form-grid { grid-template-columns: 1fr; }
   .admin-nav { margin-bottom: 22px; }
 }

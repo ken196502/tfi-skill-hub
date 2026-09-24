@@ -877,7 +877,236 @@ try {
     r.text.slice(0, 250),
   )
 
-  // ── 15. rate limiting (tight limits, separate process) ───────────────────
+  // ── 15. admin API keys ───────────────────────────────────────────────────
+  section('Admin API keys')
+
+  r = await req('POST', '/api/v1/admin/api-keys', {
+    token: adminToken,
+    body: { name: 'smoke-full', scopes: ['skills:read', 'skills:publish', 'skills:delete', 'skills:moderate'] },
+  })
+  const fullKey = r.body?.key
+  const fullKeyId = r.body?.metadata?.id
+  check('POST /admin/api-keys → 201 with an shk_ key', r.status === 201 && typeof fullKey === 'string' && fullKey.startsWith('shk_'), r.text)
+  check('the key metadata hides keyHash', r.body?.metadata?.keyHash === undefined, JSON.stringify(r.body?.metadata))
+  check('the stored prefix is 16 chars', (r.body?.metadata?.prefix ?? '').length === 16, r.body?.metadata?.prefix)
+  check('the granted scopes are echoed back', r.body?.metadata?.scopes?.length === 4, JSON.stringify(r.body?.metadata?.scopes))
+
+  r = await req('GET', '/api/v1/admin/api-keys', { token: adminToken })
+  check(
+    'GET /admin/api-keys lists the new key',
+    r.status === 200 && (r.body?.data ?? []).some((k) => k.id === fullKeyId && !k.revokedAt),
+    r.text.slice(0, 250),
+  )
+
+  r = await req('GET', '/api/v1/whoami', { token: fullKey })
+  check('a key authenticates as the admin who minted it', r.status === 200 && r.body?.role === 'admin', `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/skills?limit=5', { token: fullKey })
+  check('a key with skills:read can list skills', r.status === 200, `${r.status} ${r.text.slice(0, 150)}`)
+
+  r = await req('POST', '/api/v1/skills', {
+    token: fullKey,
+    body: multipart(
+      { slug: 'apikey-skill', version: '1.0.0', visibility: 'public', category: 'testing' },
+      { 'SKILL.md': skillMd('apikey-skill') },
+    ),
+  })
+  check('a key with skills:publish can publish', r.status === 200 && r.body?.skill?.slug === 'apikey-skill', `${r.status} ${r.text.slice(0, 250)}`)
+
+  r = await req('POST', '/api/v1/admin/skills/@admin/apikey-skill/visibility', { token: fullKey, body: { visibility: 'public' } })
+  check('a key with skills:moderate can set visibility', r.status === 200, `${r.status} ${r.text}`)
+
+  // A read-only key proves the per-endpoint narrowing: same creator, fewer powers.
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-readonly', scopes: ['skills:read'] } })
+  const readOnlyKey = r.body?.key
+  check('a read-only key is minted', r.status === 201 && typeof readOnlyKey === 'string', r.text)
+
+  r = await req('POST', '/api/v1/skills', {
+    token: readOnlyKey,
+    body: multipart({ slug: 'apikey-denied', version: '1.0.0' }, { 'SKILL.md': skillMd('apikey-denied') }),
+  })
+  check('a read-only key cannot publish → 403', r.status === 403 && r.body?.error === 'this API key is not allowed for this endpoint', `${r.status} ${r.text}`)
+
+  r = await req('DELETE', '/api/v1/skills/apikey-skill', { token: readOnlyKey })
+  check('a read-only key cannot delete → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/tokens', { token: fullKey })
+  check('no key reaches endpoints outside the skill catalogue → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/admin/api-keys', { token: fullKey })
+  check('a key cannot administer other keys → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  // Bound to a namespace: publishing without an explicit namespace lands there.
+  r = await req('POST', '/api/v1/namespaces', { token: adminToken, body: { slug: 'apikey-ns', displayName: 'API key namespace' } })
+  const boundNamespace = r.body?.slug ?? 'apikey-ns'
+  r = await req('POST', '/api/v1/admin/api-keys', {
+    token: adminToken,
+    body: { name: 'smoke-bound', scopes: ['skills:publish'], namespaceSlug: boundNamespace },
+  })
+  const boundKey = r.body?.key
+  check('a key can be bound to a namespace', r.status === 201 && r.body?.metadata?.namespaceSlug === boundNamespace, r.text)
+
+  r = await req('POST', '/api/v1/skills', {
+    token: boundKey,
+    body: multipart({ slug: 'apikey-bound-skill', version: '1.0.0' }, { 'SKILL.md': skillMd('apikey-bound-skill') }),
+  })
+  check('a bound key publishes into its namespace', r.status === 200 && r.body?.skill?.namespaceSlug === boundNamespace, `${r.status} ${r.text.slice(0, 250)}`)
+
+  r = await req('POST', '/api/v1/skills', {
+    token: boundKey,
+    body: multipart({ slug: 'apikey-elsewhere', version: '1.0.0', namespace: 'admin' }, { 'SKILL.md': skillMd('apikey-elsewhere') }),
+  })
+  check('a bound key cannot publish elsewhere → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  // Validation.
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { scopes: ['skills:read'] } })
+  check('a key without a name → 400', r.status === 400 && r.body?.error === 'name is required', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'no-scopes', scopes: [] } })
+  check('a key without scopes → 400', r.status === 400 && /scopes must include/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'bad-scope', scopes: ['skills:everything'] } })
+  check('an unknown scope → 400', r.status === 400 && /invalid scope/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'bad-ns', scopes: ['skills:read'], namespaceSlug: 'nope-ns' } })
+  check('an unknown namespace → 404', r.status === 404, `${r.status} ${r.text}`)
+
+  r = await req('DELETE', '/api/v1/admin/api-keys/not-a-uuid', { token: adminToken })
+  check('an invalid key id → 400 "invalid API key ID"', r.status === 400 && r.body?.error === 'invalid API key ID', `${r.status} ${r.text}`)
+
+  // Deleting goes through the key while it still exists. `undelete` only
+  // resolves live rows upstream, so the removal is deliberately not reversed.
+  r = await req('DELETE', '/api/v1/skills/@admin/apikey-skill', { token: fullKey })
+  check('a key with skills:delete can delete a skill', r.status === 200, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/skills/@admin/apikey-skill')
+  check('the deleted skill leaves the catalogue', r.status === 404, `${r.status} ${r.text.slice(0, 150)}`)
+
+  // Expiry: a key that runs out behaves like a revoked one. `whoami` requires
+  // authentication, so a dead credential answers 401 rather than simply falling
+  // back to anonymous access the way a public read would.
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-expiring', scopes: ['skills:read'], expiresIn: '1s' } })
+  const expiringKey = r.body?.key
+  check('a key can carry an expiry', r.status === 201 && r.body?.metadata?.expiresAt !== undefined, r.text)
+  await sleep(1300)
+  r = await req('GET', '/api/v1/whoami', { token: expiringKey })
+  check('an expired key → 401', r.status === 401, `${r.status} ${r.text}`)
+
+  // Revocation takes effect immediately.
+  r = await req('DELETE', `/api/v1/admin/api-keys/${fullKeyId}`, { token: adminToken })
+  check('DELETE /admin/api-keys/:id → 200', r.status === 200 && r.body?.message === 'API key revoked', `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/whoami', { token: fullKey })
+  check('a revoked key → 401', r.status === 401, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/admin/api-keys', { token: adminToken })
+  check(
+    'the revoked key stays in the list with revokedAt set',
+    (r.body?.data ?? []).some((k) => k.id === fullKeyId && k.revokedAt),
+    r.text.slice(0, 250),
+  )
+
+  r = await req('DELETE', `/api/v1/admin/api-keys/${fullKeyId}`, { token: adminToken })
+  check('revoking twice → 400', r.status === 400, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  check(
+    'minting and revoking a key is audited',
+    r.status === 200 &&
+      (r.body?.data ?? []).some((l) => l.action === 'admin_create_api_key') &&
+      (r.body?.data ?? []).some((l) => l.action === 'admin_revoke_api_key'),
+    r.text.slice(0, 250),
+  )
+
+  // ── 16. skill detail HTML ────────────────────────────────────────────────
+  section('Skill detail HTML')
+
+  // The payload is hostile on purpose: the point is what comes back out.
+  const hostile = [
+    '<h2>详情</h2>',
+    '<p>正文 <strong>粗体</strong> 与 <a href="/skills">站内链接</a></p>',
+    '<script>alert(1)</script>',
+    '<img src="x" onerror="alert(1)">',
+    '<a href="javascript:alert(1)">bad</a>',
+    '<a href="java&#115;cript:alert(1)">bad2</a>',
+    '<iframe src="https://evil.test"></iframe>',
+    '<svg><script>alert(2)</script></svg>',
+    '<p style="color:red">styled</p>',
+  ].join('')
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: hostile } })
+  const storedHtml = r.body?.detailHtml ?? ''
+  check('PUT detail-html → 200 with the skill', r.status === 200 && r.body?.slug === 'smoke-skill', `${r.status} ${r.text.slice(0, 200)}`)
+  check('the stored body keeps legitimate markup', storedHtml.includes('<h2>详情</h2>') && storedHtml.includes('<strong>粗体</strong>'), storedHtml.slice(0, 200))
+  check('script elements are stripped', !/<script/i.test(storedHtml), storedHtml.slice(0, 200))
+  check('event handlers are stripped', !/onerror/i.test(storedHtml), storedHtml.slice(0, 200))
+  check('javascript: links are neutralised', !/javascript:/i.test(storedHtml), storedHtml.slice(0, 200))
+  check('iframe and svg are dropped', !/<iframe/i.test(storedHtml) && !/<svg/i.test(storedHtml), storedHtml.slice(0, 200))
+  check('style attributes are dropped', !/style=/i.test(storedHtml), storedHtml.slice(0, 200))
+  check('a detail timestamp is recorded', r.body?.detailHtmlUpdatedAt !== undefined, JSON.stringify(r.body?.detailHtmlUpdatedAt))
+
+  r = await req('GET', '/api/v1/skills/@admin/smoke-skill')
+  check('the detail body is served by the skill endpoint', r.status === 200 && r.body?.detailHtml === storedHtml, `${r.status} ${r.text.slice(0, 150)}`)
+
+  r = await req('GET', '/api/v1/skills?limit=20')
+  check(
+    'list responses never carry the body',
+    r.status === 200 && (r.body?.data ?? []).every((s) => s.detailHtml === undefined),
+    r.text.slice(0, 150),
+  )
+
+  // The page picks one source or the other; the published file itself is
+  // untouched and still served either way.
+  r = await req('GET', '/api/v1/skills/@admin/smoke-skill/file?version=1.0.0&path=SKILL.md')
+  check(
+    'the published SKILL.md survives alongside a detail body',
+    r.status === 200 && r.text.includes('# smoke-skill'),
+    `${r.status} ${r.text.slice(0, 120)}`,
+  )
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: '   ' } })
+  check('blank input clears the detail body', r.status === 200 && r.body?.detailHtml === undefined, `${r.status} ${r.text.slice(0, 150)}`)
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: '<p>回到 SKILL.md</p>' } })
+  check('a detail body can be set again', r.status === 200 && r.body?.detailHtml === '<p>回到 SKILL.md</p>', `${r.status} ${r.text.slice(0, 150)}`)
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: 42 } })
+  check('a non-string html → 400', r.status === 400 && r.body?.error === 'html must be a string', `${r.status} ${r.text}`)
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: '<p>x</p>' } })
+  check('no credentials → 401', r.status === 401, `${r.status} ${r.text}`)
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: readOnlyKey, body: { html: '<p>x</p>' } })
+  check('a read-only key cannot update it → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-detail-publish', scopes: ['skills:publish'] } })
+  const publishKey = r.body?.key
+  check('a publishing key is minted', r.status === 201 && typeof publishKey === 'string', r.text)
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: publishKey, body: { html: '<p>来自 API Key</p>' } })
+  check('a key with skills:publish can update it', r.status === 200 && r.body?.detailHtml === '<p>来自 API Key</p>', `${r.status} ${r.text.slice(0, 200)}`)
+
+  // A second account with no relationship to the skill must be refused.
+  r = await req('POST', '/api/v1/admin/users', { token: adminToken, body: { handle: 'detail-other' } })
+  const otherUserId = r.body?.id
+  r = await req('POST', '/api/v1/admin/tokens', { token: adminToken, body: { userId: otherUserId, scope: 'full' } })
+  const otherToken = r.body?.token
+  check('a second account is provisioned', typeof otherToken === 'string' && otherToken.startsWith('clh_'), `${r.status} ${r.text.slice(0, 150)}`)
+
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: otherToken, body: { html: '<p>mine now</p>' } })
+  check('an unrelated account cannot update it → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  r = await req('PUT', '/api/v1/skills/@admin/does-not-exist/detail-html', { token: adminToken, body: { html: '<p>x</p>' } })
+  check('an unknown skill → 404', r.status === 404, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  check(
+    'updating the detail body is audited',
+    r.status === 200 && (r.body?.data ?? []).some((l) => l.action === 'update_detail_html'),
+    r.text.slice(0, 200),
+  )
+
+  // ── 17. rate limiting (tight limits, separate process) ───────────────────
   section('Rate limiting')
 
   {
@@ -925,7 +1154,7 @@ try {
     }
   }
 
-  // ── 16. persistence across restart ────────────────────────────────────────
+  // ── 18. persistence across restart ────────────────────────────────────────
   section('Persistence')
 
   const before = await req('GET', '/api/v1/skills?limit=100')

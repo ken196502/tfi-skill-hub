@@ -46,13 +46,15 @@ node scripts/create-admin.mjs --handle alice --password newsecret --set-password
 npm run smoke          # 端到端自检：临时库 + 真实 HTTP
 ```
 
-自检脚本会自己拉起一份服务（独立临时数据库、独立端口），走真实 HTTP 覆盖 **132 项断言**，
-逐项输出 ✓/✗，并以退出码 0/1 表示结果。最近一次运行：**132 passed, 0 failed**。
+自检脚本会自己拉起一份服务（独立临时数据库、独立端口），走真实 HTTP 覆盖 **185 项断言**，
+逐项输出 ✓/✗，并以退出码 0/1 表示结果。最近一次运行：**185 passed, 0 failed**。
 
 覆盖范围包括：发现类接口、登录/会话/Token 鉴权、发布与版本管理、文件读取、ZIP 下载与 ETag/304、
 指纹反查、全文搜索（含中文）、收藏/评分/评论、命名空间与成员/邀请/团队 Token、
 可见性与权限边界（401/403/404/409）、插件全流程、Agent Skill API、Runtime API、
-管理端审核与审计、限流（独立起一份小限额服务验证 429 与 `RateLimit-*` 头）、
+管理端审核与审计、管理端 API Key（签发、按用途放行/拒绝、命名空间绑定、有效期、撤销、审计）、
+详情 HTML（写入与回读、XSS 负载被清洗、列表不带正文、清空回退、权限边界、审计）、
+限流（独立起一份小限额服务验证 429 与 `RateLimit-*` 头）、
 以及**重启后数据与搜索索引仍在、且不会重复灌种子**。
 
 自检脚本刻意做了两件容易踩坑的事：就绪判定匹配服务自己回显的 `x-run-id`（而不是"端口能连上"，
@@ -137,6 +139,16 @@ scripts/
 8. **接口文档端点未实现**（`/openapi.json`、`/docs`、`/schemas`）。原实现由 Huma 生成，
    而仓库里手写的 `web/openapi.yaml` 与真实运行时有多处不符（字段名、必填性）。
    与其复制一份不准确的规范，不如不提供。完整契约见 `src/server/api/routes.ts` 的路由表。
+9. **管理端 API Key 是本重写新增的能力**，原 Go 版没有对应功能。原实现里「用接口管理技能」
+   只能靠个人 Token（`clh_`），而个人 Token 等同于账号本体、能调用该用户能调用的一切。
+   这里另建 `api_keys` 表并给路由表加 `apiKeyScope` 标注，让一把 key 只覆盖技能管理，
+   且可绑定命名空间、可设有效期、可单独撤销。个人 Token 的行为未作任何改动。
+10. **技能详情页支持富文本**，原 Go 版只渲染 SKILL.md。`PUT /api/v1/skills/:slug/detail-html`
+    写入一段 HTML，详情页优先展示它，没有则回退到最新版本的 SKILL.md；传空串即清除。
+    由于它绕开了「先转义再排版」的 Markdown 渲染器，入库前会过一遍自研白名单消毒器
+    （`src/lib/sanitizeHtml.ts`，零依赖：标签与属性白名单、剔除 script/iframe/svg 及其内容、
+    拦 `javascript:` 及其实体与空白变体、自动补齐未闭合标签），页面渲染前再过一遍。
+    详情 HTML 只随详情接口返回，列表接口不含该字段，避免一页技能把整段正文都带出去。
 
 ## 本版本未覆盖的功能
 
@@ -166,8 +178,9 @@ scripts/
 | 浏览与搜索 | `/api/v1/{search,categories,skills,resolve,plugins,download}` | 公开（可选身份用于可见性过滤） |
 | 会话 | `POST /login`、`POST /logout`、`/auth/device/*` | 公开 / 需登录 |
 | 身份 | `GET /api/v1/whoami` | 需登录 |
-| 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件 | 需登录 |
+| 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件、`PUT .../detail-html` | 需登录 |
 | 个人 Token | `/api/v1/tokens` | 需登录 |
+| 管理端 API Key | `GET/POST /api/v1/admin/api-keys`、`DELETE /api/v1/admin/api-keys/:id` | 仅 `admin` |
 | 命名空间 | `/api/v1/namespaces/*`、`/api/v1/invitations/*` | 需登录（按命名空间角色授权） |
 | 社交 | `/api/v1/stars/*`、`.../ratings`、`.../comments`、`/api/v1/notifications/*` | 需登录 |
 | 管理端 | `/api/v1/admin/*` | 仅 `admin` |
@@ -183,6 +196,12 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 用户角色：`user` / `moderator` / `admin`（另有 `agent` 用于自动注册）。
 * 命名空间角色：`owner` / `admin` / `member` / `reader`（`reader` 可读不可发布）。
 * 团队 Token 绑定到命名空间，只能向其绑定的命名空间发布；成员退出或命名空间删除时会级联吊销。
+* 管理端 API Key（`shk_` 前缀，在 `/admin/api-keys` 页面签发）按用途授权，与签发者的角色无关：
+  `skills:read`（搜索、列表、详情、文件、下载）、`skills:publish`（发布新版本、改单文件）、
+  `skills:delete`（删除、恢复、彻底清除）、`skills:moderate`（yank/deprecate、审核、可见性）。
+  路由表未标注能力的端点一律拒绝 API Key 调用，因此一把钥匙只能管理技能，
+  碰不到用户、插件、命名空间等接口。可额外绑定一个命名空间（此后只能向它发布）并设定有效期；
+  撤销、过期、或签发者被降级/封禁都会让 key 立即失效。
 
 ---
 
@@ -199,6 +218,7 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 | `SKILLHUB_ADMIN_USER` | 首启创建的管理员用户名 | 空 |
 | `SKILLHUB_ADMIN_PASSWORD` | 管理员密码（≥ 8 位） | 空 |
 | `SKILLHUB_TOKEN_PREFIX` | API Token 前缀 | `clh_` |
+| `SKILLHUB_API_KEY_PREFIX` | 管理端 API Key 前缀（须与上一项不同） | `shk_` |
 | `SKILLHUB_RATE_READ_LIMIT` / `_WINDOW` | 读接口限流（次数 / 秒） | `120` / `600` |
 | `SKILLHUB_RATE_WRITE_LIMIT` / `_WINDOW` | 写接口限流 | `30` / `120` |
 | `SKILLHUB_RATE_DOWNLOAD_LIMIT` / `_WINDOW` | 下载限流 | `20` / `120` |
@@ -215,6 +235,9 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 限流状态在进程内存中，多副本部署时各自计数（与原实现一致）。
 * 访问 `/publish`、`/namespaces` 等需要登录的页面时，会话恢复是异步的，
   首次渲染会先显示加载态再切到实际内容。
+* 详情 HTML 的消毒器是白名单式的，不是完整的 HTML5 解析器：它按标签流重建输出，
+  不做完整的上下文嵌套纠错（例如 `<table>` 里直接放 `<div>` 不会被重排），
+  也不支持 CSS（`style` 属性一律丢弃）。够用于正文排版，不等于 DOMPurify。
 * 表格内的 Markdown 不支持单元格内换行；`renderMarkdown` 覆盖的是 SKILL.md 实际使用的子集。
 
 ## 许可证

@@ -393,6 +393,40 @@ export const skills = {
     query.run(`UPDATE skills SET ${sets.join(', ')} WHERE id = ?`, ...params)
   },
 
+  /**
+   * Detail markup, fetched separately from the row itself.
+   *
+   * The shared `SELECT s.*` join feeds every listing, and a page of skills
+   * should not carry every body in full — so `detailHtml` is not part of the
+   * row mapper and only the detail endpoint asks for it.
+   */
+  getDetailHtml(id: string): { html: string | null; updatedAt: string | null } {
+    const row = query.get<Row>(
+      'SELECT detail_html, detail_html_updated_at FROM skills WHERE id = ?',
+      id,
+    )
+    if (!row) return { html: null, updatedAt: null }
+    return {
+      html: row.detail_html == null ? null : asString(row.detail_html),
+      updatedAt: row.detail_html_updated_at == null ? null : asString(row.detail_html_updated_at),
+    }
+  },
+
+  /**
+   * Writes the detail markup. `null` clears it, which sends the page back to
+   * rendering SKILL.md. The caller is expected to have sanitised the value.
+   */
+  setDetailHtml(id: string, html: string | null): void {
+    const now = nowIso()
+    query.run(
+      'UPDATE skills SET detail_html = ?, detail_html_updated_at = ?, updated_at = ? WHERE id = ?',
+      html,
+      html === null ? null : now,
+      now,
+      id,
+    )
+  },
+
   setLatestVersion(id: string, versionId: string, at: string): void {
     query.run(
       'UPDATE skills SET latest_version_id = ?, versions_count = versions_count + 1, updated_at = ? WHERE id = ?',

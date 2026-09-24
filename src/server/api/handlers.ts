@@ -35,6 +35,7 @@ import * as pluginSvc from '../services/plugins'
 import * as nsSvc from '../services/namespaces'
 import * as socialSvc from '../services/social'
 import * as manageSvc from '../services/manage'
+import * as apiKeySvc from '../services/apiKeys'
 import * as runtimeSvc from '../services/runtime'
 import * as agentSvc from '../services/agentSkills'
 import { readMultipart, formValue } from '../content'
@@ -881,6 +882,29 @@ export const skillWrite: Record<string, Handler> = {
     }
   },
 
+  /**
+   * Replaces the detail markup shown on the skill's page.
+   *
+   * `html` may be absent or empty, which clears the column and returns the page
+   * to rendering SKILL.md. The service sanitises before storing; the stored
+   * value is what comes back, so the caller sees exactly what will be rendered.
+   */
+  updateDetailHtml: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<{ html?: string }>(ctx.request)
+    if (body === null) return errorJson('invalid request body', 400)
+    if (body.html !== undefined && typeof body.html !== 'string') {
+      return errorJson('html must be a string', 400)
+    }
+    try {
+      return json(
+        skillSvc.setDetailHtml(user, refFromCtx(ctx), body.html ?? '', ctx.tokenNamespaceId),
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
   yank: async (ctx) => {
     const user = requireUser(ctx)
     // An empty body is acceptable; malformed JSON is not.
@@ -1529,6 +1553,52 @@ export const admin: Record<string, Handler> = {
       )
     } catch {
       return internalError()
+    }
+  },
+
+  // ── Admin API keys ────────────────────────────────────────────────────────
+  // The raw secret is returned once, by `create`, and never again; `list`
+  // hands back only the display prefix.
+
+  listApiKeys: () => {
+    try {
+      return json({ data: apiKeySvc.listApiKeys() })
+    } catch {
+      return errorJson('failed to list API keys', 500)
+    }
+  },
+
+  createApiKey: async (ctx) => {
+    const body = await jsonBody<{
+      name?: string
+      scopes?: string[]
+      namespaceSlug?: string
+      expiresIn?: string
+    }>(ctx.request)
+    if (!body) return errorJson('invalid request', 400)
+    try {
+      return json(
+        apiKeySvc.createApiKey(ctx.user!.id, {
+          name: body.name,
+          scopes: body.scopes,
+          namespaceSlug: body.namespaceSlug,
+          expiresIn: body.expiresIn,
+        }),
+        201,
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  revokeApiKey: (ctx) => {
+    const id = ctx.params.id ?? ''
+    if (!isUuidLike(id)) return errorJson('invalid API key ID', 400)
+    try {
+      apiKeySvc.revokeApiKey(ctx.user!.id, id)
+      return json({ message: 'API key revoked' })
+    } catch (e) {
+      return serviceError(e)
     }
   },
 }
