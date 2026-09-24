@@ -38,7 +38,7 @@ function HomePage() {
       <div className="container home-container">
         <section className="home-hero">
           <h1 className="home-title">
-            {t('为智能体打造的金融技能', 'Build with AGENT Skills')}
+            {t('为智能体打造金融技能', 'Build with AGENT Skills')}
           </h1>
           <p className="home-subtitle">{t('赋予你的AI智能体专业金融技能', 'Discover powerful capabilities for your AI agents.')}</p>
 
