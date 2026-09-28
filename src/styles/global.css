@@ -198,7 +198,10 @@ a:hover { text-decoration: none; color: var(--text); }
 
 .home-page {
   position: relative;
-  min-height: calc(100vh - var(--header-height));
+  /* Extend the hero backdrop up behind the transparent header so the bar
+     blends into the page at the very top (no visible band/seam). */
+  margin-top: calc(-1 * var(--header-height));
+  min-height: 100vh;
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 8%, rgba(186, 166, 238, 0.14), transparent 24rem),
@@ -229,7 +232,8 @@ a:hover { text-decoration: none; color: var(--text); }
 .home-hero {
   max-width: 980px;
   margin: 0 auto;
-  padding: clamp(100px, 15vh, 168px) 0 104px;
+  /* +header-height: the page is pulled up behind the sticky header */
+  padding: calc(var(--header-height) + clamp(100px, 15vh, 168px)) 0 104px;
   text-align: center;
 }
 
@@ -370,17 +374,18 @@ a:hover { text-decoration: none; color: var(--text); }
 
 .header {
   background: transparent;
-  border-bottom: 1px solid var(--card-border);
+  border-bottom: 1px solid transparent;
   position: sticky;
   top: 0;
   z-index: 100;
-  transition: background 0.2s ease, backdrop-filter 0.2s ease;
+  transition: background 0.2s ease, backdrop-filter 0.2s ease, border-color 0.2s ease;
 }
 
 .header.scrolled {
   background: rgba(9, 10, 11, 0.8);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  border-bottom-color: var(--card-border);
 }
 
 /* Hairline brand ribbon that fades in once the page scrolls */
@@ -1347,7 +1352,7 @@ main { flex: 1; }
   .home-popular .skill-grid { grid-template-columns: 1fr; }
   .hero-title { font-size: 2.25rem !important; }
   .hero-section { padding: 48px 0 32px; }
-  .home-hero { padding: 76px 0 72px; }
+  .home-hero { padding: calc(var(--header-height) + 76px) 0 72px; }
   .home-search { min-height: 60px; }
   .nav { gap: 16px; }
   .login-page { padding: 32px 16px; }
