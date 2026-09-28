@@ -88,7 +88,8 @@ curl -X PUT -H "Authorization: Bearer shk_Dc8r_AffkQsAluKZJu2OTTBXJqkimubuHGlBvU
 - **在详情页里放截图（推荐 base64 内嵌）**：消毒器放行 `<img src="data:image/png|jpeg|webp|gif;base64,…">`，
   图片直接嵌进 HTML，不占技能包、不发新版本，更新图片只需重 PUT 一次 detail-html：
   ```bash
-  # 注意：单语言正文（含 base64）≤ 1MB；纯图片的正文不会被判为空内容
+  # 注意：接口虽接受 1MB，但消毒器会把输出截断到 512K 字符（超出部分静默丢弃、
+  # 图片必然损坏），单语言正文（含 base64）实际必须 < 512KB；纯图片的正文不会被判为空内容
   python3 scripts/update-detail-html.py            # 按清单重刷全部详情页（双语一次写入）
   python3 scripts/update-detail-html.py <slug>…    # 只刷指定技能
   ```
