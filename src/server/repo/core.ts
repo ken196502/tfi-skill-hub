@@ -67,6 +67,14 @@ export const users = {
     return row ? mapUser(row) : null
   },
 
+  /** Case-insensitive lookup so `Foo@Bar.com` and `foo@bar.com` collide. */
+  getByEmail(email: string): UserRecord | null {
+    const value = email.trim()
+    if (value === '') return null
+    const row = query.get<Row>('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', value)
+    return row ? mapUser(row) : null
+  },
+
   listByIds(ids: string[]): UserRecord[] {
     if (ids.length === 0) return []
     const placeholders = ids.map(() => '?').join(',')

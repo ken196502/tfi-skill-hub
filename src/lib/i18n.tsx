@@ -75,7 +75,7 @@ export function useT(): (zh: string, en: string) => string {
 }
 
 /**
- * Localized display name / summary for catalogue entities (skills & plugins).
+ * Localized display name / summary for catalogue entities (skills).
  * Falls back to the base (Chinese / author-supplied) value when no English
  * variant is stored, so user-published entries never render blank.
  */

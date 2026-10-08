@@ -16,8 +16,6 @@ import type {
   NamespaceInvitation,
   NamespaceMemberWithUser,
   Notification,
-  Plugin,
-  PluginVersion,
   RatingWithUser,
   SkillVersion,
   SkillWithOwner,
@@ -139,7 +137,8 @@ export async function register(input: {
 }): Promise<{ ok: boolean; status: UserStatus }> {
   const body = new URLSearchParams({ handle: input.handle, password: input.password })
   if (input.displayName) body.set('displayName', input.displayName)
-  if (input.email) body.set('email', input.email)
+  // Email is required on the server; always send it (empty string if absent).
+  body.set('email', input.email ?? '')
   const res = await fetch('/register', {
     method: 'POST',
     credentials: 'same-origin',
@@ -272,64 +271,6 @@ export function search(q: string, limit = 20): Promise<{
 }> {
   const qs = new URLSearchParams({ q, limit: String(limit) })
   return request(`/search?${qs}`)
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Plugins
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function listPlugins(params: {
-  limit?: number
-  cursor?: string
-  sort?: string
-  category?: string
-}): Promise<{ data: Plugin[]; nextCursor: string }> {
-  const qs = new URLSearchParams()
-  if (params.limit) qs.set('limit', String(params.limit))
-  if (params.cursor) qs.set('cursor', params.cursor)
-  if (params.sort) qs.set('sort', params.sort)
-  if (params.category) qs.set('category', params.category)
-  const suffix = qs.toString()
-  return request(`/plugins${suffix ? `?${suffix}` : ''}`)
-}
-
-export type PluginJson = Plugin & {
-  ownerHandle?: string
-  namespaceSlug?: string
-  /** Present only once a latest version resolves. */
-  version?: string
-  fingerprint?: string
-  sha256Hash?: string
-  files?: Array<{ path: string; size: number; sha256: string }>
-}
-
-export function getPlugin(ref: string): Promise<PluginJson> {
-  return request<PluginJson>(`/plugins/${encodeURI(ref)}`)
-}
-
-export function getPluginVersions(ref: string): Promise<{ versions: PluginVersion[] }> {
-  return request<{ versions: PluginVersion[] }>(`/plugins/${encodeURI(ref)}/versions`)
-}
-
-export function pluginDownloadUrl(slug: string, version = '', namespace = ''): string {
-  const qs = new URLSearchParams({ slug })
-  if (version) qs.set('version', version)
-  if (namespace) qs.set('namespace', namespace)
-  return apiUrl(`/plugins/download?${qs}`)
-}
-
-export function pluginFileUrl(slug: string, path: string, version = '', namespace = ''): string {
-  const qs = new URLSearchParams({ slug, path })
-  if (version) qs.set('version', version)
-  if (namespace) qs.set('namespace', namespace)
-  return apiUrl(`/plugins/file?${qs}`)
-}
-
-export function pluginFile(slug: string, path: string, version = '', namespace = ''): Promise<string> {
-  const qs = new URLSearchParams({ slug, path })
-  if (version) qs.set('version', version)
-  if (namespace) qs.set('namespace', namespace)
-  return requestText(`/plugins/file?${qs}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -569,17 +510,61 @@ export function adminCreateToken(input: {
   })
 }
 
-export function adminListSkills(
-  visibility = '',
-  cursor = '',
-  limit = 20,
-): Promise<{ data: SkillWithOwner[]; nextCursor: string }> {
-  const qs = new URLSearchParams()
-  if (visibility) qs.set('visibility', visibility)
-  if (cursor) qs.set('cursor', cursor)
-  if (limit) qs.set('limit', String(limit))
-  const suffix = qs.toString()
-  return request(`/admin/skills${suffix ? `?${suffix}` : ''}`)
+/**
+ * Administrative skill listing, one numbered page at a time.
+ *
+ * `total` is the size of the whole filtered set, so the console can show a page
+ * count. Passing no `page` would fall back to the server's cursor walk, which
+ * the console does not use — a numbered page is what makes "第 N / M 页"
+ * possible.
+ */
+export function adminListSkills(options: {
+  visibility?: string
+  page?: number
+  pageSize?: number
+} = {}): Promise<{ data: SkillWithOwner[]; nextCursor: string; total: number }> {
+  const qs = new URLSearchParams({ page: String(options.page ?? 1) })
+  if (options.visibility) qs.set('visibility', options.visibility)
+  qs.set('limit', String(options.pageSize ?? 20))
+  return request(`/admin/skills?${qs}`)
+}
+
+/** The console form's payload. Every field is submitted on save. */
+export interface AdminSkillInput {
+  slug?: string
+  displayName: string
+  summary: string
+  displayNameEn: string
+  summaryEn: string
+  category: string
+  tags: string[]
+  visibility: string
+  html: string
+  htmlEn: string
+}
+
+/** Creates a catalogue entry; the server synthesises a stub `SKILL.md`. */
+export function adminCreateSkill(input: AdminSkillInput): Promise<{ skill: SkillWithOwner }> {
+  return request<{ skill: SkillWithOwner }>('/admin/skills', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
+/** Replaces a skill's editable content. `ref` is `slug` or `@namespace/slug`. */
+export function adminUpdateSkill(
+  ref: string,
+  input: AdminSkillInput,
+): Promise<{ skill: SkillWithOwner }> {
+  return request<{ skill: SkillWithOwner }>(`/admin/skills/${encodeURI(ref)}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+/** Irreversible removal, together with every version and file it owns. */
+export function adminRemoveSkill(ref: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/skills/${encodeURI(ref)}/purge`, { method: 'DELETE' })
 }
 
 export function adminListFeatures(): Promise<{ data: SkillWithOwner[] }> {
@@ -590,47 +575,9 @@ export function adminReplaceFeatures(skillIds: string[]): Promise<{ message: str
   return request('/admin/features', { method: 'PUT', body: JSON.stringify({ skillIds }) })
 }
 
-export type AdminPlugin = Plugin & {
-  ownerHandle?: string
-  namespaceSlug?: string
-}
-
-export function adminListPlugins(
-  visibility = '',
-  cursor = '',
-  limit = 20,
-): Promise<{ data: AdminPlugin[]; nextCursor: string }> {
-  const qs = new URLSearchParams()
-  if (visibility) qs.set('visibility', visibility)
-  if (cursor) qs.set('cursor', cursor)
-  if (limit) qs.set('limit', String(limit))
-  const suffix = qs.toString()
-  return request(`/admin/plugins${suffix ? `?${suffix}` : ''}`)
-}
-
-export function adminReviewSkill(ref: string, action: 'approve' | 'reject'): Promise<{ message: string }> {
-  return request<{ message: string }>(`/admin/skills/${encodeURI(ref)}/review`, {
-    method: 'POST',
-    body: JSON.stringify({ action }),
-  })
-}
-
-export function adminReviewPlugin(ref: string, action: 'approve' | 'reject'): Promise<{ message: string }> {
-  return request<{ message: string }>(`/admin/plugins/${encodeURI(ref)}/review`, {
-    method: 'POST',
-    body: JSON.stringify({ action }),
-  })
-}
-
+/** Takes a skill online (`public`) or offline (`private`). */
 export function adminSetSkillVisibility(ref: string, visibility: string): Promise<{ message: string }> {
   return request<{ message: string }>(`/admin/skills/${encodeURI(ref)}/visibility`, {
-    method: 'POST',
-    body: JSON.stringify({ visibility }),
-  })
-}
-
-export function adminSetPluginVisibility(ref: string, visibility: string): Promise<{ message: string }> {
-  return request<{ message: string }>(`/admin/plugins/${encodeURI(ref)}/visibility`, {
     method: 'POST',
     body: JSON.stringify({ visibility }),
   })

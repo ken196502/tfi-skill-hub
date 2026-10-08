@@ -16,7 +16,7 @@ const ITEMS: Array<{ key: AdminSection; labelKey: 'overview' | 'users' | 'conten
 const LABELS = {
   overview: ['总览', 'Overview'],
   users: ['用户管理', 'Users'],
-  content: ['内容审核', 'Content review'],
+  content: ['内容管理', 'Content management'],
   features: ['首页精选', 'Featured'],
   apikeys: ['API Keys', 'API Keys'],
   audit: ['审计日志', 'Audit logs'],

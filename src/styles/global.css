@@ -1574,3 +1574,246 @@ main { flex: 1; }
   .admin-form-grid { grid-template-columns: 1fr; }
   .admin-nav { margin-bottom: 22px; }
 }
+
+/* ═══════════════════════════════════════
+   Content management — /admin/content
+   Pagination, the create/edit dialog, and the rich-text field it hosts.
+   ═══════════════════════════════════════ */
+
+/* ── Pagination ─────────────────────────────────────────────────────────── */
+
+.admin-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.admin-pagination-info { display: flex; flex-direction: column; gap: 2px; color: var(--text-secondary); font-size: 0.86rem; }
+.admin-pagination-info em { color: var(--sec-hint); font-size: 0.78rem; font-style: normal; }
+.admin-pagination-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.admin-page-btn {
+  min-width: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.admin-page-btn:hover { color: var(--text); border-color: var(--card-border-hover); }
+.admin-page-btn.active { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); font-weight: 600; }
+
+/* A resting state — neither good news nor a problem, so it stays grey. */
+.admin-status-neutral { color: var(--sec-meta); background: var(--sec-chip-tert-bg); }
+
+/* ── Dialog ─────────────────────────────────────────────────────────────── */
+
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 8, 5, 0.62);
+  backdrop-filter: blur(2px);
+}
+[data-theme="light"] .admin-modal-backdrop { background: rgba(18, 28, 22, 0.38); }
+
+.admin-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  max-height: calc(100vh - 48px);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+.admin-modal-wide { width: min(100%, 880px); }
+
+.admin-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--card-border);
+  background: var(--surface);
+}
+.admin-modal-head h2 { font-size: 1.05rem; }
+.admin-modal-close {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.admin-modal-close:hover { color: var(--text); background: var(--sec-label-bg); }
+
+.admin-modal-body { padding: 22px; overflow-y: auto; }
+.admin-modal-body form { display: block; }
+
+.admin-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--card-border);
+}
+
+.admin-confirm-lead { color: var(--text-secondary); font-size: 0.88rem; line-height: 1.65; }
+.admin-confirm-target {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+}
+.admin-confirm-target small { color: var(--sec-hint); font-family: var(--font-mono); font-size: 0.72rem; overflow-wrap: anywhere; }
+
+/* ── Form layout inside the dialog ──────────────────────────────────────── */
+
+.admin-form-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+.admin-form-grid-2 > label { display: block; min-width: 0; }
+.admin-form-grid-2 .form-label { display: block; margin-bottom: 6px; }
+
+.admin-form-hint-inline { display: block; margin: 6px 0 10px; }
+
+/*
+ * Everything below this divider belongs to one language, and the fields above
+ * it (identifier, category, tags, visibility) do not — which is exactly what
+ * the rule tells the eye.
+ */
+.admin-lang-block {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--card-border);
+}
+
+.admin-lang-tabs {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.admin-lang-tabs .form-label { margin-bottom: 0; }
+.admin-lang-tab-group { display: flex; gap: 6px; }
+
+/* One language's field. Stacked rather than paired, so no label has to explain
+   which language it means. */
+.admin-lang-field { display: block; margin-bottom: 18px; }
+.admin-lang-field:last-child { margin-bottom: 4px; }
+.admin-lang-field > .form-label { display: block; margin-bottom: 6px; }
+
+/* ── Rich-text field ────────────────────────────────────────────────────── */
+
+.rich-text-editor { position: relative; }
+.rich-text-fallback { min-height: 220px; font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.6; }
+
+.rich-text-loading {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  animation: rich-text-pulse 1.4s ease-in-out infinite;
+}
+@keyframes rich-text-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/*
+ * Quill ships its own theme; these rules re-skin it with the app's tokens so it
+ * matches the surrounding form in both the dark and light themes instead of
+ * arriving as a light-mode island.
+ */
+.rich-text-editor .ql-toolbar.ql-snow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--input-border);
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--surface);
+}
+.rich-text-editor .ql-container.ql-snow {
+  border: 1px solid var(--input-border);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  background: var(--input-bg);
+  font-family: var(--font-body);
+  font-size: 0.9rem;
+}
+.rich-text-editor .ql-editor {
+  min-height: 220px;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--text);
+  line-height: 1.7;
+}
+.rich-text-editor .ql-editor.ql-blank::before { color: var(--text-muted); font-style: normal; }
+.rich-text-editor .ql-editor h1,
+.rich-text-editor .ql-editor h2,
+.rich-text-editor .ql-editor h3 { color: var(--text); font-weight: 600; }
+.rich-text-editor .ql-editor a { color: var(--link); }
+.rich-text-editor .ql-editor blockquote { border-left: 3px solid var(--accent); color: var(--text-secondary); }
+.rich-text-editor .ql-editor pre.ql-syntax,
+.rich-text-editor .ql-editor .ql-code-block-container { background: var(--code-bg); color: var(--text); }
+
+.rich-text-editor .ql-snow .ql-stroke { stroke: var(--text-secondary); }
+.rich-text-editor .ql-snow .ql-fill { fill: var(--text-secondary); }
+.rich-text-editor .ql-snow .ql-picker { color: var(--text-secondary); }
+.rich-text-editor .ql-snow .ql-picker-options {
+  border-color: var(--card-border) !important;
+  background: var(--surface);
+}
+.rich-text-editor .ql-snow .ql-picker.ql-expanded .ql-picker-label { border-color: var(--card-border); }
+.rich-text-editor .ql-snow.ql-toolbar button:hover .ql-stroke,
+.rich-text-editor .ql-snow.ql-toolbar button.ql-active .ql-stroke,
+.rich-text-editor .ql-snow.ql-toolbar .ql-picker-label:hover .ql-stroke,
+.rich-text-editor .ql-snow.ql-toolbar .ql-picker-label.ql-active .ql-stroke { stroke: var(--accent); }
+.rich-text-editor .ql-snow.ql-toolbar button:hover .ql-fill,
+.rich-text-editor .ql-snow.ql-toolbar button.ql-active .ql-fill { fill: var(--accent); }
+.rich-text-editor .ql-snow.ql-toolbar button:hover,
+.rich-text-editor .ql-snow.ql-toolbar button.ql-active,
+.rich-text-editor .ql-snow.ql-toolbar .ql-picker-label:hover,
+.rich-text-editor .ql-snow.ql-toolbar .ql-picker-label.ql-active { color: var(--accent); }
+
+/*
+ * Quill's block-style picker gets its labels from its own stylesheet as CSS
+ * `content` (there is no text node to translate through `t()`), which is why
+ * the Chinese UI would otherwise show an English "Normal". `i18n.tsx` keeps
+ * `<html lang>` in step with the chosen language, so the labels are re-stated
+ * per language here. English needs no override — it is Quill's default.
+ */
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-label::before,
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-item::before { content: '正文'; }
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-label[data-value="1"]::before,
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-item[data-value="1"]::before { content: '标题 1'; }
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-label[data-value="2"]::before,
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-item[data-value="2"]::before { content: '标题 2'; }
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-label[data-value="3"]::before,
+html[lang="zh"] .rich-text-editor .ql-snow .ql-picker.ql-header .ql-picker-item[data-value="3"]::before { content: '标题 3'; }
+
+@media (max-width: 680px) {
+  .admin-form-grid-2 { grid-template-columns: 1fr; }
+  .admin-modal-backdrop { padding: 12px; }
+  .admin-pagination { justify-content: center; }
+}

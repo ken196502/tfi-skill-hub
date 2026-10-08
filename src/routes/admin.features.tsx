@@ -14,7 +14,7 @@ function FeaturesPage() {
   const client = useQueryClient()
   const t = useT()
   const { lang } = useLang()
-  const skills = useQuery({ queryKey: ['admin-skills'], queryFn: () => adminListSkills('', '') })
+  const skills = useQuery({ queryKey: ['admin-skills'], queryFn: () => adminListSkills() })
   const current = useQuery({ queryKey: ['admin-features'], queryFn: adminListFeatures })
   const [selected, setSelected] = useState<string[]>([])
   useEffect(() => { if (current.data) setSelected(current.data.data.map((s) => s.id)) }, [current.data])

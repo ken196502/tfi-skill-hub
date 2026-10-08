@@ -7,22 +7,25 @@
  */
 
 import crypto from 'node:crypto'
-import { fail, notFound } from '../errors'
+import { conflict, fail, notFound } from '../errors'
 import { asNumber, nowIso, query, type Row } from '../db'
 import { VALID_ROLES } from '../../lib/types'
 import type { SkillWithOwner, UserRole, UserStatus, Visibility } from '../../lib/types'
 import { audit, users, tokens as tokenRepo, type UserRecord } from '../repo/core'
 import { skills as skillRepo, stars as starRepo } from '../repo/skills'
 import { plugins as pluginRepo } from '../repo/plugins'
+import type { FileMap } from '../content'
 import { generateRawToken, hashPassword, hashToken, extractPrefix, MIN_PASSWORD_LENGTH } from '../auth'
 import {
   auditLog,
+  ensurePersonalNamespace,
   reindexSkill,
   reindexPlugin,
   resolvePluginRef,
   resolveSkillRef,
   type Viewer,
 } from './shared'
+import { publishVersion, setDetailHtml } from './skills'
 import type { SkillRef } from '../../lib/types'
 import type { APIToken } from '../../lib/types'
 
@@ -91,10 +94,18 @@ export function createUser(input: {
     fail('invalid role, must be one of: user, admin')
   }
 
+  // Email stays optional for admin-created accounts, but when supplied it must
+  // be valid and not already taken by another user.
+  const email = input.email ? normalizeEmail(input.email) : null
+  if (email !== null) {
+    if (!EMAIL_PATTERN.test(email)) fail('email is not a valid address')
+    if (users.getByEmail(email)) fail(`email '${email}' is already registered`)
+  }
+
   const created = users.create({
     handle: input.handle,
     displayName: input.displayName || null,
-    email: input.email || null,
+    email,
     role,
     // No password is set: the account exists but cannot sign in until one is set.
   })
@@ -110,6 +121,18 @@ export function createUser(input: {
 
 /** Handles offered through public registration: 2–32 chars, URL-safe. */
 const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/
+
+/**
+ * Email is mandatory on self-service registration and must be unique. The check
+ * is deliberately permissive — it rejects obvious non-addresses rather than
+ * attempting a full RFC validator — and the value is stored lower-cased so
+ * `Foo@bar.com` and `foo@bar.com` resolve to the same account.
+ */
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase()
+}
 
 /**
  * Self-service registration. Unlike `createUser` this sets a password straight
@@ -129,12 +152,17 @@ export function registerUser(input: {
   if (input.password.length < MIN_PASSWORD_LENGTH) {
     fail(`password must be at least ${MIN_PASSWORD_LENGTH} characters`)
   }
+  // Email is mandatory for self-service registration and must be unique.
+  const email = normalizeEmail(input.email ?? '')
+  if (email === '') fail('email is required')
+  if (!EMAIL_PATTERN.test(email)) fail('email is not a valid address')
   if (users.getByHandle(handle)) fail(`handle '${handle}' already exists`)
+  if (users.getByEmail(email)) fail(`email '${email}' is already registered`)
 
   const created = users.create({
     handle,
     displayName: input.displayName?.trim() || null,
-    email: input.email?.trim() || null,
+    email,
     passwordHash: hashPassword(input.password),
     role: 'user',
     status: 'pending',
@@ -226,9 +254,185 @@ export function createUserToken(
 // Skills
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function listAllSkills(opts: { visibility: string; cursor: string; limit: number }) {
+export function listAllSkills(opts: {
+  visibility: string
+  cursor: string
+  limit: number
+  page: number
+}) {
   const limit = opts.limit <= 0 || opts.limit > 100 ? 20 : opts.limit
   return skillRepo.listForAdmin({ ...opts, limit })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Skill content management (admin console)
+//
+// The console edits the catalogue directly: create a skill from a form, change
+// its metadata and rich body, take it on or offline, remove it for good. This
+// replaces the former review queue, so none of it consults a moderation state —
+// an administrative save *is* the decision.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The fields the console's create/edit form owns. */
+export interface SkillFormInput {
+  slug: string
+  displayName: string
+  summary: string
+  displayNameEn: string
+  summaryEn: string
+  category: string
+  tags: string[]
+  visibility: string
+  /**
+   * Rich detail markup. An empty string clears the stored body and sends the
+   * page back to rendering `SKILL.md`.
+   */
+  html: string
+  htmlEn: string
+}
+
+/** Version every console-created skill starts at. */
+const FIRST_VERSION = '1.0.0'
+
+/**
+ * Stub `SKILL.md` for a skill created from the console.
+ *
+ * A skill needs at least one version, and both the detail page and the download
+ * bundle fall back to that version's `SKILL.md` when no rich body has been
+ * saved. The stub is deliberately thin — the console's editor is where the real
+ * content goes.
+ */
+function skillMdStub(input: SkillFormInput): string {
+  const name = input.displayName.trim() || input.slug.trim()
+  const description = input.summary.trim()
+  // Frontmatter values are stored verbatim, but quoting keeps a colon or a `#`
+  // inside a name from turning into YAML structure downstream.
+  const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  return [
+    '---',
+    `name: ${quote(name)}`,
+    `description: ${quote(description)}`,
+    '---',
+    '',
+    `# ${name}`,
+    '',
+    description,
+    '',
+  ].join('\n')
+}
+
+function checkedVisibility(raw: string): Visibility {
+  if (raw !== 'public' && raw !== 'private') fail("visibility must be 'public' or 'private'")
+  return raw
+}
+
+/**
+ * Category is a free-form label on the row; `VALID_CATEGORIES` only gates what
+ * `/categories` advertises and what `publishVersion` will accept for a new
+ * skill. Existing records legitimately carry others — the seeded catalogue uses
+ * design, research, documentation and writing — so a console edit must preserve
+ * them. Coercing an unknown value to `general` would silently refile every one
+ * of those skills the moment an admin pressed Save.
+ *
+ * Only an empty value falls back, and the length cap plus control-character
+ * strip keep the column from becoming a dumping ground.
+ */
+function checkedCategory(raw: string): string {
+  const cleaned = raw.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64)
+  return cleaned === '' ? 'general' : cleaned
+}
+
+/** Trims an optional text field, collapsing a blank input to "not set". */
+function nullable(value: string): string | null {
+  const trimmed = value.trim()
+  return trimmed === '' ? null : trimmed
+}
+
+/**
+ * Creates a skill from the console form: a real version carrying a stub
+ * `SKILL.md`, plus the rich body when one was written.
+ *
+ * Publishing through `publishVersion` rather than inserting a row keeps every
+ * downstream invariant — reserved slugs, namespace quota, fingerprint, search
+ * index, audit trail — in one place.
+ *
+ * The "slug already taken" check is deliberate and lives here rather than in
+ * `publishVersion`: that function's `overwrite === false` guard fires from the
+ * *not existing* branch too (see `services/skills.ts` step 11), so passing it
+ * would reject every create. Rather than change a guard the agent API depends
+ * on, the console checks for itself and gets a precise message.
+ */
+export function createSkillFromForm(actor: UserRecord, input: SkillFormInput): SkillWithOwner {
+  const slug = input.slug.trim()
+  if (slug === '') fail('slug is required')
+
+  // Mirrors how `publishVersion` resolves the namespace for a form create:
+  // no namespace slug and no team token means the author's personal namespace.
+  const namespace = ensurePersonalNamespace(actor)
+  if (skillRepo.getWithOwnerByNsAndSlug(namespace.id, slug, { includeDeleted: true })) {
+    conflict(`skill '${slug}' already exists`)
+  }
+
+  const files: FileMap = new Map([['SKILL.md', new TextEncoder().encode(skillMdStub(input))]])
+  const { skill } = publishVersion(actor, {
+    slug,
+    version: FIRST_VERSION,
+    changelog: 'Initial version',
+    displayName: input.displayName.trim(),
+    summary: input.summary.trim(),
+    displayNameEn: input.displayNameEn.trim(),
+    summaryEn: input.summaryEn.trim(),
+    category: checkedCategory(input.category),
+    visibility: checkedVisibility(input.visibility),
+    tags: input.tags,
+    files,
+    tokenNamespaceId: null,
+  })
+
+  return setDetailHtml(
+    actor,
+    { namespace: skill.namespaceSlug, slug: skill.slug },
+    input.html,
+    input.htmlEn,
+    null,
+  )
+}
+
+/**
+ * Replaces a skill's editable content. Every field the form owns is written,
+ * so emptying an input clears the column (`updateMetadata` would skip it).
+ */
+export function updateSkillFromForm(
+  actor: UserRecord,
+  ref: SkillRef,
+  input: SkillFormInput,
+): SkillWithOwner {
+  const skill = resolveSkillRef(ref, { id: actor.id, role: 'admin' })
+  if (!skill) notFound('skill not found')
+
+  skillRepo.updateForAdmin(skill.id, {
+    displayName: nullable(input.displayName),
+    summary: nullable(input.summary),
+    displayNameEn: nullable(input.displayNameEn),
+    summaryEn: nullable(input.summaryEn),
+    category: checkedCategory(input.category),
+    tags: input.tags,
+    visibility: checkedVisibility(input.visibility),
+    // An administrative save is a decision, so the row leaves the review queue.
+    moderationStatus: 'approved',
+  })
+  reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
+  auditLog({
+    actorId: actor.id,
+    action: 'update_skill_content',
+    resourceType: 'skill',
+    resourceId: skill.id,
+    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},visibility=${input.visibility}`,
+  })
+
+  // Re-resolves through the caller's own ref, which is already known to be
+  // unambiguous — a bare slug lookup here could hit a namesake elsewhere.
+  return setDetailHtml(actor, ref, input.html, input.htmlEn, null)
 }
 
 export function listFeaturedSkills(viewer: Viewer | null = null) {

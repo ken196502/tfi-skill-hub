@@ -35,6 +35,7 @@ import * as pluginSvc from '../services/plugins'
 import * as nsSvc from '../services/namespaces'
 import * as socialSvc from '../services/social'
 import * as manageSvc from '../services/manage'
+import type { SkillFormInput } from '../services/manage'
 import * as apiKeySvc from '../services/apiKeys'
 import * as runtimeSvc from '../services/runtime'
 import * as agentSvc from '../services/agentSkills'
@@ -133,6 +134,74 @@ function etagMatches(header: string | null, etag: string): boolean {
 function requireUser(ctx: RequestContext): UserRecord {
   if (!ctx.user) throw new ServiceError('authentication required', 'forbidden')
   return ctx.user
+}
+
+/**
+ * Body of the console's skill form.
+ *
+ * Every field is optional and read as `unknown` first: the form is built in the
+ * browser, so a malformed value has to become a 400 rather than reach the
+ * service layer as something it did not expect.
+ */
+interface SkillFormBody {
+  slug?: unknown
+  displayName?: unknown
+  summary?: unknown
+  displayNameEn?: unknown
+  summaryEn?: unknown
+  category?: unknown
+  tags?: unknown
+  visibility?: unknown
+  html?: unknown
+  htmlEn?: unknown
+}
+
+/**
+ * Narrows the console form body, or returns `null` when a field has the wrong
+ * type. Absent text fields read as empty, which the service treats as "cleared"
+ * — the form always submits the full set, so the two mean the same thing.
+ */
+function readSkillForm(body: SkillFormBody): SkillFormInput | null {
+  const textFields = [
+    'slug',
+    'displayName',
+    'summary',
+    'displayNameEn',
+    'summaryEn',
+    'category',
+    'visibility',
+    'html',
+    'htmlEn',
+  ] as const
+
+  for (const key of textFields) {
+    if (body[key] !== undefined && typeof body[key] !== 'string') return null
+  }
+  if (body.tags !== undefined && !Array.isArray(body.tags)) return null
+
+  const text = (key: (typeof textFields)[number]): string =>
+    typeof body[key] === 'string' ? (body[key] as string) : ''
+
+  const tags = Array.isArray(body.tags)
+    ? body.tags
+        .filter((tag): tag is string => typeof tag === 'string')
+        .map((tag) => tag.trim())
+        .filter((tag) => tag !== '')
+    : []
+
+  return {
+    slug: text('slug'),
+    displayName: text('displayName'),
+    summary: text('summary'),
+    displayNameEn: text('displayNameEn'),
+    summaryEn: text('summaryEn'),
+    category: text('category'),
+    tags,
+    // The console's create form defaults to private when it sends nothing.
+    visibility: text('visibility') === '' ? 'private' : text('visibility'),
+    html: text('html'),
+    htmlEn: text('htmlEn'),
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1553,6 +1622,9 @@ export const admin: Record<string, Handler> = {
           visibility: qStr(ctx.url, 'visibility'),
           cursor: qStr(ctx.url, 'cursor'),
           limit: qInt(ctx.url, 'limit', 20, 100),
+          // `page` selects numbered paging; omitted (0) keeps the cursor walk
+          // that API-key clients were written against.
+          page: qInt(ctx.url, 'page', 0, 1_000_000),
         }),
       )
     } catch {
@@ -1577,6 +1649,38 @@ export const admin: Record<string, Handler> = {
     try {
       manageSvc.setSkillVisibility(refFromCtx(ctx), body.visibility, ctx.user!.id)
       return json({ message: `visibility updated to ${body.visibility}` })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  /**
+   * Creates a catalogue entry from the console form.
+   *
+   * Distinct from `POST /api/v1/skills`: that one ingests uploaded files, this
+   * one synthesises the `SKILL.md` and takes the body as rich text, so the
+   * console can add a skill without a file round trip.
+   */
+  createSkill: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<SkillFormBody>(ctx.request)
+    const input = body === null ? null : readSkillForm(body)
+    if (input === null) return errorJson('invalid request body', 400)
+    try {
+      return json({ skill: manageSvc.createSkillFromForm(user, input) }, 201)
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  /** Replaces a skill's editable content. The body is a full form submission. */
+  updateSkill: async (ctx) => {
+    const user = requireUser(ctx)
+    const body = await jsonBody<SkillFormBody>(ctx.request)
+    const input = body === null ? null : readSkillForm(body)
+    if (input === null) return errorJson('invalid request body', 400)
+    try {
+      return json({ skill: manageSvc.updateSkillFromForm(user, refFromCtx(ctx), input) })
     } catch (e) {
       return serviceError(e)
     }

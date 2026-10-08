@@ -100,6 +100,48 @@
 - 页面「API usage」区 + 每行「复制调用说明」：示例按该 key 的 scopes 过滤；
   明文只在创建后那一刻可得，其余行只能嵌入 16 位前缀掩码。
 
+## 内容管理（2026-10-08 新增，取代原「内容审核」）
+
+- `admin.content.tsx` 从「内容审核」（通过 / 拒绝 + 设可见性）改为**技能 CRUD**：
+  新建 / 编辑 / 上架下架 / 永久删除 + 页码分页。审核**动作本身没删**——
+  `POST /admin/skills/:slug/review` 等路由还在（既有契约），只是不再有 UI 入口。
+- 新增接口（都 `auth:'admin'`）：
+  - `POST /api/v1/admin/skills` —— 表单直建，JSON body。服务端合成 `SKILL.md` 存根 + 版本 `1.0.0`，
+    走 `publishVersion`，以复用保留 slug / 命名空间配额 / 指纹 / 搜索索引 / 审计等全部不变量。
+  - `PUT /api/v1/admin/skills/:slug`（及 `@:namespace` 版）—— **全量替换**语义：
+    空串 = 清空该列。`updateMetadata` 用真值判断会静默忽略空串，所以另加了 `repo.updateForAdmin`。
+  - 上架 / 下架复用 `POST /admin/skills/:slug/visibility`（`K_MODERATE`）；
+    永久删除复用 `DELETE /skills/:slug/purge`（`K_DELETE`）。两个新路由标 `K_PUBLISH`。
+- `GET /admin/skills` 增加**可选** `page`（≥1 走 `LIMIT/OFFSET`）与响应字段 `total`；
+  不传 `page` 时仍是原游标模式，API Key 客户端的契约不变。
+- **`overwrite:false` 是坑**：`services/skills.ts` 步骤 11 在「技能不存在」分支里**也**抛冲突，
+  所以 create 不能靠它防重。`createSkillFromForm` 自己先查 `getWithOwnerByNsAndSlug` 再 `conflict`。
+  （那个反向守卫是 upstream 带来的，agent API 依赖它，不要"顺手修"。）
+- **分类不要按 `VALID_CATEGORIES` 校验**：内置技能用的是 design / research / documentation / writing，
+  全都不在白名单里（`/categories` 只 advertise 四个）。`checkedCategory` 只 trim + 截断 + 去控制字符，
+  空串才回落 `general`；否则管理员一点保存就会把全部内置技能改档到 general。
+  前端下拉选项 = `/categories` ∪ 当前页已在用的分类 ∪ 当前值。
+- 富文本用 **Quill 2.0.3**（本项目唯一新增的前端依赖）；只在客户端动态 `import('quill')`，
+  CSS 走 `?inline` 注入 `<style>`，产物是独立懒加载 chunk（服务端 bundle 不含它）。
+  **入库前必须过 `lib/richText.ts` 的 `normalizeRichTextHtml`**：Quill 的列表是
+  `<ol><li data-list="bullet">` + `ql-indent-N` 类 + `ql-ui` 标记 span，`data-list` 会被消毒器剥掉，
+  不归一化的话无序列表在详情页会退化成「1. 2. 3.」。归一化会重建成标准嵌套 `<ul>/<ol>`（幂等），
+  并把 code-block 处理成 `<pre>`。
+  - **踩坑**：`DOMParser` 造的 document 其 `defaultView` **是 null**。早期版本用它做守卫 ⇒
+    列表重建被跳过而清理照跑，静默写入坏数据。别再把 `defaultView` 加回来。
+- Quill 有 XSS 公告 **CVE-2025-15056**（Low，**官方无修复版本**）。我们的 `sanitizeHtml` 是白名单重建式、
+  入库与渲染各跑一次，Quill 导出的 HTML 从不被直接渲染 ⇒ 风险已缓解，不要为此升级或替换库。
+- Quill 的块样式下拉文案来自它自己的 CSS `content`（DOM 里没有文本节点），
+  中文界面靠 `html[lang="zh"] .ql-picker…::before` 覆盖，英文沿用 Quill 默认值。
+- **弹窗布局：语言开关统管三种文本字段**（2026-10-08 用户要求「中英文简介分开编辑」）。
+  标识名 / 分类 / 标签 / 可见性四种**与语言无关**，永远可见；其余按 `editLang` 分页签：
+  中文页 = 显示名称 / 简介 / 详情内容（`displayName` / `summary` / `html`），
+  英文页同理绑 `displayNameEn` / `summaryEn` / `htmlEn`。
+  - **字段标签不再带「英文」前缀**——页签已经说明语言，再写「英文简介」是冗余。
+  - 两种语言的内容都存在同一个 `draft` state 里，切页签只是换渲染，**不会丢未保存的输入**
+    （隔离库实测：中文改名→切英文→切回，中文值仍在；保存后四个字段各自独立入库）。
+  - Quill 编辑器随页签卸载/重挂，重新挂载时从 `draft` 的对应字段播种，行为已验证。
+
 ## 收藏 / Favourites（2026-10-08 新增，原 Go 版没有）
 
 - 收藏沿用**既有 `stars` 表**（`stars(user_id, skill_id)`，UNIQUE），不再加新表；写入口仍是

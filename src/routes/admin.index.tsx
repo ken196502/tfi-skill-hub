@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Navigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
-import { adminListFeatures, adminListPlugins, adminListSkills, adminListUsers } from '../lib/api'
+import { adminListFeatures, adminListSkills, adminListUsers } from '../lib/api'
 import { useSession } from '../lib/auth'
 import { useT } from '../lib/i18n'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
@@ -13,22 +13,20 @@ function AdminPage() {
   const t = useT()
   const results = useQueries({ queries: [
     { queryKey: ['admin-users'], queryFn: () => adminListUsers() },
-    { queryKey: ['admin-skills'], queryFn: () => adminListSkills('', '') },
-    { queryKey: ['admin-plugins'], queryFn: () => adminListPlugins() },
+    { queryKey: ['admin-skills'], queryFn: () => adminListSkills() },
     { queryKey: ['admin-features'], queryFn: adminListFeatures },
   ] })
   if (booting) return <Loading />
   if (!user || user.role !== 'admin') return <Navigate to="/login" />
   if (results.some((result) => result.isLoading)) return <Loading />
   if (results.some((result) => result.isError)) return <div className="container page-container"><ErrorBox message={t('加载管理后台数据失败，请稍后重试。', 'Failed to load admin data. Please try again later.')} /></div>
-  const [users, skills, plugins, features] = results
+  const [users, skills, features] = results
   return <div className="container page-container">
     <AdminNav active="overview" />
     <PageHeader title={t('管理后台', 'Admin')} subtitle={`${t('欢迎回来', 'Welcome back')}，${user.displayName || user.handle}。`} />
     <div className="admin-stats">
       <div className="admin-stat"><strong>{users.data?.data.length ?? 0}</strong><span>{t('用户', 'Users')}</span></div>
       <div className="admin-stat"><strong>{skills.data?.data.length ?? 0}</strong><span>{t('技能', 'Skills')}</span></div>
-      <div className="admin-stat"><strong>{plugins.data?.data.length ?? 0}</strong><span>{t('插件', 'Plugins')}</span></div>
       <div className="admin-stat"><strong>{features.data?.data.length ?? 0}</strong><span>{t('首页精选', 'Featured')}</span></div>
     </div>
     <h2 className="admin-section-title">{t('管理模块', 'Modules')}</h2>
@@ -45,7 +43,7 @@ function AdminPage() {
       </Link>
       <Link className="admin-module-card" to="/admin/content">
         <span className="admin-module-icon admin-module-icon-hue-meta">◇</span>
-        <span><strong>{t('内容审核', 'Content review')}</strong><small>{t('审核技能与插件，并管理公开或私有状态', 'Review skills and plugins, and manage their public/private state')}</small></span>
+        <span><strong>{t('内容管理', 'Content management')}</strong><small>{t('增删技能，维护展示信息与详情内容', 'Add and remove skills, and maintain their details')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
       <Link className="admin-module-card" to="/admin/audit-logs">

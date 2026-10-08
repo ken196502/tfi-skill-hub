@@ -902,8 +902,17 @@ try {
   })
   check('POST /register → 201 awaiting review', r.status === 201 && r.body?.status === 'pending', `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: NEWBIE, password: NEWBIE_PASSWORD } })
+  r = await req('POST', '/register', { body: { handle: NEWBIE, password: NEWBIE_PASSWORD, email: 'other-taken@example.com' } })
   check('registering a taken handle → 400', r.status === 400 && /already exists/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: { handle: 'smoke-no-email', password: NEWBIE_PASSWORD } })
+  check('registering without an email → 400 email required', r.status === 400 && /email is required/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: { handle: 'smoke-bad-email', password: NEWBIE_PASSWORD, email: 'not-an-email' } })
+  check('registering with an invalid email → 400', r.status === 400 && /email is not a valid address/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: { handle: 'smoke-dup-email', password: NEWBIE_PASSWORD, email: 'newbie@example.com' } })
+  check('registering with a duplicate email → 400', r.status === 400 && /already registered/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
   r = await req('POST', '/register', { body: { handle: 'smoke-short', password: 'short' } })
   check('registering with a too-short password → 400', r.status === 400 && /at least/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
@@ -1035,7 +1044,166 @@ try {
     r.text.slice(0, 250),
   )
 
-  // ── 16. admin API keys ───────────────────────────────────────────────────
+  // ── 16. content management (admin console) ───────────────────────────────
+  section('Content management')
+
+  // Numbered paging for the console. `total` is what lets it render a page
+  // count, and `page` is additive — omitting it keeps the cursor walk.
+  r = await req('GET', '/api/v1/admin/skills?page=1&limit=2', { token: adminToken })
+  const pageOneIds = (r.body?.data ?? []).map((s) => s.id)
+  check(
+    'page 1 honours `limit` and reports a total',
+    r.status === 200 && pageOneIds.length === 2 && (r.body?.total ?? 0) > 2,
+    r.text.slice(0, 200),
+  )
+  check('page 1 clears nextCursor', r.body?.nextCursor === '', JSON.stringify(r.body?.nextCursor))
+
+  r = await req('GET', '/api/v1/admin/skills?page=2&limit=2', { token: adminToken })
+  const pageTwoIds = (r.body?.data ?? []).map((s) => s.id)
+  check(
+    'page 2 returns the next slice without repeating page 1',
+    r.status === 200 && pageTwoIds.length === 2 && pageTwoIds.every((id) => !pageOneIds.includes(id)),
+    r.text.slice(0, 200),
+  )
+
+  r = await req('GET', '/api/v1/admin/skills?page=999&limit=2', { token: adminToken })
+  check(
+    'a page past the end is empty rather than an error',
+    r.status === 200 && (r.body?.data ?? []).length === 0,
+    `${r.status} ${r.text.slice(0, 160)}`,
+  )
+
+  r = await req('GET', '/api/v1/admin/skills?limit=2', { token: adminToken })
+  check(
+    'the legacy cursor mode still answers with nextCursor',
+    r.status === 200 && typeof r.body?.nextCursor === 'string' && r.body.nextCursor !== '',
+    r.text.slice(0, 200),
+  )
+
+  // Create from the console form — the server synthesises the SKILL.md.
+  r = await req('POST', '/api/v1/admin/skills', {
+    token: adminToken,
+    body: {
+      slug: 'smoke-managed',
+      displayName: '受管技能',
+      summary: '自检创建',
+      displayNameEn: '',
+      summaryEn: '',
+      category: 'workspace',
+      tags: ['smoke', 'managed'],
+      visibility: 'private',
+      html: '<p>正文</p><ul><li>一</li></ul>',
+      htmlEn: '',
+    },
+  })
+  check(
+    'creating from the console form → 201',
+    r.status === 201 && r.body?.skill?.slug === 'smoke-managed',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-managed', { token: adminToken })
+  check(
+    'the new skill carries one version, its metadata and the rich body',
+    r.status === 200 &&
+      r.body?.versionsCount === 1 &&
+      r.body?.displayName === '受管技能' &&
+      r.body?.detailHtml === '<p>正文</p><ul><li>一</li></ul>' &&
+      JSON.stringify(r.body?.tags) === JSON.stringify(['smoke', 'managed']),
+    r.text.slice(0, 250),
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-managed/versions', { token: adminToken })
+  check('the synthesised version is 1.0.0', r.body?.versions?.[0]?.version === '1.0.0', r.text.slice(0, 200))
+
+  r = await req('GET', '/api/v1/skills/smoke-managed/file?path=SKILL.md', { token: adminToken })
+  check(
+    'the SKILL.md stub exists and carries the display name',
+    r.status === 200 && r.text.includes('name: "受管技能"'),
+    `${r.status} ${r.text.slice(0, 160)}`,
+  )
+
+  r = await req('POST', '/api/v1/admin/skills', { token: adminToken, body: { slug: 'smoke-managed' } })
+  check('a duplicate slug → 409', r.status === 409 && /already exists/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/skills', { token: adminToken, body: { displayName: 'no slug' } })
+  check('a missing slug → 400 "slug is required"', r.status === 400 && r.body?.error === 'slug is required', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/skills', { token: adminToken, body: { slug: 'x', displayName: 42 } })
+  check('a mistyped field → 400 "invalid request body"', r.status === 400 && r.body?.error === 'invalid request body', `${r.status} ${r.text}`)
+
+  // Update is a full replace: an emptied input clears its column, which is the
+  // whole reason this path does not reuse `updateMetadata`.
+  r = await req('PUT', '/api/v1/admin/skills/smoke-managed', {
+    token: adminToken,
+    body: {
+      displayName: '改过的名字',
+      summary: '',
+      displayNameEn: 'Renamed',
+      summaryEn: '',
+      category: 'workspace',
+      tags: ['renamed'],
+      visibility: 'public',
+      html: '',
+      htmlEn: '',
+    },
+  })
+  check(
+    'replacing a skill from the console form → 200',
+    r.status === 200 && r.body?.skill?.displayName === '改过的名字',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-managed', { token: adminToken })
+  check(
+    'an emptied summary is cleared (key absent, not null)',
+    r.body?.summary === undefined && r.body?.displayNameEn === 'Renamed' && r.body?.visibility === 'public',
+    r.text.slice(0, 250),
+  )
+  check('an emptied rich body is cleared', r.body?.detailHtml === undefined, JSON.stringify(r.body?.detailHtml))
+
+  // Regression guard. The seeded catalogue is filed under categories the
+  // `/categories` allow-list does not know (design, research, documentation,
+  // writing). An edit must echo them back rather than refiling the row as
+  // "general" — that bug would silently reclassify every seeded skill the first
+  // time an admin pressed Save. The PUT echoes the row's own values, so it also
+  // proves a save with no changes loses nothing.
+  r = await req('GET', '/api/v1/skills/@builtin/accessibility-ecc', { token: adminToken })
+  const seeded = r.body
+  check('the seeded skill uses a category outside VALID_CATEGORIES', seeded?.category === 'design', JSON.stringify(seeded?.category))
+
+  r = await req('PUT', '/api/v1/admin/skills/@builtin/accessibility-ecc', {
+    token: adminToken,
+    body: {
+      displayName: seeded?.displayName ?? '',
+      summary: seeded?.summary ?? '',
+      displayNameEn: seeded?.displayNameEn ?? '',
+      summaryEn: seeded?.summaryEn ?? '',
+      category: seeded?.category ?? '',
+      tags: seeded?.tags ?? [],
+      visibility: seeded?.visibility ?? 'public',
+      html: seeded?.detailHtml ?? '',
+      htmlEn: seeded?.detailHtmlEn ?? '',
+    },
+  })
+  check(
+    'a category outside the allow-list survives an edit',
+    r.status === 200 && r.body?.skill?.category === 'design',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  check(
+    'the namespaced update path preserves the record',
+    r.body?.skill?.displayNameEn === seeded?.displayNameEn,
+    JSON.stringify(r.body?.skill?.displayNameEn),
+  )
+
+  r = await req('DELETE', '/api/v1/skills/smoke-managed/purge', { token: adminToken })
+  check('purging a skill → 200', r.status === 200, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/skills/smoke-managed', { token: adminToken })
+  check('the purged skill is gone → 404', r.status === 404, `${r.status}`)
+
+  // ── 17. admin API keys ───────────────────────────────────────────────────
   section('Admin API keys')
 
   r = await req('POST', '/api/v1/admin/api-keys', {
@@ -1208,7 +1376,7 @@ try {
     r.text.slice(0, 250),
   )
 
-  // ── 16. skill detail HTML ────────────────────────────────────────────────
+  // ── 17. skill detail HTML ────────────────────────────────────────────────
   section('Skill detail HTML')
 
   // The payload is hostile on purpose: the point is what comes back out.
@@ -1340,7 +1508,7 @@ try {
     r.text.slice(0, 200),
   )
 
-  // ── 17. ordinary-user permissions ────────────────────────────────────────
+  // ── 18. ordinary-user permissions ────────────────────────────────────────
   section('Ordinary user permissions')
 
   // `plainUserToken` belongs to `smokeuser`, whose role is `user`. The policy is
@@ -1380,6 +1548,21 @@ try {
     `${r.status} ${r.text.slice(0, 120)}`,
   )
 
+  // The console's own create/edit pair is administrator-only too.
+  r = await req('POST', '/api/v1/admin/skills', { token: plainUserToken, body: { slug: 'plain-denied', visibility: 'private' } })
+  check(
+    'a plain user cannot create content → 403',
+    r.status === 403 && r.body?.error === 'insufficient permissions',
+    `${r.status} ${r.text.slice(0, 120)}`,
+  )
+
+  r = await req('PUT', '/api/v1/admin/skills/smoke-skill', { token: plainUserToken, body: { displayName: 'x' } })
+  check(
+    'a plain user cannot edit content → 403',
+    r.status === 403 && r.body?.error === 'insufficient permissions',
+    `${r.status} ${r.text.slice(0, 120)}`,
+  )
+
   // The remaining write surfaces, all expected to be refused outright.
   const refusals = [
     ['publish a plugin', 'POST', '/api/v1/plugins', multipart({ slug: 'plain-denied-plugin', version: '1.0.0' }, { 'plugin.json': JSON.stringify({ name: 'x', version: '1.0.0' }) })],
@@ -1402,7 +1585,7 @@ try {
     check(`a plain user cannot ${label} → 403`, res.status === 403, `${res.status} ${res.text.slice(0, 120)}`)
   }
 
-  // ── 18. rate limiting (tight limits, separate process) ───────────────────
+  // ── 19. rate limiting (tight limits, separate process) ───────────────────
   section('Rate limiting')
 
   {
@@ -1450,7 +1633,7 @@ try {
     }
   }
 
-  // ── 19. persistence across restart ────────────────────────────────────────
+  // ── 20. persistence across restart ────────────────────────────────────────
   section('Persistence')
 
   const before = await req('GET', '/api/v1/skills?limit=100')

@@ -35,11 +35,11 @@ function SkillsPage() {
   const [input, setInput] = useState(q)
 
   const SORTS: Array<[string, string]> = [
-    ['created', t('最新', 'Newest')],
+    ['created', t('最新发布', 'Latest published')],
     ['updated', t('最近更新', 'Recently updated')],
-    ['downloads', t('下载量', 'Downloads')],
-    ['stars', t('收藏数', 'Stars')],
-    ['name', t('名称', 'Name')],
+    ['downloads', t('最多下载', 'Most downloaded')],
+    ['stars', t('最多收藏', 'Most favorited')],
+    ['name', t('名称排序', 'Name')],
   ]
 
   const query = useQuery({

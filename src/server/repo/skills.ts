@@ -176,6 +176,34 @@ export interface ListOptions {
   includeDeleted?: boolean
 }
 
+/**
+ * Filter shared by the admin listing's count and page queries. Kept in one
+ * place so `total` and `data` can never disagree about what the filter means.
+ *
+ * `pending` is deliberately not a visibility value: it selects rows whose
+ * moderation state is still open, whatever their visibility happens to be.
+ */
+function adminSkillFilter(visibility: string): { where: string[]; params: unknown[] } {
+  const where: string[] = ['s.soft_deleted_at IS NULL']
+  const params: unknown[] = []
+
+  switch (visibility) {
+    case 'private':
+      where.push("s.visibility = 'private'")
+      break
+    case 'public':
+      where.push("s.visibility = 'public'")
+      break
+    case 'pending':
+      where.push("s.moderation_status = 'pending_review'")
+      break
+    default:
+      break
+  }
+
+  return { where, params }
+}
+
 export const skills = {
   getById(id: string): Skill | null {
     const row = query.get<Row>('SELECT * FROM skills WHERE id = ?', id)
@@ -278,44 +306,59 @@ export const skills = {
     return { data: items.slice(0, opts.limit), nextCursor }
   },
 
-  /** Admin listing — no visibility filter, ordered by `updated_at DESC`. */
+  /**
+   * Admin listing — no visibility filter, ordered by `updated_at DESC`.
+   *
+   * Two paging modes share one filter expression:
+   *   - `page >= 1` selects a numbered page (`LIMIT/OFFSET`) — the console's
+   *     mode, and the only way to render "第 N / M 页".
+   *   - `page === 0` keeps the historical cursor walk, so clients written
+   *     against `nextCursor` are unaffected.
+   *
+   * `total` is always the size of the filtered set (paging ignored), so the
+   * caller can render a page count without a second round trip.
+   */
   listForAdmin(opts: {
     visibility: string
     cursor: string
     limit: number
-  }): { data: SkillWithOwner[]; nextCursor: string } {
-    const where: string[] = ['s.soft_deleted_at IS NULL']
-    const params: unknown[] = []
+    page: number
+  }): { data: SkillWithOwner[]; nextCursor: string; total: number } {
+    const { where, params } = adminSkillFilter(opts.visibility)
+    const total = asNumber(
+      query.get<Row>(
+        `SELECT COUNT(*) AS c FROM skills s WHERE ${where.join(' AND ')}`,
+        ...params,
+      )?.c,
+    )
 
-    switch (opts.visibility) {
-      case 'private':
-        where.push("s.visibility = 'private'")
-        break
-      case 'public':
-        where.push("s.visibility = 'public'")
-        break
-      case 'pending':
-        where.push("s.moderation_status = 'pending_review'")
-        break
-      default:
-        break
+    if (opts.page >= 1) {
+      const rows = query.all<Row>(
+        `${SKILL_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.updated_at DESC, s.id LIMIT ? OFFSET ?`,
+        ...params,
+        opts.limit,
+        (opts.page - 1) * opts.limit,
+      )
+      return { data: rows.map(mapSkillWithOwner), nextCursor: '', total }
     }
 
+    const cursorWhere = [...where]
+    const cursorParams = [...params]
     if (opts.cursor) {
-      where.push(
+      cursorWhere.push(
         `s.updated_at <= (SELECT updated_at FROM skills WHERE id = ?) AND s.id != ?`,
       )
-      params.push(opts.cursor, opts.cursor)
+      cursorParams.push(opts.cursor, opts.cursor)
     }
 
     const rows = query.all<Row>(
-      `${SKILL_SELECT} WHERE ${where.join(' AND ')} ORDER BY s.updated_at DESC, s.id LIMIT ?`,
-      ...params,
+      `${SKILL_SELECT} WHERE ${cursorWhere.join(' AND ')} ORDER BY s.updated_at DESC, s.id LIMIT ?`,
+      ...cursorParams,
       opts.limit + 1,
     )
     const items = rows.map(mapSkillWithOwner)
     const nextCursor = items.length > opts.limit ? items[opts.limit].id : ''
-    return { data: items.slice(0, opts.limit), nextCursor }
+    return { data: items.slice(0, opts.limit), nextCursor, total }
   },
 
   create(input: {
@@ -404,6 +447,50 @@ export const skills = {
     if (sets.length === 0) return
     params.push(id)
     query.run(`UPDATE skills SET ${sets.join(', ')} WHERE id = ?`, ...params)
+  },
+
+  /**
+   * Full replacement of the editable metadata, for the admin console's edit
+   * form.
+   *
+   * Deliberately **not** `updateMetadata`: that one skips any falsy field, so an
+   * emptied input would be silently ignored and the author could never clear a
+   * summary or drop the English name. Here an empty value clears the column,
+   * which is what a form that submits every field means by it.
+   *
+   * `moderationStatus` rides along because an explicit administrative save is a
+   * decision: it takes the row out of the review queue, exactly as the
+   * visibility endpoint does.
+   */
+  updateForAdmin(
+    id: string,
+    fields: {
+      displayName: string | null
+      summary: string | null
+      displayNameEn: string | null
+      summaryEn: string | null
+      category: string
+      tags: string[]
+      visibility: Visibility
+      moderationStatus: ModerationStatus
+    },
+  ): void {
+    query.run(
+      `UPDATE skills
+          SET display_name = ?, summary = ?, display_name_en = ?, summary_en = ?,
+              category = ?, tags = ?, visibility = ?, moderation_status = ?, updated_at = ?
+        WHERE id = ?`,
+      fields.displayName,
+      fields.summary,
+      fields.displayNameEn,
+      fields.summaryEn,
+      fields.category,
+      JSON.stringify(fields.tags),
+      fields.visibility,
+      fields.moderationStatus,
+      nowIso(),
+      id,
+    )
   },
 
   /**

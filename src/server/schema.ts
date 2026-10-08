@@ -511,6 +511,18 @@ export const MIGRATIONS: Migration[] = [
         WHERE role = 'moderator';
     `,
   },
+  {
+    // Speeds up the "is this email already registered?" lookup used by public
+    // registration and admin user creation. Uniqueness is enforced in the
+    // service layer (a plain, non-unique index keeps installs that already hold
+    // rows with a NULL/blank email valid, and avoids breaking the migration on a
+    // database that happens to contain duplicate addresses).
+    v: 9,
+    name: 'index users by email',
+    sql: `
+      CREATE INDEX idx_users_email ON users (email);
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

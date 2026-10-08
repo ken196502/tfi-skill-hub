@@ -13,6 +13,7 @@ import { ErrorBox } from './ui'
 
 /** Mirrors the server's rule so the common cases are reported before posting. */
 const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 8
 
 export function RegisterPage() {
@@ -29,7 +30,7 @@ export function RegisterPage() {
   const [done, setDone] = useState(false)
 
   const canSubmit =
-    handle.trim() !== '' && password !== '' && confirm !== '' && !busy
+    handle.trim() !== '' && email.trim() !== '' && password !== '' && confirm !== '' && !busy
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -42,6 +43,14 @@ export function RegisterPage() {
           'Username must be 2–32 characters: letters, digits, dot, dash or underscore, starting with a letter or digit.',
         ),
       )
+      return
+    }
+    if (email.trim() === '') {
+      setError(t('请填写邮箱。', 'Please enter your email.'))
+      return
+    }
+    if (!EMAIL_PATTERN.test(email.trim())) {
+      setError(t('邮箱格式不正确。', 'Please enter a valid email address.'))
       return
     }
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -151,7 +160,7 @@ export function RegisterPage() {
 
             <div className="login-field">
               <label className="form-label" htmlFor="email">
-                {t('邮箱（可选）', 'Email (optional)')}
+                {t('邮箱', 'Email')}
               </label>
               <div className="login-input-wrap">
                 <span className="login-input-icon">
@@ -167,7 +176,7 @@ export function RegisterPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
-                  placeholder={t('用于联系', 'Used to reach you')}
+                  placeholder={t('例如：name@example.com', 'e.g. name@example.com')}
                 />
               </div>
             </div>

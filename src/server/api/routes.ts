@@ -227,6 +227,12 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/admin/skills', handler: h.admin.listSkills, auth: 'admin', ...K_MODERATE },
     { method: 'GET', path: '/api/v1/admin/features', handler: h.admin.listFeaturedSkills, auth: 'admin', ...K_READ },
     { method: 'PUT', path: '/api/v1/admin/features', handler: h.admin.replaceFeaturedSkills, auth: 'admin', ...K_MODERATE },
+    // Content management: the console's own create/edit pair. Creating and
+    // editing content needs `skills:publish`; taking a skill offline or
+    // removing it for good reuses the lifecycle routes further up.
+    { method: 'POST', path: '/api/v1/admin/skills', handler: h.admin.createSkill, auth: 'admin', ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/admin/skills/:slug', handler: h.admin.updateSkill, auth: 'admin', ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/admin/skills/@:namespace/:slug', handler: h.admin.updateSkill, auth: 'admin', ...K_PUBLISH },
     { method: 'POST', path: '/api/v1/admin/skills/:slug/review', handler: h.admin.reviewSkill, auth: 'admin', ...K_MODERATE },
     { method: 'POST', path: '/api/v1/admin/skills/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin', ...K_MODERATE },
     { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/review', handler: h.admin.reviewSkill, auth: 'admin', ...K_MODERATE },

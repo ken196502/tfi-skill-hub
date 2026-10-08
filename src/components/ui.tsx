@@ -1,14 +1,13 @@
 /**
- * Shared presentational components: skill/plugin cards, a copyable code block
+ * Shared presentational components: skill cards, a copyable code block
  * and a markdown body.
  */
 
 import { useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import type { Plugin, SkillWithOwner } from '../lib/types'
+import type { SkillWithOwner } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
 import { sanitizeHtml } from '../lib/sanitizeHtml'
-import type { PluginJson } from '../lib/api'
 import { useFavoriteToggle } from '../lib/favorites'
 import { useLang, useT, localizedName, localizedSummary } from '../lib/i18n'
 
@@ -83,46 +82,6 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
             <i className="stat-icon" aria-hidden="true">@</i>
             {skill.ownerHandle}
           </span>
-        </div>
-      </div>
-    </Link>
-  )
-}
-
-export function PluginCard({ plugin }: { plugin: Plugin | PluginJson }) {
-  const { lang } = useLang()
-  const t = useT()
-  const name = localizedName(plugin, lang)
-  const summary = localizedSummary(plugin, lang)
-  const namespaceSlug = (plugin as PluginJson).namespaceSlug
-  const ref = namespaceSlug ? `@${namespaceSlug}/${plugin.slug}` : plugin.slug
-  return (
-    <Link to="/plugins/$" params={{ _splat: ref }}>
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title">{name}</div>
-          {plugin.tags.length > 0 && (
-            <div className="card-tags">
-              {plugin.tags.slice(0, 3).map((tag) => (
-                <span className="tag" key={tag}>
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="card-summary">{summary || t('暂无描述', 'No description yet')}</div>
-        <div className="card-meta">
-          <span className="stat-downloads" title={t('下载量', 'Downloads')}>
-            <i className="stat-icon" aria-hidden="true">↓</i>
-            <b>{formatNumber(plugin.downloads)}</b>
-          </span>
-          {typeof (plugin as PluginJson).version === 'string' && (
-            <span className="stat-version">
-              <i className="stat-icon" aria-hidden="true">v</i>
-              {(plugin as PluginJson).version}
-            </span>
-          )}
         </div>
       </div>
     </Link>

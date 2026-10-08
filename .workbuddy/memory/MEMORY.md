@@ -5,6 +5,7 @@
 
 ## 技术栈（锁定，不要替换）
 - TanStack Start（单体全栈）+ Router + Query；前端只用 `@tanstack/*` + `react` + `react-dom`
+- **唯一例外**：内容管理页的富文本用 `quill@2.0.3`（2026-10-08 用户指定），客户端动态 import、独立懒加载 chunk
 - SQLite 走 Node 内置 `node:sqlite`（**不要** better-sqlite3 / Prisma / Drizzle）；搜索 FTS5 `tokenize='trigram'`
 - 后端零第三方依赖（ZIP / Markdown / semver / scrypt / token 全自实现）；加依赖前先问标准库能否满足
 
@@ -36,6 +37,15 @@
 `npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（全绿）
 - 自检用临时库 + 真实 HTTP + 每次换端口；功能用例用大限额，限流另用小限额服务验证
 - **改了源码必须重新 build 再 smoke**，否则验证的是旧 dist（曾因此误判）
+
+## 管理端内容管理（2026-10-08，取代原「内容审核」）
+- 页面 `/admin/content`：技能 CRUD（新建 / 编辑 / 上架下架 / 永久删除）+ 页码分页。
+- 新增 `POST /admin/skills`（表单直建，服务端合成 SKILL.md + v1.0.0）、
+  `PUT /admin/skills/:slug`（**全量替换**，空串=清空）；上架下架复用 visibility，永久删除复用 purge。
+- `GET /admin/skills` 加可选 `page` + `total`（不传 page 仍是游标，契约不变）。
+- 两个高危坑（详见 CONVENTIONS）：①`overwrite:false` 在「不存在」分支也抛冲突，不能用来防重；
+  ②分类**不能**按 `VALID_CATEGORIES` 校验，否则一点保存就把全部内置技能改档成 general。
+- 富文本入库前必须过 `lib/richText.ts` 归一化，否则 Quill 的无序列表在详情页退化成编号列表。
 
 ## 界面文案（强约束）
 - 不写实现说明、不写运营/第三人称视角；演示账号列表正式交付前删掉

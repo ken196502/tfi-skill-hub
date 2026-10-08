@@ -33,6 +33,9 @@ function SearchPage() {
     setSubmitted(input.trim())
   }
 
+  // Plugins are no longer browseable on the frontend; hide them from results.
+  const hits = (query.data?.hits ?? []).filter((h) => h.docType !== 'plugin')
+
   return (
     <div className="container" style={{ paddingTop: 40 }}>
       <PageHeader
@@ -65,9 +68,9 @@ function SearchPage() {
       ) : (
         <>
           <p className="detail-summary" style={{ marginBottom: 20 }}>
-            {(query.data?.hits.length ?? 0) > 0 ? (
+            {(hits.length ?? 0) > 0 ? (
               <>
-                {t('找到约', 'Found about')} <strong>{query.data!.hits.length}</strong>{' '}
+                {t('找到约', 'Found about')} <strong>{hits.length}</strong>{' '}
                 {t('条关于', 'results for')} “<strong>{submitted}</strong>”{' '}
                 {t('的结果', '')}
               </>
@@ -80,7 +83,7 @@ function SearchPage() {
           </p>
 
           <div className="skill-grid">
-            {query.data!.hits.map((hit) => (
+            {hits.map((hit) => (
               <HitCard key={hit.id} hit={hit} />
             ))}
           </div>
@@ -94,7 +97,7 @@ function HitCard({ hit }: { hit: SearchHit }) {
   const { lang } = useLang()
   const t = useT()
   const ref = hit.namespaceSlug ? `@${hit.namespaceSlug}/${hit.slug}` : hit.slug
-  const to = hit.docType === 'plugin' ? '/plugins/$' : '/skills/$'
+  const to = '/skills/$'
   const name =
     lang === 'en' && hit.displayNameEn ? hit.displayNameEn : hit.displayName || hit.slug
   const summary =
