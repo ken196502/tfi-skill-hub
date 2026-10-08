@@ -3,7 +3,6 @@ import { createFileRoute, Navigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   adminBanUser,
-  adminCreateToken,
   adminCreateUser,
   adminListUsers,
   adminReviewUser,
@@ -29,10 +28,7 @@ function UsersPage() {
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
   const [showCreate, setShowCreate] = useState(false)
-  const [showToken, setShowToken] = useState<User | null>(null)
-  const [tokenValue, setTokenValue] = useState('')
   const [createForm, setCreateForm] = useState({ handle: '', displayName: '', email: '', role: 'user' })
-  const [tokenForm, setTokenForm] = useState({ label: '', scope: 'full' })
 
   const users = useInfiniteQuery({
     queryKey: ['admin-users-paged', statusFilter],
@@ -62,10 +58,6 @@ function UsersPage() {
       adminReviewUser(id, action, note),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users-paged'] }),
   })
-  const token = useMutation({
-    mutationFn: () => adminCreateToken({ userId: showToken?.id ?? '', ...tokenForm }),
-    onSuccess: (result) => setTokenValue(result.token),
-  })
 
   const allUsers = useMemo(() => users.data?.pages.flatMap((page) => page.data) ?? [], [users.data])
   /** Same on every page of the response, so the first one is representative. */
@@ -88,7 +80,7 @@ function UsersPage() {
     { value: 'rejected', label: t('已驳回', 'Rejected') },
   ]
 
-  const error = create.error ?? role.error ?? ban.error ?? token.error ?? review.error
+  const error = create.error ?? role.error ?? ban.error ?? review.error
   return <div className="container page-container">
     <AdminNav active="users" />
     <PageHeader
@@ -112,15 +104,6 @@ function UsersPage() {
       <div className="admin-form-actions"><button className="btn btn-primary" disabled={create.isPending} type="submit">{create.isPending ? t('创建中…', 'Creating…') : t('确认创建', 'Create')}</button></div>
     </form>}
 
-    {showToken && <div className="admin-token-card">
-      <div className="admin-token-header"><div><strong>{t('为', 'Mint an API token for')} {showToken.handle}</strong><p className="muted">{t('完整 Token 只会显示这一次，请立即复制并妥善保存。', 'The full token is shown only once — copy and store it now.')}</p></div><button className="icon-btn" type="button" onClick={() => { setShowToken(null); setTokenValue('') }}>×</button></div>
-      {!tokenValue ? <form className="admin-form-grid" onSubmit={(event) => { event.preventDefault(); token.mutate() }}>
-        <label><span className="form-label">{t('标签', 'Label')}</span><input className="form-input" placeholder={t('例如 CI 发布', 'e.g. CI publishing')} value={tokenForm.label} onChange={(event) => setTokenForm({ ...tokenForm, label: event.target.value })} /></label>
-        <label><span className="form-label">{t('权限范围', 'Scope')}</span><select className="form-input" value={tokenForm.scope} onChange={(event) => setTokenForm({ ...tokenForm, scope: event.target.value })}><option value="full">{t('Full（读写）', 'Full (read/write)')}</option><option value="read">{t('Read（只读）', 'Read (read-only)')}</option><option value="publish">{t('Publish（发布）', 'Publish')}</option></select></label>
-        <div className="admin-form-actions"><button className="btn btn-primary" disabled={token.isPending} type="submit">{token.isPending ? t('签发中…', 'Minting…') : t('签发 Token', 'Mint token')}</button></div>
-      </form> : <div className="admin-secret-row"><code>{tokenValue}</code><button className="btn btn-secondary btn-small" type="button" onClick={() => void navigator.clipboard?.writeText(tokenValue)}>{t('复制', 'Copy')}</button></div>}
-    </div>}
-
     {error && <ErrorBox message={error instanceof Error ? error.message : t('操作失败，请重试。', 'Action failed. Please try again.')} />}
     <div className="admin-toolbar">
       <div className="admin-filter-group">
@@ -143,7 +126,6 @@ function UsersPage() {
           <td><div className="admin-actions">
             <button className="btn btn-primary btn-small" type="button" disabled={review.isPending || item.status === 'approved' || item.id === user.id} onClick={() => review.mutate({ id: item.id, action: 'approve', note: '' })}>{t('通过', 'Approve')}</button>
             <button className="btn btn-danger btn-small" type="button" disabled={review.isPending || item.status === 'rejected' || item.id === user.id} onClick={() => handleReject(item, t, (note) => review.mutate({ id: item.id, action: 'reject', note }))}>{t('驳回', 'Reject')}</button>
-            <button className="btn btn-secondary btn-small" type="button" onClick={() => { setShowToken(item); setTokenValue('') }}>{t('签发 Token', 'Mint token')}</button>
             <button className="btn btn-danger btn-small" disabled={item.isBanned || item.id === user.id || ban.isPending} type="button" onClick={() => handleBan(item, t, () => ban.mutate({ id: item.id, reason: window.prompt(t('请输入封禁原因（可选）', 'Enter a ban reason (optional)'), '') ?? '' }))}>{item.isBanned ? t('已封禁', 'Banned') : t('封禁', 'Ban')}</button>
           </div></td>
         </tr>)}

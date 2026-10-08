@@ -11,19 +11,16 @@
  * service exceptions through it rather than choosing a status themselves.
  */
 
-import crypto from 'node:crypto'
 import type { RequestContext } from '../http'
 import { empty, errorJson, json, text } from '../http'
 import { errorBody, httpStatusFor, isServiceError, ServiceError } from '../errors'
 import { getConfig } from '../config'
 import {
   clearSessionCookie,
-  generateRawToken,
+  generateSessionToken,
   hashPassword,
   hashToken,
-  extractPrefix,
-  parseDuration,
-  PERSONAL_SCOPES,
+  extractSessionPrefix,
   sessionCookie,
   verifyPassword,
   MIN_PASSWORD_LENGTH,
@@ -40,8 +37,7 @@ import * as apiKeySvc from '../services/apiKeys'
 import * as runtimeSvc from '../services/runtime'
 import * as agentSvc from '../services/agentSkills'
 import { readMultipart, formValue } from '../content'
-import { users, tokens as tokenRepo, members, type UserRecord } from '../repo/core'
-import type { TokenScope } from '../../lib/types'
+import { sessions, users, members, type UserRecord } from '../repo/core'
 import { VALID_CATEGORIES } from '../../lib/types'
 import type { Handler } from '../http'
 
@@ -232,7 +228,7 @@ export const discovery: Record<string, Handler> = {
         download: '/api/v1/download',
         resolve: '/api/v1/resolve',
         whoami: '/api/v1/whoami',
-        publish: '/api/agent/skills',
+        publish: '/api/v1/skills',
         installGuide: '/skills.md',
         openapi: '/openapi.json',
         apiDocs: '/docs',
@@ -313,9 +309,12 @@ Your package must contain \`SKILL.md\`. Versions are immutable once published.
 
 ## Authenticate
 
+Publish and other writes need an API key from the admin console:
+
 \`\`\`bash
-curl -X POST '${base}/auth/device/code'
-curl -X POST '${base}/auth/device/token' -H 'Content-Type: application/json' -d '{"deviceCode":"<code>"}'
+curl -X POST '${base}/api/v1/skills' \\
+  -H 'Authorization: Bearer <api-key>' \\
+  -F 'slug=my-skill' -F 'version=1.0.0' -F 'files=@SKILL.md'
 \`\`\`
 `
 }
@@ -619,13 +618,11 @@ export const auth: Record<string, Handler> = {
       return json({ error: 'this registration was not approved', code: 'account_rejected' }, 403)
     }
 
-    const raw = generateRawToken()
-    tokenRepo.create({
+    const raw = generateSessionToken()
+    sessions.create({
       userId: user.id,
-      label: 'web-session',
-      prefix: extractPrefix(raw),
+      prefix: extractSessionPrefix(raw),
       tokenHash: hashToken(raw),
-      scope: 'full',
       expiresAt: new Date(Date.now() + getConfig().sessionTtlSeconds * 1000).toISOString(),
     })
 
@@ -668,163 +665,6 @@ export const auth: Record<string, Handler> = {
     const { passwordHash: _drop, ...safe } = ctx.user
     void _drop
     return json(safe)
-  },
-
-  // ── device flow (used by CLI clients) ──────────────────────────────────────
-  deviceCode: () => {
-    const deviceCode = crypto.randomBytes(16).toString('hex')
-    // Ambiguous characters (I, O, 0, 1) are excluded so codes survive retyping.
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    let userCode = ''
-    for (let i = 0; i < 8; i++) {
-      userCode += alphabet[crypto.randomInt(0, alphabet.length)]
-    }
-    userCode = `${userCode.slice(0, 4)}-${userCode.slice(4)}`
-
-    pendingDeviceCodes.set(deviceCode, {
-      userCode,
-      expiresAt: Date.now() + 5 * 60 * 1000,
-      userId: null,
-      token: null,
-    })
-
-    const cfg = getConfig()
-    const base =
-      cfg.baseUrl.replace(/\/+$/, '') || `http://${cfg.host}:${cfg.port}`
-    return json({
-      deviceCode,
-      userCode,
-      verificationUrl: `${base}/auth/device/verify`,
-      expiresIn: 300,
-      interval: 5,
-    })
-  },
-
-  deviceVerifyPage: (ctx) =>
-    ctx.user
-      ? json({ message: 'Enter your device code to authorize the CLI.' })
-      : new Response(null, { status: 302, headers: { Location: '/login?redirect=/auth/device/verify' } }),
-
-  deviceVerifySubmit: async (ctx) => {
-    const user = ctx.user
-    if (!user) return errorJson('authentication required', 401)
-
-    let userCode = ''
-    const ct = ctx.request.headers.get('content-type') ?? ''
-    if (ct.includes('application/json')) {
-      const body = await jsonBody<{ userCode?: string }>(ctx.request)
-      userCode = body?.userCode ?? ''
-    } else {
-      const fields = await formFields(ctx.request)
-      userCode = fields.get('userCode') ?? ''
-    }
-    if (userCode.trim() === '') return errorJson('userCode is required', 400)
-
-    const normalized = normalizeUserCode(userCode)
-    for (const [deviceCode, entry] of pendingDeviceCodes) {
-      if (entry.userCode !== normalized) continue
-      if (Date.now() > entry.expiresAt) {
-        pendingDeviceCodes.delete(deviceCode)
-        return errorJson('device code expired', 400)
-      }
-      const raw = generateRawToken()
-      tokenRepo.create({
-        userId: user.id,
-        label: 'device-auth',
-        prefix: extractPrefix(raw),
-        tokenHash: hashToken(raw),
-        scope: 'full',
-        expiresAt: new Date(Date.now() + getConfig().sessionTtlSeconds * 1000).toISOString(),
-      })
-      entry.userId = user.id
-      entry.token = raw
-      return json({ message: 'Device authorized successfully.' })
-    }
-    return errorJson('invalid or expired user code', 400)
-  },
-
-  deviceToken: async (ctx) => {
-    const body = await jsonBody<{ deviceCode?: string }>(ctx.request)
-    const deviceCode = (body?.deviceCode ?? '').trim()
-    if (deviceCode === '') return errorJson('deviceCode is required', 400)
-
-    const entry = pendingDeviceCodes.get(deviceCode)
-    if (!entry) return errorJson('invalid or expired device code', 400)
-    if (Date.now() > entry.expiresAt) {
-      pendingDeviceCodes.delete(deviceCode)
-      return errorJson('device code expired', 400)
-    }
-    if (!entry.token) return json({ status: 'pending' }, 202)
-
-    const token = entry.token
-    // Single use: consume on retrieval.
-    pendingDeviceCodes.delete(deviceCode)
-    return json({ token })
-  },
-}
-
-interface PendingDeviceCode {
-  userCode: string
-  expiresAt: number
-  userId: string | null
-  token: string | null
-}
-
-const pendingDeviceCodes = new Map<string, PendingDeviceCode>()
-
-function normalizeUserCode(raw: string): string {
-  const compact = raw.toUpperCase().replace(/[-\s]/g, '')
-  if (compact.length === 8) return `${compact.slice(0, 4)}-${compact.slice(4)}`
-  return compact
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Personal tokens
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const personalTokens: Record<string, Handler> = {
-  list: (ctx) => {
-    const user = requireUser(ctx)
-    return json({ data: tokenRepo.listByUser(user.id) })
-  },
-
-  create: async (ctx) => {
-    const user = requireUser(ctx)
-    const body = await jsonBody<{ label?: string; scope?: string; expiresIn?: string }>(ctx.request)
-    if (body === null) return errorJson('invalid request', 400)
-
-    const scopeRaw = body.scope && body.scope !== '' ? body.scope : 'full'
-    if (!PERSONAL_SCOPES.includes(scopeRaw as TokenScope)) {
-      return errorJson('invalid scope, must be one of: full, read, publish', 400)
-    }
-
-    let expiresAt: string | null = null
-    if (body.expiresIn !== undefined && body.expiresIn !== '') {
-      const seconds = parseDuration(body.expiresIn)
-      if (seconds === null || seconds <= 0) return errorJson('invalid expiresIn duration', 400)
-      expiresAt = new Date(Date.now() + seconds * 1000).toISOString()
-    }
-
-    const raw = generateRawToken()
-    const metadata = tokenRepo.create({
-      userId: user.id,
-      label: body.label || null,
-      prefix: extractPrefix(raw),
-      tokenHash: hashToken(raw),
-      scope: scopeRaw as TokenScope,
-      expiresAt,
-    })
-    return json({ token: raw, metadata }, 201)
-  },
-
-  revoke: (ctx) => {
-    const user = requireUser(ctx)
-    const id = ctx.params.id ?? ''
-    if (!isUuidLike(id)) return errorJson('invalid token ID', 400)
-    const token = tokenRepo.getById(id)
-    if (!token || token.userId !== user.id) return errorJson('token not found', 404)
-    tokenRepo.revoke(id)
-    return json({ message: 'token revoked' })
   },
 }
 
@@ -1465,52 +1305,6 @@ export const namespaceHandlers: Record<string, Handler> = {
       return serviceError(e)
     }
   },
-
-  createTeamToken: async (ctx) => {
-    const user = requireUser(ctx)
-    const body = await jsonBody<{ label?: string; scope?: string; expiresIn?: string }>(ctx.request)
-    if (body === null) return errorJson('invalid request', 400)
-    try {
-      return json(
-        nsSvc.createTeamToken(ctx.params.slug ?? '', { id: user.id, role: user.role }, {
-          label: body.label,
-          scope: body.scope,
-          expiresIn: body.expiresIn ?? '',
-        }),
-        201,
-      )
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  listTeamTokens: (ctx) => {
-    const user = requireUser(ctx)
-    try {
-      return json(
-        nsSvc.listTeamTokens(
-          ctx.params.slug ?? '',
-          { id: user.id, role: user.role },
-          qInt(ctx.url, 'limit', 20, 100),
-          qStr(ctx.url, 'cursor'),
-        ),
-      )
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  revokeTeamToken: (ctx) => {
-    const user = requireUser(ctx)
-    const id = ctx.params.id ?? ''
-    if (!isUuidLike(id)) return errorJson('invalid token ID', 400)
-    try {
-      nsSvc.revokeTeamToken(ctx.params.slug ?? '', { id: user.id, role: user.role }, id)
-      return json({ message: 'token revoked' })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1600,18 +1394,6 @@ export const admin: Record<string, Handler> = {
     } catch (e) {
       if (isServiceError(e)) return serviceError(e)
       return errorJson('failed to create user', 500)
-    }
-  },
-
-  createToken: async (ctx) => {
-    const body = await jsonBody<{ userId?: string; label?: string; scope?: string }>(ctx.request)
-    if (!body?.userId) return errorJson('invalid request', 400)
-    if (!isUuidLike(body.userId)) return errorJson('invalid user ID', 400)
-    try {
-      // Note: 200 here, not the 201 that `POST /api/v1/tokens` returns.
-      return json(manageSvc.createUserToken(ctx.user!.id, body.userId, body.label ?? '', body.scope ?? 'full'))
-    } catch (e) {
-      return serviceError(e)
     }
   },
 
@@ -1741,8 +1523,9 @@ export const admin: Record<string, Handler> = {
   },
 
   // ── Admin API keys ────────────────────────────────────────────────────────
-  // The raw secret is returned once, by `create`, and never again; `list`
-  // hands back only the display prefix.
+  // Admin-only surface. `create` returns the key it just minted; `list` returns
+  // each row with its full value so the console can copy a usage sheet for any
+  // key, not only the newest one.
 
   listApiKeys: () => {
     try {
@@ -1783,23 +1566,6 @@ export const admin: Record<string, Handler> = {
       return json({ message: 'API key revoked' })
     } catch (e) {
       return serviceError(e)
-    }
-  },
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Agent auto-provisioning
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const agentProvision: Record<string, Handler> = {
-  provision: async (ctx) => {
-    const body = await jsonBody<{ handle?: string; secret?: string }>(ctx.request)
-    if (!body?.handle || !body.secret) return errorJson('handle and secret are required', 400)
-    try {
-      return json(manageSvc.agentProvision(body.handle, body.secret))
-    } catch (e) {
-      if (isServiceError(e)) return serviceError(e)
-      return internalError()
     }
   },
 }

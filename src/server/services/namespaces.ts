@@ -1,10 +1,9 @@
 /**
- * Namespace service: namespaces, membership, invitations and team tokens.
+ * Namespace service: namespaces, membership and invitations.
  *
  * Authorization predicates mirror `NamespaceService`:
  *   * `IsMemberOrAdmin` — system admin, or any membership row.
  *   * `CanPublish`      — membership with a role other than `reader`.
- *   * `CanManageTokens` — system admin, or namespace `owner`/`admin`.
  *
  * Owner-only failures carry a literal `forbidden: ` prefix so the HTTP layer
  * reports 403 with the same text the original produced.
@@ -13,22 +12,18 @@
 import { forbidden, notFound, fail } from '../errors'
 import { nowIso } from '../db'
 import type {
-  APIToken,
   Namespace,
   NamespaceRole,
   NamespaceType,
-  TokenScope,
   Visibility,
 } from '../../lib/types'
 import {
   invitations,
   members,
   namespaces,
-  tokens as tokenRepo,
   users,
   type UserRecord,
 } from '../repo/core'
-import { generateRawToken, hashToken, extractPrefix, TEAM_TOKEN_LIMIT, TEAM_TOKEN_MAX_SECONDS } from '../auth'
 import { auditLog } from './shared'
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/
@@ -48,11 +43,6 @@ function isSystemAdmin(viewer: ViewerInfo): boolean {
 export function isMemberOrAdmin(namespaceId: string, viewer: ViewerInfo): boolean {
   if (isSystemAdmin(viewer)) return true
   return members.isMember(namespaceId, viewer.id)
-}
-
-export function canManageTokens(namespaceId: string, viewer: ViewerInfo): boolean {
-  if (isSystemAdmin(viewer)) return true
-  return members.canManage(namespaceId, viewer.id)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,9 +142,7 @@ export function deleteNamespace(slug: string, viewer: ViewerInfo): void {
   if (!isSystemAdmin(viewer) && ns.ownerId !== viewer.id) {
     forbidden('only the owner can delete a namespace')
   }
-  // Revoke team tokens first so no credential outlives its namespace, then
-  // delete — membership, skills, plugins and invitations cascade via FK.
-  tokenRepo.revokeAllInNamespace(ns.id)
+  // Membership, skills, plugins and invitations cascade via FK.
   namespaces.delete(ns.id)
   auditLog({
     actorId: viewer.id,
@@ -211,8 +199,6 @@ export function removeMember(slug: string, viewer: ViewerInfo, handle: string): 
   }
 
   members.remove(ns.id, target.id)
-  // Leaving invalidates any team token the user held here.
-  tokenRepo.revokeForUserInNamespace(target.id, ns.id)
   auditLog({
     actorId: viewer.id,
     action: 'member_remove',
@@ -230,7 +216,6 @@ export function leaveNamespace(slug: string, viewer: ViewerInfo): void {
     fail('the owner cannot leave; transfer ownership first')
   }
   members.remove(ns.id, viewer.id)
-  tokenRepo.revokeForUserInNamespace(viewer.id, ns.id)
 }
 
 export function transferOwnership(slug: string, viewer: ViewerInfo, newOwnerHandle: string): void {
@@ -333,132 +318,6 @@ export function respondInvitation(
     members.add(invitation.namespaceId, viewer.id, invitation.role)
   }
   invitations.respond(id, action === 'accept' ? 'accepted' : 'declined')
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Team tokens
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function createTeamToken(
-  slug: string,
-  viewer: ViewerInfo,
-  input: { label?: string; scope?: string; expiresIn: string },
-): { token: string; metadata: APIToken } {
-  const ns = namespaces.getBySlug(slug)
-  if (!ns) notFound('namespace not found')
-  if (!canManageTokens(ns.id, viewer)) {
-    forbidden('only namespace owner/admin can manage tokens')
-  }
-
-  const scopeRaw = input.scope && input.scope !== '' ? input.scope : 'publish'
-  if (scopeRaw !== 'read' && scopeRaw !== 'publish') {
-    fail('invalid team-token scope, must be one of: read, publish')
-  }
-
-  const raw = (input.expiresIn ?? '').trim()
-  if (raw === '') fail('expiresIn is required for team tokens (max 365d)')
-  const seconds = parseDurationOrNull(raw)
-  if (seconds === null || seconds <= 0) fail('invalid expiresIn duration')
-  if (seconds > TEAM_TOKEN_MAX_SECONDS) {
-    fail('expiresIn exceeds maximum team-token lifetime of 365d')
-  }
-
-  const active = tokenRepo.countActiveByNamespace(ns.id)
-  if (active >= TEAM_TOKEN_LIMIT) {
-    fail(
-      'namespace already has the maximum number of active team tokens; revoke an unused token before creating a new one',
-    )
-  }
-
-  const rawToken = generateRawToken()
-  const metadata = tokenRepo.create({
-    userId: viewer.id,
-    namespaceId: ns.id,
-    label: input.label || null,
-    prefix: extractPrefix(rawToken),
-    tokenHash: hashToken(rawToken),
-    scope: scopeRaw as TokenScope,
-    expiresAt: new Date(Date.now() + seconds * 1000).toISOString(),
-  })
-
-  auditLog({
-    actorId: viewer.id,
-    action: 'team_token_create',
-    resourceType: 'api_token',
-    resourceId: metadata.id,
-    details: `namespace=${ns.slug},scope=${scopeRaw}`,
-  })
-
-  return { token: rawToken, metadata }
-}
-
-export function listTeamTokens(
-  slug: string,
-  viewer: ViewerInfo,
-  limit: number,
-  cursor: string,
-): { data: APIToken[]; nextCursor?: string } {
-  const ns = namespaces.getBySlug(slug)
-  if (!ns) notFound('namespace not found')
-  if (!canManageTokens(ns.id, viewer)) {
-    forbidden('only namespace owner/admin can list tokens')
-  }
-  const effective = limit > 0 ? Math.min(limit, 100) : 20
-  const { data, nextCursor } = tokenRepo.listByNamespace(ns.id, effective, cursor)
-  // Unlike the skills list, `nextCursor` is omitted rather than `''`.
-  return nextCursor ? { data, nextCursor } : { data }
-}
-
-export function revokeTeamToken(slug: string, viewer: ViewerInfo, id: string): void {
-  const ns = namespaces.getBySlug(slug)
-  if (!ns) notFound('namespace not found')
-
-  const token = tokenRepo.getById(id)
-  if (!token || token.namespaceId !== ns.id) notFound('token not found')
-
-  const isManager = canManageTokens(ns.id, viewer)
-  const isCreator = token.userId === viewer.id
-  if (!isManager && !isCreator) {
-    forbidden('only namespace owner/admin or the token creator can revoke')
-  }
-
-  tokenRepo.revoke(id)
-  auditLog({
-    actorId: viewer.id,
-    action: 'team_token_revoke',
-    resourceType: 'api_token',
-    resourceId: id,
-    details: `namespace=${ns.slug}${!isCreator ? ',by_admin=true' : ''}`,
-  })
-}
-
-/** Shared with `services/manage.ts`; kept local to avoid a circular import. */
-function parseDurationOrNull(raw: string): number | null {
-  const text = raw.trim()
-  if (text === '') return null
-  const re = /(\d+(?:\.\d+)?)(ns|us|µs|ms|s|m|h|d)/g
-  const unit: Record<string, number> = {
-    ns: 1e-9,
-    us: 1e-6,
-    'µs': 1e-6,
-    ms: 1e-3,
-    s: 1,
-    m: 60,
-    h: 3600,
-    d: 86400,
-  }
-  let total = 0
-  let matched = 0
-  let last = 0
-  let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    if (m.index !== last) return null
-    total += Number(m[1]) * unit[m[2]]
-    matched += 1
-    last = re.lastIndex
-  }
-  if (matched === 0 || last !== text.length) return null
-  return total
 }
 
 export { nowIso }

@@ -1,5 +1,5 @@
 /**
- * SQL for core domains: users, tokens, namespaces (members + invitations),
+ * SQL for core domains: users, sessions, namespaces (members + invitations),
  * notifications and audit logs.
  *
  * This is the only layer that writes SQL for these tables. Row → model mapping
@@ -9,7 +9,6 @@
 
 import { asBool, asNumber, asString, nowIso, newId, query, tx, type Row } from '../db'
 import type {
-  APIToken,
   AuditLog,
   Namespace,
   NamespaceInvitation,
@@ -17,7 +16,6 @@ import type {
   NamespaceRole,
   NamespaceType,
   Notification,
-  TokenScope,
   User,
   UserRole,
   UserStatus,
@@ -201,152 +199,48 @@ export const users = {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API tokens
+// Sessions
 // ─────────────────────────────────────────────────────────────────────────────
 
-function mapToken(r: Row): APIToken {
-  return {
-    id: asString(r.id),
-    userId: asString(r.user_id),
-    ...(r.namespace_id != null ? { namespaceId: asString(r.namespace_id) } : {}),
-    ...(r.label != null ? { label: asString(r.label) } : {}),
-    prefix: asString(r.prefix),
-    scope: (asString(r.scope) || 'full') as TokenScope,
-    ...(r.last_used_at != null ? { lastUsedAt: asString(r.last_used_at) } : {}),
-    ...(r.expires_at != null ? { expiresAt: asString(r.expires_at) } : {}),
-    createdAt: asString(r.created_at),
-    ...(r.revoked_at != null ? { revokedAt: asString(r.revoked_at) } : {}),
-  }
-}
-
 /** Internal shape carrying the hash used for constant-time comparison. */
-export interface TokenRecord extends APIToken {
+export interface SessionRecord {
+  id: string
+  userId: string
   tokenHash: string
+  expiresAt?: string
 }
 
-export const tokens = {
-  create(input: {
-    userId: string
-    namespaceId?: string | null
-    label?: string | null
-    prefix: string
-    tokenHash: string
-    scope: TokenScope
-    expiresAt?: string | null
-  }): APIToken {
-    const id = newId()
+export const sessions = {
+  create(input: { userId: string; prefix: string; tokenHash: string; expiresAt?: string | null }): void {
     query.run(
-      `INSERT INTO api_tokens (id, user_id, namespace_id, label, prefix, token_hash, scope, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
+      `INSERT INTO sessions (id, user_id, prefix, token_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      newId(),
       input.userId,
-      input.namespaceId ?? null,
-      input.label ?? null,
       input.prefix,
       input.tokenHash,
-      input.scope,
       input.expiresAt ?? null,
       nowIso(),
     )
-    return tokens.getById(id)!
-  },
-
-  /**
-   * Public projection — deliberately **without** `tokenHash`, so a caller
-   * cannot accidentally serialise a credential.
-   */
-  getById(id: string): APIToken | null {
-    const row = query.get<Row>('SELECT * FROM api_tokens WHERE id = ?', id)
-    return row ? mapToken(row) : null
   },
 
   /**
    * The only accessor that exposes `tokenHash` — used exclusively to verify an
-   * inbound credential. May return several candidates sharing a prefix.
+   * inbound session cookie. May return several candidates sharing a prefix.
    */
-  getByPrefix(prefix: string): TokenRecord[] {
+  getByPrefix(prefix: string): SessionRecord[] {
     return query
-      .all<Row>('SELECT * FROM api_tokens WHERE prefix = ?', prefix)
-      .map((row) => ({ ...mapToken(row), tokenHash: asString(row.token_hash) }))
-  },
-
-  /** Personal token listing **includes revoked** rows, matching upstream. */
-  listByUser(userId: string): APIToken[] {
-    return query
-      .all<Row>('SELECT * FROM api_tokens WHERE user_id = ? ORDER BY created_at DESC', userId)
-      .map(mapToken)
-  },
-
-  /** Team tokens: non-revoked only, keyset cursor on `created_at`. */
-  listByNamespace(
-    namespaceId: string,
-    limit: number,
-    cursor: string,
-  ): { data: APIToken[]; nextCursor: string } {
-    const rows = cursor
-      ? query.all<Row>(
-          `SELECT * FROM api_tokens
-           WHERE namespace_id = ? AND revoked_at IS NULL AND created_at < ?
-           ORDER BY created_at DESC LIMIT ?`,
-          namespaceId,
-          cursor,
-          limit,
-        )
-      : query.all<Row>(
-          `SELECT * FROM api_tokens
-           WHERE namespace_id = ? AND revoked_at IS NULL
-           ORDER BY created_at DESC LIMIT ?`,
-          namespaceId,
-          limit,
-        )
-    const items = rows.map(mapToken)
-    const nextCursor = items.length === limit ? items[limit - 1].createdAt : ''
-    return { data: items, nextCursor }
-  },
-
-  /** Expiry is deliberately ignored here, mirroring the upstream quota check. */
-  countActiveByNamespace(namespaceId: string): number {
-    return asNumber(
-      query.get<Row>(
-        'SELECT COUNT(*) AS c FROM api_tokens WHERE namespace_id = ? AND revoked_at IS NULL',
-        namespaceId,
-      )?.c,
-    )
-  },
-
-  revoke(id: string): void {
-    query.run('UPDATE api_tokens SET revoked_at = ? WHERE id = ?', nowIso(), id)
+      .all<Row>('SELECT id, user_id, token_hash, expires_at FROM sessions WHERE prefix = ?', prefix)
+      .map((row) => ({
+        id: asString(row.id),
+        userId: asString(row.user_id),
+        tokenHash: asString(row.token_hash),
+        ...(row.expires_at != null ? { expiresAt: asString(row.expires_at) } : {}),
+      }))
   },
 
   touchLastUsed(id: string): void {
-    query.run('UPDATE api_tokens SET last_used_at = ? WHERE id = ?', nowIso(), id)
-  },
-
-  /**
-   * Cascade-revokes every team token a user holds in a namespace. Called when
-   * membership ends or the namespace is deleted, so a stale token cannot keep
-   * publishing into a namespace the holder has left.
-   */
-  revokeForUserInNamespace(userId: string, namespaceId: string): number {
-    const result = query.run(
-      `UPDATE api_tokens SET revoked_at = ?
-       WHERE user_id = ? AND namespace_id = ? AND revoked_at IS NULL`,
-      nowIso(),
-      userId,
-      namespaceId,
-    )
-    return Number(result.changes ?? 0)
-  },
-
-  /** Every team token in a namespace — used when the namespace is deleted. */
-  revokeAllInNamespace(namespaceId: string): number {
-    const result = query.run(
-      `UPDATE api_tokens SET revoked_at = ?
-       WHERE namespace_id = ? AND revoked_at IS NULL`,
-      nowIso(),
-      namespaceId,
-    )
-    return Number(result.changes ?? 0)
+    query.run('UPDATE sessions SET last_used_at = ? WHERE id = ?', nowIso(), id)
   },
 }
 

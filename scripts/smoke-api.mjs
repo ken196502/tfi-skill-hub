@@ -1223,6 +1223,11 @@ try {
     r.status === 200 && (r.body?.data ?? []).some((k) => k.id === fullKeyId && !k.revokedAt),
     r.text.slice(0, 250),
   )
+  check(
+    'GET /admin/api-keys returns the full key so a usage sheet can be copied',
+    (r.body?.data ?? []).some((k) => k.id === fullKeyId && k.secret === fullKey),
+    r.text.slice(0, 300),
+  )
 
   r = await req('GET', '/api/v1/whoami', { token: fullKey })
   check('a key authenticates as the admin who minted it', r.status === 200 && r.body?.role === 'admin', `${r.status} ${r.text}`)

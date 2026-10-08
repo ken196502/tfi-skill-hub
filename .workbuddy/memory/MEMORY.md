@@ -64,3 +64,10 @@
 - Dockerfile 把 `static/` 拷入镜像作默认；compose 已 `bind mount ./static:/app/static` + 设
   `SKILLHUB_STATIC_DIR=/app/static`，宿主改文件刷新即生效。
 - 验证方式：临时库 + 临时端口起 `serve.mjs` 后 `curl /docs/product-guide.html` 期望 200 + no-cache。
+
+## 管理员 API Key（2026-10-08 起：明文持久化）
+- `api_keys` 迁移 **v10** 加 `key_secret TEXT`；`AdminApiKey` 新增 `secret?`（旧行缺列时键不出现，非 null），
+  `GET /admin/api-keys` 会回传完整 key，供列表「复制调用说明」直接生成可执行示例。
+- 校验路径**不变**：仍 `getByPrefix` → `key_hash` 比对；`key_secret` 纯展示。
+- 前端 `routes/admin.api-keys.tsx` 已去掉「只显示这一次」类提示。**个人 Token**（`api_tokens`，
+  `admin.users.tsx`）是另一套资源，仍是哈希存储 + 一次性展示，勿混淆。

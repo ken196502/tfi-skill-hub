@@ -3,8 +3,10 @@
  *
  * Mirrors the shape of `tokens` in `core.ts`: the only accessor that exposes
  * the stored hash is the prefix lookup used to verify an inbound credential,
- * and every other read returns the public projection. Row → model mapping
- * lives here so the "optional key is absent, not null" rule stays in one place.
+ * and every other read returns the public projection. The plaintext value is
+ * part of that projection too — the admin console copies a usage sheet from the
+ * list, so it has to be readable after creation. Row → model mapping lives here
+ * so the "optional key is absent, not null" rule stays in one place.
  */
 
 import { asString, nowIso, newId, query, type Row } from '../db'
@@ -31,6 +33,7 @@ function mapKey(r: Row): AdminApiKey {
     ...(r.namespace_id != null ? { namespaceId: asString(r.namespace_id) } : {}),
     ...(r.namespace_slug != null ? { namespaceSlug: asString(r.namespace_slug) } : {}),
     prefix: asString(r.prefix),
+    ...(r.key_secret != null ? { secret: asString(r.key_secret) } : {}),
     scopes: parseScopes(r.scopes),
     ...(r.last_used_at != null ? { lastUsedAt: asString(r.last_used_at) } : {}),
     ...(r.expires_at != null ? { expiresAt: asString(r.expires_at) } : {}),
@@ -58,19 +61,21 @@ export const apiKeys = {
     namespaceId?: string | null
     prefix: string
     keyHash: string
+    secret: string
     scopes: ApiKeyScope[]
     expiresAt?: string | null
   }): AdminApiKey {
     const id = newId()
     query.run(
-      `INSERT INTO api_keys (id, name, created_by, namespace_id, prefix, key_hash, scopes, expires_at, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO api_keys (id, name, created_by, namespace_id, prefix, key_hash, key_secret, scopes, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.name,
       input.createdBy,
       input.namespaceId ?? null,
       input.prefix,
       input.keyHash,
+      input.secret,
       JSON.stringify(input.scopes),
       input.expiresAt ?? null,
       nowIso(),

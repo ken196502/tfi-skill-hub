@@ -1,6 +1,6 @@
 /**
- * Authentication primitives: password hashing, API-token minting, session
- * cookies, and token-scope enforcement.
+ * Authentication primitives: password hashing, admin API-key minting and
+ * session cookies.
  *
  * Replaces `pkg/auth/*.go`.
  *
@@ -12,7 +12,7 @@
  */
 
 import crypto from 'node:crypto'
-import type { APIToken, TokenScope, User } from '../lib/types'
+import type { User } from '../lib/types'
 import { getConfig } from './config'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,53 +24,47 @@ import { getConfig } from './config'
 export { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from './password'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API tokens
+// Session & API-key credentials
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TOKEN_BYTES = 32
 const PREFIX_BODY_LEN = 12
 
-/** `clh_` + base64url(32 random bytes), padding stripped. */
-export function generateRawToken(): string {
-  const { tokenPrefix } = getConfig()
-  const body = crypto.randomBytes(TOKEN_BYTES).toString('base64url')
-  return `${tokenPrefix}${body}`
-}
-
 export function hashToken(raw: string): string {
   return crypto.createHash('sha256').update(raw).digest('hex')
 }
 
-/**
- * The stored `prefix` column doubles as the lookup key: `clh_` + 12 base64url
- * chars = 16 characters total (not the 8 the OpenAPI spec claims).
- */
-export function extractPrefix(raw: string): string {
-  const { tokenPrefix } = getConfig()
-  const want = tokenPrefix.length + PREFIX_BODY_LEN
-  return raw.length < want ? raw : raw.slice(0, want)
+/** `sess_` + base64url(32 random bytes), padding stripped — the session cookie value. */
+export function generateSessionToken(): string {
+  const { sessionPrefix } = getConfig()
+  return `${sessionPrefix}${crypto.randomBytes(TOKEN_BYTES).toString('base64url')}`
 }
 
-/**
- * Admin API keys use their own prefix (`shk_` by default) so the resolver can
- * tell a personal token from a management key before touching the database.
- * Everything else — the random body, the prefix length, the sha256 storage
- * format — matches the personal-token scheme.
- */
+/** `shk_` + base64url(32 random bytes), padding stripped. */
 export function generateApiKey(): string {
   const { apiKeyPrefix } = getConfig()
   return `${apiKeyPrefix}${crypto.randomBytes(TOKEN_BYTES).toString('base64url')}`
 }
 
-export function extractApiKeyPrefix(raw: string): string {
-  const { apiKeyPrefix } = getConfig()
-  const want = apiKeyPrefix.length + PREFIX_BODY_LEN
+/**
+ * The stored `prefix` column doubles as the lookup key: prefix + 12 base64url
+ * chars. Shared by sessions and API keys, whose bodies are the same shape.
+ */
+export function extractCredentialPrefix(raw: string, prefix: string): string {
+  const want = prefix.length + PREFIX_BODY_LEN
   return raw.length < want ? raw : raw.slice(0, want)
 }
 
+export function extractSessionPrefix(raw: string): string {
+  return extractCredentialPrefix(raw, getConfig().sessionPrefix)
+}
+
+export function extractApiKeyPrefix(raw: string): string {
+  return extractCredentialPrefix(raw, getConfig().apiKeyPrefix)
+}
+
 export function isApiKey(raw: string): boolean {
-  const { apiKeyPrefix, tokenPrefix } = getConfig()
-  return apiKeyPrefix !== tokenPrefix && raw.startsWith(apiKeyPrefix)
+  return raw.startsWith(getConfig().apiKeyPrefix)
 }
 
 /** Constant-time comparison of two hex digests. */
@@ -79,19 +73,6 @@ export function tokenMatches(candidateHash: string, raw: string): boolean {
   const b = Buffer.from(hashToken(raw), 'utf8')
   return a.length === b.length && crypto.timingSafeEqual(a, b)
 }
-
-/** Scope defaults to `full` when the column is empty, matching upstream. */
-export function normalizeScope(scope: string | null | undefined): TokenScope {
-  if (scope === 'read' || scope === 'publish' || scope === 'full') return scope
-  return 'full'
-}
-
-export const PERSONAL_SCOPES: TokenScope[] = ['full', 'read', 'publish']
-export const TEAM_SCOPES: TokenScope[] = ['read', 'publish']
-
-/** Team tokens are capped at 365 days and a namespace may hold at most 50. */
-export const TEAM_TOKEN_MAX_SECONDS = 365 * 24 * 3600
-export const TEAM_TOKEN_LIMIT = 50
 
 /**
  * Parses a Go-style duration string (`720h`, `30m`, `90s`, `1h30m`).
@@ -190,53 +171,4 @@ export function publicUser(u: User): User {
 
 export function isAdmin(u: User | null): boolean {
   return u?.role === 'admin'
-}
-
-/**
- * `middleware.RequireScope`. `scope === null` means the caller authenticated
- * with a session cookie, which is always full-access.
- *
- * The `publish` scope is allow-listed by **matched route pattern**, so the
- * caller passes the route's canonical path template — not the request path.
- */
-export interface ScopeCheck {
-  ok: boolean
-  message?: string
-}
-
-const PUBLISH_ALLOWED_PATTERNS = new Set([
-  '/api/v1/skills',
-  '/api/agent/skills',
-  '/api/v1/stars/:slug',
-])
-
-export function checkScope(
-  scope: TokenScope | null,
-  method: string,
-  routePattern: string,
-): ScopeCheck {
-  if (scope === null) return { ok: true }
-  if (scope === 'full') return { ok: true }
-
-  const isReadMethod = method === 'GET' || method === 'HEAD'
-
-  if (scope === 'read') {
-    if (isReadMethod) return { ok: true }
-    return { ok: false, message: `token scope 'read' only allows GET requests` }
-  }
-
-  // scope === 'publish'
-  if (isReadMethod) return { ok: true }
-  if (method !== 'POST') {
-    return { ok: false, message: `token scope 'publish' does not allow this method` }
-  }
-  if (!PUBLISH_ALLOWED_PATTERNS.has(routePattern)) {
-    return { ok: false, message: `token scope 'publish' only allows publishing skills` }
-  }
-  return { ok: true }
-}
-
-/** Shallow public projection of a token row — `tokenHash` must not escape. */
-export function publicToken(t: APIToken): APIToken {
-  return { ...t }
 }

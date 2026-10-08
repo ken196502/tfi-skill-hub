@@ -9,7 +9,6 @@
 
 import type {
   AdminApiKey,
-  APIToken,
   AuditLog,
   CommentWithUser,
   Namespace,
@@ -341,54 +340,6 @@ export function respondToInvitation(id: string, action: 'accept' | 'decline'): P
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tokens
-// ─────────────────────────────────────────────────────────────────────────────
-
-export function listTokens(): Promise<{ data: APIToken[] }> {
-  return request<{ data: APIToken[] }>('/tokens')
-}
-
-export function createToken(input: {
-  label?: string
-  scope?: string
-  expiresIn?: string
-}): Promise<{ token: string; metadata: APIToken }> {
-  return request<{ token: string; metadata: APIToken }>('/tokens', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  })
-}
-
-export function revokeToken(id: string): Promise<{ message: string }> {
-  return request<{ message: string }>(`/tokens/${id}`, { method: 'DELETE' })
-}
-
-export function listNamespaceTokens(
-  slug: string,
-): Promise<{ data: APIToken[]; nextCursor?: string }> {
-  return request<{ data: APIToken[]; nextCursor?: string }>(
-    `/namespaces/${encodeURIComponent(slug)}/tokens`,
-  )
-}
-
-export function createNamespaceToken(
-  slug: string,
-  input: { label?: string; scope?: string; expiresIn: string },
-): Promise<{ token: string; metadata: APIToken }> {
-  return request<{ token: string; metadata: APIToken }>(
-    `/namespaces/${encodeURIComponent(slug)}/tokens`,
-    { method: 'POST', body: JSON.stringify(input) },
-  )
-}
-
-export function revokeNamespaceToken(slug: string, id: string): Promise<{ message: string }> {
-  return request<{ message: string }>(
-    `/namespaces/${encodeURIComponent(slug)}/tokens/${id}`,
-    { method: 'DELETE' },
-  )
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Social
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -496,17 +447,6 @@ export function adminBanUser(userId: string, reason: string): Promise<{ message:
   return request<{ message: string }>('/admin/users/ban', {
     method: 'POST',
     body: JSON.stringify({ userId, reason }),
-  })
-}
-
-export function adminCreateToken(input: {
-  userId: string
-  label?: string
-  scope?: string
-}): Promise<{ token: string; metadata: APIToken }> {
-  return request<{ token: string; metadata: APIToken }>('/admin/tokens', {
-    method: 'POST',
-    body: JSON.stringify(input),
   })
 }
 

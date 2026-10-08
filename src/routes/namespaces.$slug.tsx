@@ -10,7 +10,7 @@ export const Route = createFileRoute('/namespaces/$slug')({
   component: NamespaceDetailPage,
 })
 
-type Tab = 'members' | 'invitations' | 'tokens'
+type Tab = 'members' | 'invitations'
 
 function NamespaceDetailPage() {
   const { slug } = useParams({ from: '/namespaces/$slug' })
@@ -19,7 +19,6 @@ function NamespaceDetailPage() {
   const t = useT()
   const [tab, setTab] = useState<Tab>('members')
   const [error, setError] = useState('')
-  const [newToken, setNewToken] = useState('')
 
   const ns = useQuery({
     queryKey: ['namespace', slug],
@@ -35,11 +34,6 @@ function NamespaceDetailPage() {
     queryKey: ['namespace', slug, 'invitations'],
     queryFn: () => api.listInvitations(slug),
     enabled: tab === 'invitations' && ns.isSuccess,
-  })
-  const tokens = useQuery({
-    queryKey: ['namespace', slug, 'tokens'],
-    queryFn: () => api.listNamespaceTokens(slug),
-    enabled: tab === 'tokens' && ns.isSuccess,
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['namespace', slug] })
@@ -61,20 +55,6 @@ function NamespaceDetailPage() {
     onSuccess: invalidate,
     onError: (e) => setError(e instanceof Error ? e.message : t('发送邀请失败', 'Failed to send invitation')),
   })
-  const createToken = useMutation({
-    mutationFn: (input: { label: string; scope: string; expiresIn: string }) =>
-      api.createNamespaceToken(slug, input),
-    onSuccess: (result) => {
-      setNewToken(result.token)
-      void invalidate()
-    },
-    onError: (e) => setError(e instanceof Error ? e.message : t('创建 Token 失败', 'Failed to create token')),
-  })
-  const revokeToken = useMutation({
-    mutationFn: (id: string) => api.revokeNamespaceToken(slug, id),
-    onSuccess: invalidate,
-    onError: (e) => setError(e instanceof Error ? e.message : t('吊销 Token 失败', 'Failed to revoke token')),
-  })
 
   if (booting) return <Loading />
   // Declared after every hook so the call order stays stable across renders.
@@ -93,8 +73,6 @@ function NamespaceDetailPage() {
   }
 
   const n = ns.data!
-  const isPersonal = n.type === 'personal'
-  const canManageTokens = !isPersonal && (n.ownerId === user?.id || user?.role === 'admin')
 
   return (
     <div className="container" style={{ paddingTop: 40 }}>
@@ -123,15 +101,6 @@ function NamespaceDetailPage() {
         >
           {t('邀请', 'Invitations')}
         </button>
-        {!isPersonal && (
-          <button
-            type="button"
-            className={`tab-btn${tab === 'tokens' ? ' active' : ''}`}
-            onClick={() => setTab('tokens')}
-          >
-            {t('团队 Token', 'Team tokens')}
-          </button>
-        )}
       </div>
 
       {error && <ErrorBox message={error} />}
@@ -158,24 +127,6 @@ function NamespaceDetailPage() {
           onInvite={(handle, role) => {
             setError('')
             invite.mutate({ handle, role })
-          }}
-        />
-      )}
-
-      {tab === 'tokens' && !isPersonal && (
-        <TokensTab
-          loading={tokens.isLoading}
-          data={tokens.data?.data ?? []}
-          canManage={canManageTokens}
-          newToken={newToken}
-          onCreated={(input) => {
-            setError('')
-            setNewToken('')
-            createToken.mutate(input)
-          }}
-          onRevoke={(id) => {
-            setError('')
-            revokeToken.mutate(id)
           }}
         />
       )}
@@ -302,107 +253,6 @@ function InvitationsTab({
           </li>
         ))}
         {data.length === 0 && <li className="version-item">{t('暂无邀请。', 'No invitations yet.')}</li>}
-      </ul>
-    </div>
-  )
-}
-
-function TokensTab({
-  loading,
-  data,
-  canManage,
-  newToken,
-  onCreated,
-  onRevoke,
-}: {
-  loading: boolean
-  data: Array<{
-    id: string
-    label?: string
-    prefix: string
-    scope: string
-    createdAt: string
-    expiresAt?: string
-  }>
-  canManage: boolean
-  newToken: string
-  onCreated: (input: { label: string; scope: string; expiresIn: string }) => void
-  onRevoke: (id: string) => void
-}) {
-  const t = useT()
-  const [label, setLabel] = useState('')
-  const [scope, setScope] = useState('publish')
-  const [expiresIn, setExpiresIn] = useState('720h')
-
-  if (loading) return <Loading />
-
-  return (
-    <div>
-      {newToken !== '' && (
-        <div className="code-block" style={{ marginBottom: 20 }}>
-          <div className="form-label" style={{ color: 'var(--text-muted)' }}>
-            {t('请立即复制该 Token —— 关闭后将无法再次查看。', 'Copy this token now — it cannot be viewed again after you leave.')}
-          </div>
-          <code style={{ wordBreak: 'break-all' }}>{newToken}</code>
-        </div>
-      )}
-
-      {canManage && (
-        <form
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault()
-            onCreated({ label: label.trim(), scope, expiresIn })
-            setLabel('')
-          }}
-          style={{ display: 'flex', gap: 8, marginBottom: 20, flexWrap: 'wrap' }}
-        >
-          <input
-            className="form-input"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder={t('标签', 'Label')}
-            aria-label={t('Token 标签', 'Token label')}
-            style={{ maxWidth: 200 }}
-          />
-          <select className="form-input" value={scope} onChange={(e) => setScope(e.target.value)} style={{ width: 130 }}>
-            <option value="publish">publish</option>
-            <option value="read">read</option>
-          </select>
-          <select
-            className="form-input"
-            value={expiresIn}
-            onChange={(e) => setExpiresIn(e.target.value)}
-            style={{ width: 140 }}
-          >
-            <option value="24h">{t('1 天', '1 day')}</option>
-            <option value="168h">{t('7 天', '7 days')}</option>
-            <option value="720h">{t('30 天', '30 days')}</option>
-            <option value="2160h">{t('90 天', '90 days')}</option>
-            <option value="8760h">{t('365 天', '365 days')}</option>
-          </select>
-          <button className="btn btn-primary btn-small" type="submit">
-            {t('创建 Token', 'Create token')}
-          </button>
-        </form>
-      )}
-
-      <ul className="version-list">
-        {data.map((tk) => (
-          <li className="version-item" key={tk.id}>
-            <span>{tk.label || '—'}</span>
-            <span className="version-date" style={{ fontFamily: 'var(--font-mono)' }}>
-              {tk.prefix}…
-            </span>
-            <span className="version-tag">{tk.scope}</span>
-            <span className="version-date">
-              {tk.expiresAt ? `${t('到期', 'Expires')} ${formatDate(tk.expiresAt)}` : t('永久', 'Never expires')}
-            </span>
-            <button className="filter-btn" type="button" onClick={() => onRevoke(tk.id)}>
-              {t('吊销', 'Revoke')}
-            </button>
-          </li>
-        ))}
-        {data.length === 0 && <li className="version-item">{t('暂无团队 Token。', 'No team tokens yet.')}</li>}
       </ul>
     </div>
   )

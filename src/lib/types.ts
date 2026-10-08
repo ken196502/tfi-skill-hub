@@ -25,16 +25,15 @@ export type UserRole = 'user' | 'admin' | 'agent'
 export type UserStatus = 'pending' | 'approved' | 'rejected'
 export type NamespaceType = 'personal' | 'team'
 export type NamespaceRole = 'owner' | 'admin' | 'member' | 'reader'
-export type TokenScope = 'full' | 'read' | 'publish'
 
 /**
  * Capabilities an admin API key can hold.
  *
- * Unlike personal tokens (which carry a broad `full`/`read`/`publish` scope),
- * an API key is minted for one job — driving the skill catalogue over HTTP, or
- * reviewing accounts — so its powers are enumerated per endpoint group. A route
- * declares the single capability it needs (`apiKeyScope` in the route table)
- * and a key is refused unless it holds that one.
+ * The key is minted for one job — driving the skill catalogue over HTTP, or
+ * reviewing accounts — so its powers are enumerated per endpoint group rather
+ * than inherited from its creator's whole role. A route declares the single
+ * capability it needs (`apiKeyScope` in the route table) and a key is refused
+ * unless it holds that one.
  */
 export type ApiKeyScope =
   | 'skills:read'
@@ -262,26 +261,14 @@ export interface NamespaceInvitation {
   respondedAt?: string
 }
 
-export interface APIToken {
-  id: string
-  userId: string
-  namespaceId?: string
-  label?: string
-  prefix: string
-  scope: TokenScope
-  lastUsedAt?: string
-  expiresAt?: string
-  createdAt: string
-  revokedAt?: string
-}
-
 /**
  * An admin-issued API key. New in this rewrite — the Go registry had no
  * equivalent, so the shape follows the conventions of the rest of this file:
  * camelCase, and optional keys absent rather than `null`.
  *
- * The secret itself is never stored or returned: only the display `prefix`
- * survives, and the raw value is handed back once, at creation time.
+ * The value is persisted as well as hashed so the admin console can hand back
+ * a ready-to-run usage sheet for any key in the list, not just the one that was
+ * just minted. The console is the only surface that reads it.
  */
 export interface AdminApiKey {
   id: string
@@ -292,6 +279,8 @@ export interface AdminApiKey {
   namespaceId?: string
   namespaceSlug?: string
   prefix: string
+  /** Full key value, for the console's copy-a-sheet affordance. Absent for rows minted before it was stored. */
+  secret?: string
   scopes: ApiKeyScope[]
   lastUsedAt?: string
   expiresAt?: string

@@ -7,8 +7,9 @@
  * (enforced by the route table); using one is narrowed per endpoint in
  * `http.ts`.
  *
- * The raw key is returned exactly once, at creation. Only its sha256 hash and
- * display prefix are stored, so a lost key cannot be recovered — only replaced.
+ * The raw key is returned at creation and kept alongside its hash, so the admin
+ * console can copy a usage sheet for any key in the list rather than only the
+ * one that was just minted. Verification still goes through the hash.
  */
 
 import { fail, notFound } from '../errors'
@@ -69,6 +70,7 @@ export function createApiKey(
     namespaceId,
     prefix: extractApiKeyPrefix(raw),
     keyHash: hashToken(raw),
+    secret: raw,
     scopes,
     expiresAt,
   })

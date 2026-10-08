@@ -44,8 +44,9 @@ export interface Config {
   baseUrl: string
   basePath: string
   dbPath: string
-  tokenPrefix: string
-  /** Prefix for admin-issued management keys; must differ from `tokenPrefix`. */
+  /** Prefix for session-cookie tokens stored in the `sessions` table. */
+  sessionPrefix: string
+  /** Prefix for admin-issued API keys, the only programmatic credential. */
   apiKeyPrefix: string
   sessionTtlSeconds: number
   adminUser: string
@@ -74,9 +75,8 @@ export function getConfig(): Config {
     baseUrl: envStr('SKILLHUB_BASE_URL', ''),
     basePath: normalizeBasePath(envStr('SKILLHUB_BASE_PATH', '')),
     dbPath,
-    tokenPrefix: envStr('SKILLHUB_TOKEN_PREFIX', 'clh_'),
-    // Management keys minted in the admin console. Kept distinct from the
-    // personal-token prefix so a key can never be mistaken for one.
+    sessionPrefix: envStr('SKILLHUB_SESSION_PREFIX', 'sess_'),
+    // Management keys minted in the admin console.
     apiKeyPrefix: envStr('SKILLHUB_API_KEY_PREFIX', 'shk_'),
     // Go: Login issues a "web-session" token with a 30-day expiry.
     sessionTtlSeconds: envInt('SKILLHUB_SESSION_TTL', 30 * 24 * 3600),

@@ -128,9 +128,8 @@ const API_EXAMPLES: ApiExample[] = [
 /**
  * Builds the plain-text usage sheet for one key.
  *
- * `token` is the full key when it is still on screen (right after creation) and
- * the stored display prefix otherwise — the secret itself is never recoverable,
- * so an older row can only offer the reminder of what it starts with.
+ * `token` is the key's own full value, carried by the stored row — the sheet is
+ * ready to run the moment it is copied, with no placeholder to swap out.
  */
 function buildUsageText(input: {
   name: string
@@ -142,7 +141,7 @@ function buildUsageText(input: {
   const host = input.origin === '' ? 'https://<your-host>' : input.origin
   const lines: string[] = [
     `# ${input.t('SkillHub 接口调用示例', 'SkillHub API examples')} — ${input.name}`,
-    `# ${input.t('把示例中的密钥换成完整值即可调用', 'Replace the key in each example with the full value and run it')}`,
+    `# ${input.t('示例已带上这把密钥，复制后可直接执行', 'Each example already carries this key — run it as is')}`,
     '',
   ]
   for (const example of API_EXAMPLES.filter((e) => input.scopes.includes(e.scope))) {
@@ -207,9 +206,8 @@ function ApiKeysPage() {
   const rows = keys.data?.data ?? []
   const activeCount = rows.filter((key) => statusOf(key) === 'active').length
 
-  /** What stands in for the secret in a sample: the real key while it lasts. */
-  const tokenOf = (key: AdminApiKey): string =>
-    issued?.id === key.id ? issued.key : `${key.prefix}…`
+  /** The key's own value, straight from the row, so the sheet is ready to run. */
+  const tokenOf = (key: AdminApiKey): string => key.secret ?? '<YOUR_API_KEY>'
 
   const copyUsage = (key: AdminApiKey) => {
     const text = buildUsageText({
@@ -280,7 +278,7 @@ function ApiKeysPage() {
 
     {issued && <div className="admin-token-card">
       <div className="admin-token-header">
-        <div><strong>{t('已创建', 'Created')} · {issued.name}</strong><p className="muted">{t('完整密钥只显示这一次，关闭后无法再次查看，请立即复制保存。', 'The full key is shown only once and cannot be retrieved later — copy it now.')}</p></div>
+        <div><strong>{t('已创建', 'Created')} · {issued.name}</strong><p className="muted">{t('在下方列表中随时可以复制带完整密钥的调用说明。', 'Copy a ready-to-run usage sheet for it any time from the list below.')}</p></div>
         <button className="icon-btn" type="button" onClick={() => setIssued(null)}>×</button>
       </div>
       <div className="admin-secret-row"><code>{issued.key}</code><button className="btn btn-secondary btn-small" type="button" onClick={() => void navigator.clipboard?.writeText(issued.key)}>{t('复制', 'Copy')}</button></div>
@@ -320,8 +318,8 @@ function ApiKeysPage() {
 
 /**
  * The page's own copy of the samples. It shows the full set of calls, and
- * carries the real secret only while the key that was just minted is still on
- * screen — otherwise it falls back to a placeholder.
+ * carries the key that was just minted while it is on screen; otherwise it
+ * falls back to a placeholder for a key you paste in yourself.
  */
 function UsageGuide({ token, scopes, origin, filled, onCopy, copied }: {
   token: string
@@ -338,8 +336,8 @@ function UsageGuide({ token, scopes, origin, filled, onCopy, copied }: {
       <div>
         <h2 className="admin-section-title">{t('接口调用说明', 'API usage')}</h2>
         <p className="muted">{filled
-          ? t('示例已填入刚创建的密钥，可直接复制使用；关闭页面后密钥不再显示。', 'The samples carry the key you just created; they stop showing it once you leave this page.')
-          : t('把示例中的 <YOUR_API_KEY> 换成密钥即可调用；也可以直接从上方列表一键复制带密钥前缀的说明。', 'Swap <YOUR_API_KEY> for a key and run any sample — or copy a ready-made sheet from a row above.')}</p>
+          ? t('示例已填入刚创建的密钥，可直接复制使用。', 'The samples carry the key you just created — copy and run them.')
+          : t('把示例中的 <YOUR_API_KEY> 换成密钥即可调用；也可以直接从上方列表一键复制带完整密钥的说明。', 'Swap <YOUR_API_KEY> for a key and run any sample — or copy the sheet, full key included, from a row above.')}</p>
       </div>
       <button className="btn btn-secondary" type="button" onClick={onCopy}>{copied ? t('已复制', 'Copied') : t('复制全部说明', 'Copy all')}</button>
     </div>

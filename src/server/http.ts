@@ -16,16 +16,15 @@
 import { getConfig } from './config'
 import {
   clearSessionCookie,
-  extractPrefix,
   extractApiKeyPrefix,
+  extractSessionPrefix,
   isApiKey,
-  normalizeScope,
   readSessionCookie,
   tokenMatches,
 } from './auth'
-import { tokens, users, type UserRecord } from './repo/core'
+import { sessions, users, type UserRecord } from './repo/core'
 import { apiKeys } from './repo/apiKeys'
-import type { ApiKeyScope, TokenScope } from '../lib/types'
+import type { ApiKeyScope } from '../lib/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -51,9 +50,11 @@ export interface RequestContext {
   pattern: string
   /** Authenticated user, or `null` for anonymous access. */
   user: UserRecord | null
-  /** `null` when authenticated by session cookie (always full access). */
-  tokenScope: TokenScope | null
-  /** Set only for team (namespace-bound) tokens. */
+  /**
+   * Namespace the credential is bound to, if any. Set only for a
+   * namespace-scoped admin API key, which narrows every write to that
+   * namespace.
+   */
   tokenNamespaceId: string | null
   /**
    * Admin API key the request was made with, if any. A key acts as its creator
@@ -253,12 +254,11 @@ function sweepBuckets(): void {
 
 export interface Identity {
   user: UserRecord | null
-  scope: TokenScope | null
   namespaceId: string | null
   apiKey: ApiKeyIdentity | null
 }
 
-const ANONYMOUS: Identity = { user: null, scope: null, namespaceId: null, apiKey: null }
+const ANONYMOUS: Identity = { user: null, namespaceId: null, apiKey: null }
 
 /**
  * Resolution order: `Authorization: Bearer` first, then the `session_token`
@@ -281,18 +281,27 @@ export function resolveIdentity(request: Request): Identity {
   return ANONYMOUS
 }
 
+/**
+ * A bare `Bearer` credential is either an admin API key or nothing — the only
+ * programmatic credential the service issues. The session cookie is handled by
+ * `authenticateSession`, reached through the same candidate walk.
+ */
 function authenticate(raw: string): Identity {
   try {
-    return isApiKey(raw) ? authenticateApiKey(raw) : authenticateToken(raw)
+    return isApiKey(raw) ? authenticateApiKey(raw) : authenticateSession(raw)
   } catch {
     // Any lookup failure is simply "unauthenticated".
+    return ANONYMOUS
   }
-  return ANONYMOUS
 }
 
-function authenticateToken(raw: string): Identity {
-  const prefix = extractPrefix(raw)
-  const rows = tokens.getByPrefix(prefix)
+/**
+ * A session cookie carries the same credential shape an API key does, but it
+ * resolves against `sessions` and grants the holder's own powers with no
+ * per-endpoint narrowing.
+ */
+function authenticateSession(raw: string): Identity {
+  const rows = sessions.getByPrefix(extractSessionPrefix(raw))
   for (const row of rows) {
     if (!tokenMatches(row.tokenHash, raw)) continue
     if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) continue
@@ -302,13 +311,8 @@ function authenticateToken(raw: string): Identity {
     // only starts working once an admin approves it.
     if (!user || user.isBanned || user.status !== 'approved') return ANONYMOUS
 
-    tokens.touchLastUsed(row.id)
-    return {
-      user,
-      scope: normalizeScope(row.scope),
-      namespaceId: row.namespaceId ?? null,
-      apiKey: null,
-    }
+    sessions.touchLastUsed(row.id)
+    return { user, namespaceId: null, apiKey: null }
   }
   return ANONYMOUS
 }
@@ -334,7 +338,6 @@ function authenticateApiKey(raw: string): Identity {
     apiKeys.touchLastUsed(row.id)
     return {
       user,
-      scope: null,
       namespaceId,
       apiKey: { id: row.id, scopes: row.scopes, namespaceId },
     }
@@ -492,7 +495,6 @@ export async function dispatch(
     params,
     pattern: route.path,
     user: identity.user,
-    tokenScope: identity.scope,
     tokenNamespaceId: identity.namespaceId,
     apiKey: identity.apiKey,
     clientIp,

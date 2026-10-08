@@ -426,11 +426,10 @@ export const MIGRATIONS: Migration[] = [
     `,
   },
   {
-    // Admin-issued API keys. Deliberately separate from `api_tokens`: those are
-    // a user's personal credentials (session-ish, `clh_` prefix, broad scope)
-    // while these are minted for one job — driving the skill catalogue over
-    // HTTP — carry per-endpoint capabilities, and are listed/revoked from the
-    // admin console as their own resource.
+    // Admin-issued API keys. These are the only programmatic credential: they
+    // are minted for one job — driving the skill catalogue over HTTP —
+    // carry per-endpoint capabilities, and are listed/revoked from the admin
+    // console as their own resource.
     v: 4,
     name: 'admin api keys',
     sql: `
@@ -521,6 +520,50 @@ export const MIGRATIONS: Migration[] = [
     name: 'index users by email',
     sql: `
       CREATE INDEX idx_users_email ON users (email);
+    `,
+  },
+  {
+    // The admin console builds a ready-to-run usage sheet for any key in the
+    // list, so the value has to survive past creation. This registry only
+    // guards skill documents, and anyone who can read this table can already
+    // mint a fresh key, so keeping the plaintext alongside the hash buys
+    // convenience without widening the attack surface. `key_hash` remains the
+    // only thing verification reads; this column is for display and copying.
+    // Rows minted before this migration keep NULL and simply fall back to a
+    // placeholder in the console.
+    v: 10,
+    name: 'store api key plaintext',
+    sql: `
+      ALTER TABLE api_keys ADD COLUMN key_secret TEXT;
+    `,
+  },
+  {
+    // Personal and team tokens are gone — the admin-issued API key in
+    // `api_keys` is now the only programmatic credential. But `api_tokens`
+    // was also the session store: `login` wrote a `web-session` row and the
+    // cookie carried it. Those rows move into a dedicated `sessions` table so
+    // nobody is logged out, and everything else — personal tokens, team
+    // tokens, and the device-flow / agent-provisioning rows that existed only
+    // to hand a bearer credential out — is dropped with the table.
+    v: 11,
+    name: 'sessions replace personal and team tokens',
+    sql: `
+      CREATE TABLE sessions (
+        id           TEXT PRIMARY KEY,
+        user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        prefix       TEXT NOT NULL,
+        token_hash   TEXT NOT NULL UNIQUE,
+        last_used_at TEXT,
+        expires_at   TEXT,
+        created_at   TEXT NOT NULL
+      );
+      CREATE INDEX idx_sessions_user   ON sessions (user_id);
+      CREATE INDEX idx_sessions_prefix ON sessions (prefix);
+      INSERT INTO sessions (id, user_id, prefix, token_hash, last_used_at, expires_at, created_at)
+        SELECT id, user_id, prefix, token_hash, last_used_at, expires_at, created_at
+          FROM api_tokens
+         WHERE label = 'web-session' AND revoked_at IS NULL;
+      DROP TABLE api_tokens;
     `,
   },
 ]

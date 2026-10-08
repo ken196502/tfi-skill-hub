@@ -6,16 +6,15 @@
  * who changed what.
  */
 
-import crypto from 'node:crypto'
 import { conflict, fail, notFound } from '../errors'
 import { asNumber, nowIso, query, type Row } from '../db'
 import { VALID_ROLES } from '../../lib/types'
 import type { SkillWithOwner, UserRole, UserStatus, Visibility } from '../../lib/types'
-import { audit, users, tokens as tokenRepo, type UserRecord } from '../repo/core'
+import { audit, users, type UserRecord } from '../repo/core'
 import { skills as skillRepo, stars as starRepo } from '../repo/skills'
 import { plugins as pluginRepo } from '../repo/plugins'
 import type { FileMap } from '../content'
-import { generateRawToken, hashPassword, hashToken, extractPrefix, MIN_PASSWORD_LENGTH } from '../auth'
+import { hashPassword, MIN_PASSWORD_LENGTH } from '../auth'
 import {
   auditLog,
   ensurePersonalNamespace,
@@ -27,7 +26,6 @@ import {
 } from './shared'
 import { publishVersion, setDetailHtml } from './skills'
 import type { SkillRef } from '../../lib/types'
-import type { APIToken } from '../../lib/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Users
@@ -217,40 +215,6 @@ export function banUser(actorId: string, userId: string, reason: string): void {
   })
 }
 
-/** Admin-issued token. Unlike `POST /api/v1/tokens`, this one never expires. */
-export function createUserToken(
-  actorId: string,
-  userId: string,
-  label: string,
-  scope: string,
-): { token: string; metadata: APIToken } {
-  const target = users.getById(userId)
-  if (!target) notFound('user not found')
-  const effectiveScope = scope && scope !== '' ? scope : 'full'
-  if (effectiveScope !== 'full' && effectiveScope !== 'read' && effectiveScope !== 'publish') {
-    fail('invalid scope, must be one of: full, read, publish')
-  }
-
-  const raw = generateRawToken()
-  const metadata = tokenRepo.create({
-    userId,
-    label: label || null,
-    prefix: extractPrefix(raw),
-    tokenHash: hashToken(raw),
-    scope: effectiveScope as APIToken['scope'],
-    expiresAt: null,
-  })
-  auditLog({
-    actorId,
-    action: 'admin_create_token',
-    resourceType: 'api_token',
-    resourceId: metadata.id,
-    details: `user=${target.handle},scope=${effectiveScope}`,
-  })
-  return { token: raw, metadata }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Skills
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -542,51 +506,6 @@ export function auditLogs(opts: {
 }) {
   return auditRows(opts)
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Agent auto-provisioning
-// ─────────────────────────────────────────────────────────────────────────────
-
-const AGENT_SECRET_ENV = 'SKILLHUB_AGENT_SECRET'
-
-export function agentProvision(handle: string, secret: string): {
-  token: string
-  handle: string
-  userId: string
-} {
-  const configured = process.env[AGENT_SECRET_ENV] ?? ''
-  if (configured === '') notFound('not found')
-
-  if (handle.length < 2 || handle.length > 64) fail('handle must be 2-64 characters')
-  if (!timingSafeEquals(configured, secret)) fail('invalid secret')
-
-  let user = users.getByHandle(handle)
-  if (user?.isBanned) fail('account is banned')
-  if (!user) {
-    user = users.create({ handle, role: 'agent' })
-  }
-
-  const raw = generateRawToken()
-  tokenRepo.create({
-    userId: user.id,
-    label: 'agent-provision',
-    prefix: extractPrefix(raw),
-    tokenHash: hashToken(raw),
-    scope: 'publish',
-    expiresAt: new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString(),
-  })
-
-  return { token: raw, handle: user.handle, userId: user.id }
-}
-
-function timingSafeEquals(a: string, b: string): boolean {
-  const bufA = Buffer.from(a, 'utf8')
-  const bufB = Buffer.from(b, 'utf8')
-  // `timingSafeEqual` throws on length mismatch, so short-circuit first.
-  if (bufA.length !== bufB.length) return false
-  return crypto.timingSafeEqual(bufA, bufB)
-}
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers

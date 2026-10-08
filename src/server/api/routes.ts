@@ -67,15 +67,6 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/register', handler: h.auth.register, auth: 'public', bucket: 'write' },
     { method: 'GET', path: '/api/v1/registration', handler: h.auth.registrationStatus, ...pub },
 
-    // ── Device flow (both mount points; the CLI expects the /api/v1 alias) ───
-    { method: 'POST', path: '/auth/device/code', handler: h.auth.deviceCode, auth: 'public', bucket: 'write' },
-    { method: 'GET', path: '/auth/device/verify', handler: h.auth.deviceVerifyPage, auth: 'optional', bucket: 'write' },
-    { method: 'POST', path: '/auth/device/verify', handler: h.auth.deviceVerifySubmit, auth: 'required', bucket: 'write' },
-    { method: 'POST', path: '/auth/device/token', handler: h.auth.deviceToken, auth: 'public', bucket: 'write' },
-    { method: 'POST', path: '/api/v1/auth/device/code', handler: h.auth.deviceCode, auth: 'public', bucket: 'write' },
-    { method: 'POST', path: '/api/v1/auth/device/verify', handler: h.auth.deviceVerifySubmit, auth: 'required', bucket: 'write' },
-    { method: 'POST', path: '/api/v1/auth/device/token', handler: h.auth.deviceToken, auth: 'public', bucket: 'write' },
-
     // ── Search & browsing ────────────────────────────────────────────────────
     { method: 'GET', path: '/api/v1/search', handler: h.skillRead.search, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/categories', handler: h.skillRead.categories, ...opt, ...K_READ },
@@ -115,14 +106,9 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug', handler: h.pluginRead.getPlugin, ...opt },
     { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug/versions', handler: h.pluginRead.pluginVersions, ...opt },
 
-    // ── Identity & personal tokens ───────────────────────────────────────────
+    // ── Identity ─────────────────────────────────────────────────────────────
     // `whoami` stays open to any session — the UI needs it to render the header.
-    // Personal tokens are a publishing credential, so they are administrator-only
-    // along with the rest of the publishing surface.
     { method: 'GET', path: '/api/v1/whoami', handler: h.auth.whoami, ...authed, ...K_READ },
-    { method: 'GET', path: '/api/v1/tokens', handler: h.personalTokens.list, ...adminRead },
-    { method: 'POST', path: '/api/v1/tokens', handler: h.personalTokens.create, ...adminWrite },
-    { method: 'DELETE', path: '/api/v1/tokens/:id', handler: h.personalTokens.revoke, ...adminWrite },
 
     // ── Skill publishing & lifecycle (administrators only) ───────────────────
     { method: 'POST', path: '/api/v1/skills', handler: h.skillWrite.publish, ...adminWrite, ...K_PUBLISH },
@@ -194,9 +180,6 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/api/v1/namespaces/:slug/invitations', handler: h.namespaceHandlers.invite, ...adminWrite },
     { method: 'GET', path: '/api/v1/namespaces/:slug/invitations', handler: h.namespaceHandlers.listInvitations, ...adminRead },
     { method: 'DELETE', path: '/api/v1/namespaces/:slug/invitations/:id', handler: h.namespaceHandlers.revokeInvitation, ...adminWrite },
-    { method: 'GET', path: '/api/v1/namespaces/:slug/tokens', handler: h.namespaceHandlers.listTeamTokens, ...adminRead },
-    { method: 'POST', path: '/api/v1/namespaces/:slug/tokens', handler: h.namespaceHandlers.createTeamToken, ...adminWrite },
-    { method: 'DELETE', path: '/api/v1/namespaces/:slug/tokens/:id', handler: h.namespaceHandlers.revokeTeamToken, ...adminWrite },
     { method: 'GET', path: '/api/v1/invitations', handler: h.namespaceHandlers.myInvitations, ...adminRead },
     { method: 'POST', path: '/api/v1/invitations/:id/accept', handler: h.namespaceHandlers.acceptInvitation, ...adminWrite },
     { method: 'POST', path: '/api/v1/invitations/:id/decline', handler: h.namespaceHandlers.declineInvitation, ...adminWrite },
@@ -220,7 +203,6 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/admin/users', handler: h.admin.listUsers, auth: 'admin', ...K_USER },
     { method: 'POST', path: '/api/v1/admin/users/review', handler: h.admin.reviewUser, auth: 'admin', ...K_USER },
     { method: 'POST', path: '/api/v1/admin/users', handler: h.admin.createUser, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/tokens', handler: h.admin.createToken, auth: 'admin' },
     { method: 'GET', path: '/api/v1/admin/api-keys', handler: h.admin.listApiKeys, auth: 'admin', bucket: 'write' },
     { method: 'POST', path: '/api/v1/admin/api-keys', handler: h.admin.createApiKey, auth: 'admin', bucket: 'write' },
     { method: 'DELETE', path: '/api/v1/admin/api-keys/:id', handler: h.admin.revokeApiKey, auth: 'admin', bucket: 'write' },
@@ -242,8 +224,7 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/api/v1/admin/plugins/:slug/visibility', handler: h.admin.setPluginVisibility, auth: 'admin' },
     { method: 'GET', path: '/api/v1/admin/audit-logs', handler: h.admin.auditLogs, auth: 'admin' },
 
-    // ── Agent provisioning & agent skill API ─────────────────────────────────
-    { method: 'POST', path: '/api/v1/agent/provision', handler: h.agentProvision.provision, auth: 'public', bucket: 'write' },
+    // ── Agent skill API ──────────────────────────────────────────────────────
     // Second publishing surface — clamped with the rest of publishing. The read
     // side stays as it was; it exposes nothing beyond the public catalogue.
     { method: 'POST', path: '/api/agent/skills', handler: h.agent.publish, ...adminWrite },
