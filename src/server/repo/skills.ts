@@ -127,7 +127,7 @@ export interface Viewer {
  * (Single-skill reads are more permissive — see `services/skills.ts`.)
  */
 function visibilityClause(viewer: Viewer | null): { sql: string; params: unknown[] } {
-  if (viewer && (viewer.role === 'admin' || viewer.role === 'moderator')) {
+  if (viewer && viewer.role === 'admin') {
     return { sql: '', params: [] }
   }
   if (viewer) {

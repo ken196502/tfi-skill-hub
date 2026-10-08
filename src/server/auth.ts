@@ -192,10 +192,6 @@ export function isAdmin(u: User | null): boolean {
   return u?.role === 'admin'
 }
 
-export function isModerator(u: User | null): boolean {
-  return u?.role === 'moderator' || u?.role === 'admin'
-}
-
 /**
  * `middleware.RequireScope`. `scope === null` means the caller authenticated
  * with a session cookie, which is always full-access.

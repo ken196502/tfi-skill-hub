@@ -8,7 +8,7 @@
  * Flags:
  *   --handle      required
  *   --password    required
- *   --role        user | moderator | admin   (default: user; ignored for --set-password on an existing account)
+ *   --role        user | admin   (default: user; ignored for --set-password on an existing account)
  *   --set-password only reset the password of an existing account
  *   --db          path to the SQLite file (default: $SKILLHUB_DATABASE_URL or ./data/skillhub.db)
  *
@@ -23,7 +23,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { scryptSync } from 'node:crypto'
 
-const VALID_ROLES = ['user', 'moderator', 'admin']
+const VALID_ROLES = ['user', 'admin']
 const MIN_PASSWORD_LENGTH = 8
 
 function parseArgs(argv) {

@@ -1365,10 +1365,6 @@ main { flex: 1; }
   color: var(--accent);
   background: var(--accent-bg);
 }
-.nav-role-chip-mod {
-  color: var(--sec-stat-icon);
-  background: var(--sec-chip-alt-bg);
-}
 
 @keyframes login-fade-in {
   from { opacity: 0; transform: translateY(12px); }

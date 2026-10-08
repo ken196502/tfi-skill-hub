@@ -494,6 +494,23 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_users_status ON users (status);
     `,
   },
+  {
+    // People hold one of two roles: admin or user. The inherited 'moderator'
+    // role had no administrative surface (no /admin/* route accepted it), so an
+    // early install that still carries such an account folds it back into a
+    // plain user rather than leaving a state the code no longer honours.
+    //
+    // The column's CHECK still lists the old value: SQLite cannot drop a
+    // constraint without rebuilding the table, and rebuilding `users` would
+    // cascade through every table that references it. The rule is enforced
+    // where roles enter the database instead (VALID_ROLES).
+    v: 8,
+    name: 'drop the moderator role',
+    sql: `
+      UPDATE users SET role = 'user', updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')
+        WHERE role = 'moderator';
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

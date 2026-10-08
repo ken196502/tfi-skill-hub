@@ -44,19 +44,19 @@ export interface Viewer {
 }
 
 /**
- * `canViewSkillWith` — public+approved, or moderator/admin, or owner, or a
- * member of the owning namespace.
+ * `canViewSkillWith` — public+approved, or admin, or owner, or a member of the
+ * owning namespace.
  */
 export function canViewSkill(skill: Skill, viewer: Viewer | null): boolean {
   if (skill.visibility === 'public' && skill.moderationStatus === 'approved') return true
   if (!viewer) return false
-  if (viewer.role === 'admin' || viewer.role === 'moderator') return true
+  if (viewer.role === 'admin') return true
   if (skill.ownerId === viewer.id) return true
   if (skill.namespaceId && members.isMember(skill.namespaceId, viewer.id)) return true
   return false
 }
 
-/** `canReadPlugin` — note this checks `admin` only, not `moderator`. */
+/** `canReadPlugin` — same shape as `canViewSkill`, also admin-only. */
 export function canViewPlugin(plugin: Plugin, viewer: Viewer | null): boolean {
   if (plugin.visibility === 'public' && plugin.moderationStatus === 'approved') return true
   if (!viewer) return false

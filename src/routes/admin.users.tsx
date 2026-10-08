@@ -17,7 +17,7 @@ import type { User, UserRole, UserStatus } from '../lib/types'
 
 export const Route = createFileRoute('/admin/users')({ component: UsersPage })
 
-const ROLES: UserRole[] = ['user', 'moderator', 'admin']
+const ROLES: UserRole[] = ['user', 'admin']
 
 /** `''` = no filter (every account). */
 type StatusFilter = '' | UserStatus
@@ -79,7 +79,7 @@ function UsersPage() {
   if (!user || user.role !== 'admin') return <Navigate to="/login" />
 
   const roleLabel = (value: string): string =>
-    ({ user: t('普通用户', 'User'), moderator: t('审核员', 'Moderator'), admin: t('管理员', 'Admin') })[value] ?? value
+    ({ user: t('普通用户', 'User'), admin: t('管理员', 'Admin') })[value] ?? value
 
   const statusTabs: Array<{ value: StatusFilter; label: string }> = [
     { value: '', label: t('全部', 'All') },

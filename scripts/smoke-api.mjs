@@ -1020,6 +1020,14 @@ try {
   r = await req('POST', '/api/v1/admin/users/role', { token: adminToken, body: { userId: 'not-a-uuid', role: 'admin' } })
   check('an invalid user id → 400 "invalid user ID"', r.status === 400 && r.body?.error === 'invalid user ID', `${r.status} ${r.text}`)
 
+  // People hold one of two roles: admin or user. The inherited moderator role
+  // is gone, so it must be refused even though the column's CHECK still lists it.
+  r = await req('POST', '/api/v1/admin/users/role', { token: adminToken, body: { userId: crypto.randomUUID(), role: 'moderator' } })
+  check("the moderator role is refused → 400", r.status === 400 && /must be one of: user, admin/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users', { token: adminToken, body: { handle: 'smoke-mod-attempt', role: 'moderator' } })
+  check('creating a moderator → 400', r.status === 400 && /must be one of: user, admin/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
   r = await req('GET', '/api/v1/admin/plugins?limit=20', { token: adminToken })
   check(
     'admin plugin list returns the raw Plugin shape',

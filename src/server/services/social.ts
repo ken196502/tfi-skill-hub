@@ -114,8 +114,8 @@ export function deleteComment(user: UserRecord, commentId: string): void {
 
   const isAuthor = comment.userId === user.id
   const isOwner = skill.ownerId === user.id
-  const isModerator = user.role === 'moderator' || user.role === 'admin'
-  if (!isAuthor && !isOwner && !isModerator) fail('forbidden')
+  const isAdmin = user.role === 'admin'
+  if (!isAuthor && !isOwner && !isAdmin) fail('forbidden')
 
   commentRepo.softDelete(commentId)
   // Keep the denormalised counter honest without a full recompute.

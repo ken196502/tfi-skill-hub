@@ -79,7 +79,7 @@ const AGENT_SELECT = /* sql */ `
 
 /** Visibility predicate shared by the list and detail paths. */
 function visibilitySql(viewer: Viewer | null): { sql: string; params: unknown[] } {
-  if (viewer && (viewer.role === 'admin' || viewer.role === 'moderator')) {
+  if (viewer && viewer.role === 'admin') {
     return { sql: '', params: [] }
   }
   if (viewer) {

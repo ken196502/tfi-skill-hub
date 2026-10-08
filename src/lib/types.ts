@@ -10,7 +10,13 @@
 export type Visibility = 'private' | 'public'
 export type ModerationStatus = 'approved' | 'pending_review' | 'rejected'
 export type SkillKind = 'builtin' | 'domain' | 'learned' | 'custom'
-export type UserRole = 'user' | 'moderator' | 'admin' | 'agent'
+/**
+ * Roles a person can hold: `admin` and `user`, nothing in between. `agent` is
+ * not a human role — it marks accounts created by the agent provisioning flow
+ * (`/api/agent/provision`) so machine publishers stay distinguishable, and it
+ * is never offered as a choice anywhere in the UI.
+ */
+export type UserRole = 'user' | 'admin' | 'agent'
 /**
  * Review state of an account. Self-service registration lands in `pending` and
  * waits for an admin decision; accounts that predate registration (or were
@@ -55,7 +61,7 @@ export const VALID_CATEGORIES = [
 
 export const VALID_KINDS: SkillKind[] = ['builtin', 'domain', 'learned', 'custom']
 
-export const VALID_ROLES: UserRole[] = ['user', 'moderator', 'admin']
+export const VALID_ROLES: UserRole[] = ['user', 'admin']
 
 /** `model.ReservedNamespaces` — slug prefixes reserved for official distribution. */
 export const RESERVED_NAMESPACE_PREFIXES = ['animus-builtin/', 'animus-domain/']

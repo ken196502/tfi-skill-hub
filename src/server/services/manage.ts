@@ -81,7 +81,7 @@ export function createUser(input: {
 
   const role = (input.role && input.role !== '' ? input.role : 'user') as UserRole
   if (!VALID_ROLES.includes(role)) {
-    fail('invalid role, must be one of: user, moderator, admin')
+    fail('invalid role, must be one of: user, admin')
   }
 
   const created = users.create({
@@ -143,7 +143,7 @@ export function registerUser(input: {
 
 export function setRole(actorId: string, userId: string, role: string): void {
   if (!VALID_ROLES.includes(role as UserRole)) {
-    fail('invalid role, must be one of: user, moderator, admin')
+    fail('invalid role, must be one of: user, admin')
   }
   const target = users.getById(userId)
   if (!target) notFound('user not found')

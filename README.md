@@ -195,7 +195,7 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 ### 作用域与角色
 
 * Token 作用域：`full`（全部）、`read`（仅 GET/HEAD）、`publish`（仅 `POST /api/v1/skills`、`/api/agent/skills`、`/api/v1/stars/:slug`）。
-* 用户角色：`user` / `moderator` / `admin`（另有 `agent` 用于自动注册）。
+* 用户角色只有两种：`user` / `admin`（另有 `agent`，是 `/api/agent/provision` 自动建号的内部标记，不对外开放、界面上也不可选）。
 * 命名空间角色：`owner` / `admin` / `member` / `reader`（`reader` 可读不可发布）。
 * 团队 Token 绑定到命名空间，只能向其绑定的命名空间发布；成员退出或命名空间删除时会级联吊销。
 * 管理端 API Key（`shk_` 前缀，在 `/admin/api-keys` 页面签发）按用途授权，与签发者的角色无关：
