@@ -33,6 +33,11 @@ const serverEntry = path.resolve(
   process.env.SKILLHUB_SERVER_ENTRY ?? path.join(projectRoot, 'dist', 'server', 'server.js'),
 )
 
+// Static docs (product guide, release notes, etc.) are served from here.
+// Kept outside the SPA build so docs can be updated by mounting a volume
+// without rebuilding or redeploying the image.
+const staticDir = path.resolve(process.env.SKILLHUB_STATIC_DIR ?? path.join(projectRoot, 'static'))
+
 // Imported lazily so a missing build produces a clear message rather than a
 // module-resolution stack trace.
 let handler
@@ -95,6 +100,33 @@ async function serveStatic(pathname) {
   }
 }
 
+/**
+ * Serves a file from an arbitrary directory (used for the `/docs` static route).
+ * `relPath` is the URL path after the mount prefix; traversal is refused.
+ * `extraHeaders` (e.g. `no-cache`) are merged into the response.
+ */
+async function serveStaticFromDir(relPath, baseDir, extraHeaders = {}) {
+  const decoded = decodeURIComponent(relPath)
+  const candidate = path.join(baseDir, decoded)
+  const normalized = path.normalize(candidate)
+  if (normalized !== baseDir && !normalized.startsWith(baseDir + path.sep)) return null
+  try {
+    const stat = await fsp.stat(normalized)
+    if (!stat.isFile()) return null
+    const stream = fs.createReadStream(normalized)
+    return new Response(Readable.toWeb(stream), {
+      status: 200,
+      headers: {
+        'Content-Type': MIME[path.extname(normalized).toLowerCase()] ?? 'application/octet-stream',
+        'Content-Length': String(stat.size),
+        ...extraHeaders,
+      },
+    })
+  } catch {
+    return null
+  }
+}
+
 /** Builds a Web `Request` from a Node request, streaming the body through. */
 function toWebRequest(req) {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
@@ -142,6 +174,23 @@ const server = http.createServer(async (req, res) => {
         await writeWebResponse(res, asset)
         return
       }
+    }
+
+    // Static docs: served straight from disk so they can be updated by
+    // mounting a volume without redeploying. `no-cache` makes the browser
+    // revalidate on every load, so an edited file shows up on refresh.
+    if (pathname.startsWith('/docs/')) {
+      const doc = await serveStaticFromDir(pathname.slice('/docs/'.length), staticDir, {
+        'Cache-Control': 'no-cache',
+      })
+      if (doc) {
+        await writeWebResponse(res, doc)
+        return
+      }
+      res.statusCode = 404
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+      res.end('Not found')
+      return
     }
 
     const response = await handler.fetch(toWebRequest(req))

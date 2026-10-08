@@ -39,6 +39,9 @@ services:
       SKILLHUB_PORT: "10070"
       SKILLHUB_DB_PATH: "/app/data/skillhub.db"
 
+      # 静态文档根目录：serve.mjs 从此目录提供 /docs/* 资源
+      SKILLHUB_STATIC_DIR: "/app/static"
+
       # 管理员凭据从同目录的 .env 读取（compose 会自动加载项目根目录的 .env 做变量替换），
       # 仓库里不再保留任何默认口令。未设置或为空时 compose 会直接报错退出，避免带默认口令上线。
       # 仅在库为空时生效：首次启动创建管理员；已有账号的口令不会被改写。
@@ -58,6 +61,10 @@ services:
     volumes:
       # 命名卷：推荐。数据随卷保留，与宿主机路径解耦。
       - skillhub-data:/app/data
+
+      # 静态文档（产品说明等）：挂载宿主机目录，改 HTML 后无需重新构建镜像，
+      # 刷新浏览器即可看到更新（serve.mjs 对该目录返回 no-cache）。
+      - ./static:/app/static
 
       # 若想直接用宿主机目录（bind mount），注释上面一行、启用下面这行：
       # - ./data:/app/data

@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TFI Skill Hub 产品功能说明</title>
+<style>
+  :root {
+    --brand: #004123;
+    --brand-soft: #e7f0ea;
+    --ink: #1b1f1d;
+    --muted: #5b6660;
+    --line: #d9e2dc;
+    --bg: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: Helvetica, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--ink);
+    background: #f4f6f4;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+  .topbar { height: 6px; background: var(--brand); }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 24px 64px; background: var(--bg); min-height: 100vh; }
+  header.doc-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap; border-bottom: 1px solid var(--line); padding-bottom: 18px;
+  }
+  h1 { color: var(--brand); font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0; }
+  .langswitch { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .langswitch button {
+    border: 0; background: #fff; color: var(--muted); padding: 6px 14px;
+    font: inherit; cursor: pointer;
+  }
+  .langswitch button.active { background: var(--brand); color: #fff; }
+  nav.toc { background: var(--brand-soft); border-radius: 10px; padding: 14px 18px; margin: 22px 0 28px; }
+  nav.toc ol { margin: 0; padding-left: 20px; }
+  nav.toc a { color: var(--brand); text-decoration: none; }
+  nav.toc a:hover { text-decoration: underline; }
+  h2 { color: var(--brand); font-size: 19px; margin: 30px 0 10px; padding-top: 6px; }
+  h3 { font-size: 15.5px; margin: 20px 0 6px; }
+  p { margin: 8px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--brand-soft); color: var(--brand); }
+  ul { margin: 8px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  code { background: #eef2ef; padding: 1px 5px; border-radius: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; }
+  .note { background: #fff8e6; border: 1px solid #f0dca0; border-radius: 8px; padding: 10px 14px; color: #6b5a1e; }
+  footer { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 14px; color: var(--muted); font-size: 13px; }
+  /* language visibility */
+  body.lang-zh .en { display: none; }
+  body.lang-en .zh { display: none; }
+  body.lang-en { font-size: 15px; }
+</style>
+</head>
+<body class="lang-zh">
+<div class="topbar"></div>
+<div class="wrap">
+  <header class="doc-head">
+    <div>
+      <h1>TFI Skill Hub 产品功能说明</h1>
+      <p class="sub"><span class="zh">测试人员版 · 仅描述产品功能与操作，不含技术实现</span><span class="en">For testers · describes product features and usage only, no implementation details</span></p>
+    </div>
+    <div class="langswitch" role="group" aria-label="language">
+      <button id="btn-zh" class="active" onclick="setLang('zh')">中文</button>
+      <button id="btn-en" onclick="setLang('en')">English</button>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <span class="zh"><strong>目录</strong></span><span class="en"><strong>Contents</strong></span>
+    <ol>
+      <li><a href="#s1"><span class="zh">产品简介</span><span class="en">Overview</span></a></li>
+      <li><a href="#s2"><span class="zh">角色与权限</span><span class="en">Roles &amp; permissions</span></a></li>
+      <li><a href="#s3"><span class="zh">公开浏览</span><span class="en">Public browsing</span></a></li>
+      <li><a href="#s4"><span class="zh">账号体系</span><span class="en">Accounts</span></a></li>
+      <li><a href="#s5"><span class="zh">发布技能</span><span class="en">Publishing skills</span></a></li>
+      <li><a href="#s6"><span class="zh">命名空间 / 团队空间</span><span class="en">Namespaces / teams</span></a></li>
+      <li><a href="#s7"><span class="zh">个人 Token</span><span class="en">Personal tokens</span></a></li>
+      <li><a href="#s8"><span class="zh">社交功能</span><span class="en">Social features</span></a></li>
+      <li><a href="#s9"><span class="zh">管理后台</span><span class="en">Admin console</span></a></li>
+      <li><a href="#s10"><span class="zh">下载与安装</span><span class="en">Download &amp; install</span></a></li>
+      <li><a href="#s11"><span class="zh">给测试人员的注意点</span><span class="en">Notes for testers</span></a></li>
+    </ol>
+  </nav>
+
+  <section id="s1">
+    <h2><span class="zh">1. 产品简介</span><span class="en">1. Overview</span></h2>
+    <p><span class="zh">TFI Skill Hub 是一个<strong>自托管的 AI 智能体技能与插件注册中心</strong>。</span><span class="en">TFI Skill Hub is a <strong>self-hosted registry for AI-agent skills and plugins</strong>.</span></p>
+    <ul>
+      <li><span class="zh"><strong>技能（Skill）</strong>：一段可被 AI 智能体调用的能力说明，由 <code>SKILL.md</code> 等文件组成。</span><span class="en"><strong>Skill</strong>: a capability description an AI agent can call, composed of files such as <code>SKILL.md</code>.</span></li>
+      <li><span class="zh"><strong>插件（Plugin）</strong>：把多个技能与 MCP 服务打包在一起的更大能力包。</span><span class="en"><strong>Plugin</strong>: a larger package bundling multiple skills and MCP services.</span></li>
+    </ul>
+    <p><span class="zh">团队在这里集中<strong>发布、查找、安装、管理</strong>这些能力。任何人都能浏览公开内容；登录后可以发布自己的技能、组建团队空间并协作。</span><span class="en">Teams use it to <strong>publish, find, install, and manage</strong> these capabilities. Anyone can browse public content; after signing in you can publish your own skills and collaborate in team spaces.</span></p>
+  </section>
+
+  <section id="s2">
+    <h2><span class="zh">2. 角色与权限</span><span class="en">2. Roles &amp; permissions</span></h2>
+    <table>
+      <thead><tr><th><span class="zh">角色</span><span class="en">Role</span></th><th><span class="zh">能做什么</span><span class="en">What they can do</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">游客（未登录）</span><span class="en">Visitor (not signed in)</span></td><td><span class="zh">浏览首页、技能/插件列表与详情、搜索、查看公开内容。<strong>不能</strong>下载、发布、评论。</span><span class="en">Browse the home page, skill/plugin lists and details, search, and view public content. <strong>Cannot</strong> download, publish, or comment.</span></td></tr>
+        <tr><td><span class="zh">注册用户（已审核通过）</span><span class="en">Registered user (approved)</span></td><td><span class="zh">在游客基础上，可发布技能、创建/加入命名空间、收藏/评分/评论、管理个人 Token。</span><span class="en">In addition to visitor access: publish skills, create/join namespaces, star/rate/comment, and manage personal tokens.</span></td></tr>
+        <tr><td><span class="zh">命名空间成员</span><span class="en">Namespace member</span></td><td><span class="zh">按所在空间角色区分：<code>owner</code> / <code>admin</code> / <code>member</code> 可发布；<code>reader</code> 只能看、不能发布。</span><span class="en">Varies by role in the space: <code>owner</code> / <code>admin</code> / <code>member</code> may publish; <code>reader</code> can only view.</span></td></tr>
+        <tr><td><span class="zh">管理员（admin）</span><span class="en">Admin</span></td><td><span class="zh">额外可使用「管理后台」：用户审核、内容审核、首页精选、审计日志、API Key 签发。</span><span class="en">Also gets the admin console: user review, content moderation, homepage curation, audit logs, and API-key issuing.</span></td></tr>
+      </tbody>
+    </table>
+    <p class="note"><span class="zh">账号只有两种角色：<code>user</code> 与 <code>admin</code>。命名空间内部另有 <code>owner / admin / member / reader</code> 四级。</span><span class="en">Accounts have only two roles: <code>user</code> and <code>admin</code>. Inside a namespace there are four levels: <code>owner / admin / member / reader</code>.</span></p>
+  </section>
+
+  <section id="s3">
+    <h2><span class="zh">3. 公开浏览</span><span class="en">3. Public browsing</span></h2>
+    <h3><span class="zh">3.1 首页（<code>/</code>）</span><span class="en">3.1 Home (<code>/</code>)</span></h3>
+    <ul>
+      <li><span class="zh"><strong>精选技能</strong>：由管理员配置、横向展示的一组推荐技能。</span><span class="en"><strong>Featured skills</strong>: a curated row of recommended skills set by an admin.</span></li>
+      <li><span class="zh"><strong>热门技能</strong>：按下载量排序的技能。</span><span class="en"><strong>Popular skills</strong>: skills ranked by downloads.</span></li>
+      <li><span class="zh">顶部<strong>搜索框</strong>：输入后回车进入搜索结果页。</span><span class="en">Top <strong>search box</strong>: pressing Enter opens the search results page.</span></li>
+    </ul>
+    <h3><span class="zh">3.2 技能列表（<code>/skills</code>）</span><span class="en">3.2 Skill list (<code>/skills</code>)</span></h3>
+    <ul>
+      <li><span class="zh">左侧<strong>分类筛选</strong>：金融 / 个人 / 工作区 / 通用。</span><span class="en">Left <strong>category filter</strong>: Finance / Personal / Workspace / General.</span></li>
+      <li><span class="zh"><strong>排序方式</strong>：最新 / 最近更新 / 下载量 / 收藏数 / 名称。</span><span class="en"><strong>Sort</strong>: Newest / Recently updated / Downloads / Stars / Name.</span></li>
+      <li><span class="zh">搜索框 + 「加载更多」分页。</span><span class="en">Search box + "Load more" pagination.</span></li>
+    </ul>
+    <h3><span class="zh">3.3 技能详情（<code>/skills/@命名空间/标识名</code>）</span><span class="en">3.3 Skill detail (<code>/skills/@namespace/slug</code>)</span></h3>
+    <ul>
+      <li><span class="zh"><strong>说明正文</strong>：优先展示发布者/管理员设置的富文本；没有则展示 <code>SKILL.md</code>。</span><span class="en"><strong>Body</strong>: shows the rich-text set by the publisher/admin first; otherwise the <code>SKILL.md</code>.</span></li>
+      <li><span class="zh"><strong>下载 ZIP</strong>（需登录）。</span><span class="en"><strong>Download ZIP</strong> (requires sign-in).</span></li>
+      <li><span class="zh">侧栏信息：最新版本、发布者、创建/更新时间、标签、<strong>版本历史</strong>（被撤回的版本会标记「已撤回」）。</span><span class="en">Sidebar: latest version, publisher, created/updated time, tags, <strong>version history</strong> (yanked versions are marked "yanked").</span></li>
+    </ul>
+    <h3><span class="zh">3.4 插件列表与详情（<code>/plugins</code>）</span><span class="en">3.4 Plugin list &amp; detail (<code>/plugins</code>)</span></h3>
+    <ul>
+      <li><span class="zh">浏览插件包（内含技能与 MCP 服务）。</span><span class="en">Browse plugin packages (containing skills and MCP services).</span></li>
+      <li><span class="zh">排序同技能列表；详情页展示简介与下载入口。</span><span class="en">Same sorting as the skill list; the detail page shows the summary and a download link.</span></li>
+    </ul>
+    <h3><span class="zh">3.5 搜索（<code>/search</code>）</span><span class="en">3.5 Search (<code>/search</code>)</span></h3>
+    <ul>
+      <li><span class="zh">按<strong>名称、摘要、标签、SKILL.md 正文</strong>检索。</span><span class="en">Search by <strong>name, summary, tags, and SKILL.md content</strong>.</span></li>
+      <li><span class="zh"><strong>中文关键词至少 3 个字</strong>才会触发全文检索；2 字以内会退化为模糊匹配，结果可能不全。</span><span class="en"><strong>Chinese keywords need at least 3 characters</strong> for full-text search; 1–2 characters fall back to fuzzy matching and may miss results.</span></li>
+      <li><span class="zh">结果同时包含技能与插件，混排展示。</span><span class="en">Results mix skills and plugins in one list.</span></li>
+    </ul>
+  </section>
+
+  <section id="s4">
+    <h2><span class="zh">4. 账号体系</span><span class="en">4. Accounts</span></h2>
+    <h3><span class="zh">4.1 注册（<code>/register</code>）</span><span class="en">4.1 Register (<code>/register</code>)</span></h3>
+    <ul>
+      <li><span class="zh">字段：用户名、密码（≥ 8 位）、显示名称（可选）、邮箱（可选）。</span><span class="en">Fields: username, password (≥ 8 chars), display name (optional), email (optional).</span></li>
+      <li><span class="zh">用户名规则：2–32 位，可用字母、数字、点、短横线、下划线，且<strong>以字母或数字开头</strong>。</span><span class="en">Username rule: 2–32 chars, letters/digits/dot/dash/underscore, and <strong>must start with a letter or digit</strong>.</span></li>
+      <li><span class="zh">提交后账号状态为<strong>待审核</strong>，<strong>不能立即登录</strong>。</span><span class="en">After submitting, the account is <strong>pending review</strong> and <strong>cannot sign in yet</strong>.</span></li>
+      <li><span class="zh">若管理员关闭了公开注册，注册入口会隐藏、提交也会被拒绝。</span><span class="en">If the admin disables open registration, the entry is hidden and submissions are rejected.</span></li>
+    </ul>
+    <h3><span class="zh">4.2 登录 / 登出</span><span class="en">4.2 Sign in / out</span></h3>
+    <ul>
+      <li><span class="zh">用「用户名 + 密码」登录。</span><span class="en">Sign in with username + password.</span></li>
+      <li><span class="zh"><strong>待审核</strong>账号登录会提示「账号待审核」；<strong>被驳回</strong>账号登录会提示「账号已驳回」。</span><span class="en">A <strong>pending</strong> account sees "account pending"; a <strong>rejected</strong> account sees "account rejected".</span></li>
+    </ul>
+    <h3><span class="zh">4.3 账号审核（管理员）</span><span class="en">4.3 Account review (admin)</span></h3>
+    <ul>
+      <li><span class="zh">在「用户管理」按状态筛选：待审核 / 已通过 / 已驳回。</span><span class="en">In "User management", filter by status: pending / approved / rejected.</span></li>
+      <li><span class="zh">逐行「通过 / 驳回」；驳回可填写理由。</span><span class="en">Approve or reject row by row; rejection may include a reason.</span></li>
+      <li><span class="zh">审核<strong>通过后</strong>该账号才能登录；被驳回仍不能登录，但记录会保留（不会删除账号，用户名也不会被他人重复注册）。</span><span class="en">Only after <strong>approval</strong> can the account sign in. A rejected account still cannot, but the record is kept (the account is not deleted and the username cannot be re-registered).</span></li>
+    </ul>
+  </section>
+
+  <section id="s5">
+    <h2><span class="zh">5. 发布技能</span><span class="en">5. Publishing skills</span></h2>
+    <p><span class="zh">需登录。表单字段如下：</span><span class="en">Requires sign-in. Form fields:</span></p>
+    <table>
+      <thead><tr><th><span class="zh">字段</span><span class="en">Field</span></th><th><span class="zh">说明</span><span class="en">Notes</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">标识名（slug）</span><span class="en">Slug</span></td><td><span class="zh">仅限小写字母、数字、连字符，如 <code>code-review</code></span><span class="en">Lowercase letters, digits, hyphens only, e.g. <code>code-review</code></span></td></tr>
+        <tr><td><span class="zh">版本号</span><span class="en">Version</span></td><td><span class="zh">语义化版本，如 <code>1.0.0</code>；同一 slug 重复版本号会冲突</span><span class="en">Semantic version, e.g. <code>1.0.0</code>; reusing a version for the same slug conflicts</span></td></tr>
+        <tr><td><span class="zh">显示名称</span><span class="en">Display name</span></td><td><span class="zh">展示用名称</span><span class="en">Name shown in the UI</span></td></tr>
+        <tr><td><span class="zh">简介</span><span class="en">Summary</span></td><td><span class="zh">一句话说明</span><span class="en">One-line description</span></td></tr>
+        <tr><td><span class="zh">分类</span><span class="en">Category</span></td><td><span class="zh">金融 / 个人 / 工作区 / 通用</span><span class="en">Finance / Personal / Workspace / General</span></td></tr>
+        <tr><td><span class="zh">可见性</span><span class="en">Visibility</span></td><td><span class="zh">私有（默认）/ 公开（公开需管理员审核通过后才对外可见）</span><span class="en">Private (default) / Public (public needs admin approval before it becomes visible)</span></td></tr>
+        <tr><td><span class="zh">归属命名空间</span><span class="en">Namespace</span></td><td><span class="zh">留空则发布到个人空间</span><span class="en">Empty publishes to your personal space</span></td></tr>
+        <tr><td><span class="zh">标签</span><span class="en">Tags</span></td><td><span class="zh">逗号分隔</span><span class="en">Comma-separated</span></td></tr>
+        <tr><td><span class="zh">更新日志</span><span class="en">Changelog</span></td><td><span class="zh">本版本变更说明</span><span class="en">What changed in this version</span></td></tr>
+        <tr><td><span class="zh">技能文件</span><span class="en">Skill files</span></td><td><span class="zh"><strong>必须包含 <code>SKILL.md</code></strong>，支持文件夹与多文件（拖放或选择）</span><span class="en"><strong>Must include <code>SKILL.md</code></strong>; folders and multiple files supported (drag-drop or pick)</span></td></tr>
+      </tbody>
+    </table>
+    <ul>
+      <li><span class="zh">发布成功后可跳转到该技能详情页。</span><span class="en">After success you can jump to the skill detail page.</span></li>
+      <li><span class="zh">被软删除的技能，用相同 slug 重新发布会自动恢复。</span><span class="en">A soft-deleted skill re-published with the same slug is restored automatically.</span></li>
+    </ul>
+  </section>
+
+  <section id="s6">
+    <h2><span class="zh">6. 命名空间 / 团队空间</span><span class="en">6. Namespaces / teams</span></h2>
+    <ul>
+      <li><span class="zh">登录后可<strong>创建团队命名空间</strong>（标识名 + 显示名称 + 描述）。</span><span class="en">After signing in you can <strong>create a team namespace</strong> (slug + display name + description).</span></li>
+      <li><span class="zh">进入某个命名空间后有三类标签页：</span><span class="en">A namespace has three tabs:</span></li>
+    </ul>
+    <ul>
+      <li><span class="zh"><strong>成员</strong>：添加/移除成员，设定角色（<code>member</code> / <code>admin</code> / <code>reader</code>）。</span><span class="en"><strong>Members</strong>: add/remove members and set their role (<code>member</code> / <code>admin</code> / <code>reader</code>).</span></li>
+      <li><span class="zh"><strong>邀请</strong>：按用户名发出邀请并指定角色，记录邀请状态。</span><span class="en"><strong>Invitations</strong>: invite by username with a role; invitation status is tracked.</span></li>
+      <li><span class="zh"><strong>团队 Token</strong>（仅团队空间有）：创建带作用域（<code>publish</code> / <code>read</code>）和有效期的 Token；<strong>创建后完整 Token 仅显示一次</strong>，可随时吊销。</span><span class="en"><strong>Team tokens</strong> (team spaces only): create a token with a scope (<code>publish</code> / <code>read</code>) and expiry; <strong>the full token is shown only once</strong> and can be revoked anytime.</span></li>
+    </ul>
+    <p class="note"><span class="zh">个人空间（<code>personal</code>）没有「团队 Token」标签页。</span><span class="en">A personal space (<code>personal</code>) has no "Team tokens" tab.</span></p>
+  </section>
+
+  <section id="s7">
+    <h2><span class="zh">7. 个人 Token</span><span class="en">7. Personal tokens</span></h2>
+    <ul>
+      <li><span class="zh">用户在个人设置中可签发<strong>个人 Token</strong>，作用域：<code>full</code>（全部）/ <code>read</code>（只读）/ <code>publish</code>（仅发布）。</span><span class="en">In personal settings you can issue a <strong>personal token</strong> with scope <code>full</code> / <code>read</code> / <code>publish</code>.</span></li>
+      <li><span class="zh">个人 Token 等同于账号本身，能调用该账号权限范围内的所有操作。</span><span class="en">A personal token equals the account itself and can do anything the account can.</span></li>
+    </ul>
+  </section>
+
+  <section id="s8">
+    <h2><span class="zh">8. 社交功能</span><span class="en">8. Social features</span></h2>
+    <ul>
+      <li><span class="zh"><strong>收藏（Star）</strong>、<strong>评分（Rating）</strong>、<strong>评论（Comment）</strong>：均需登录。</span><span class="en"><strong>Star</strong>, <strong>Rating</strong>, <strong>Comment</strong>: all require sign-in.</span></li>
+      <li><span class="zh"><strong>通知（Notifications）</strong>：互动与待办提醒。</span><span class="en"><strong>Notifications</strong>: interaction and to-do alerts.</span></li>
+    </ul>
+  </section>
+
+  <section id="s9">
+    <h2><span class="zh">9. 管理后台</span><span class="en">9. Admin console</span></h2>
+    <p><span class="zh">仅 <code>admin</code> 可访问（<code>/admin</code>）。</span><span class="en">Available to <code>admin</code> only (<code>/admin</code>).</span></p>
+    <table>
+      <thead><tr><th><span class="zh">模块</span><span class="en">Module</span></th><th><span class="zh">功能</span><span class="en">Function</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">概览</span><span class="en">Overview</span></td><td><span class="zh">用户 / 技能 / 插件 / 首页精选的数量统计</span><span class="en">Counts of users / skills / plugins / featured</span></td></tr>
+        <tr><td><span class="zh">首页精选</span><span class="en">Featured</span></td><td><span class="zh">配置首页精选技能及展示顺序（最多 12 个）</span><span class="en">Curate homepage featured skills and their order (max 12)</span></td></tr>
+        <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色、封禁账号、签发 Token、审核注册</span><span class="en">Create users, change roles, ban accounts, mint tokens, review registrations</span></td></tr>
+        <tr><td><span class="zh">内容审核</span><span class="en">Content review</span></td><td><span class="zh">审核技能与插件（通过/驳回）；管理公开 / 私有 / 未公开（unlisted）状态；撤回（yank）/ 弃用（deprecate）</span><span class="en">Review skills/plugins (approve/reject); manage public / private / unlisted; yank / deprecate</span></td></tr>
+        <tr><td><span class="zh">审计日志</span><span class="en">Audit logs</span></td><td><span class="zh">追踪管理员在用户、审核、首页精选上的操作记录</span><span class="en">Trace admin actions on users, reviews, and featured curation</span></td></tr>
+        <tr><td><span class="zh">API Key</span><span class="en">API Key</span></td><td><span class="zh">签发「管理端专用 Key」，按用途授权（<code>skills:read</code> / <code>skills:publish</code> / <code>skills:delete</code> / <code>skills:moderate</code> / <code>users:moderate</code>），可绑定命名空间、设有效期、撤销；<strong>明文仅显示一次</strong></span><span class="en">Issue admin-scoped keys (<code>skills:read</code> / <code>skills:publish</code> / <code>skills:delete</code> / <code>skills:moderate</code> / <code>users:moderate</code>), bind to a namespace, set expiry, revoke; <strong>plaintext shown once</strong></span></td></tr>
+      </tbody>
+    </table>
+    <p class="note"><span class="zh">管理端 API Key 与「个人 Token」是两回事：Key 只拥有被授权的那一项能力，且可绑定命名空间、设有效期、单独撤销。</span><span class="en">Admin API keys differ from personal tokens: a key holds only its granted capability and can be namespaced, expired, and revoked independently.</span></p>
+  </section>
+
+  <section id="s10">
+    <h2><span class="zh">10. 下载与安装</span><span class="en">10. Download &amp; install</span></h2>
+    <ul>
+      <li><span class="zh">技能详情页的<strong>「下载 ZIP」</strong>按钮（需登录）会把该技能当前所有文件打包下载。</span><span class="en">The <strong>"Download ZIP"</strong> button on a skill detail page (requires sign-in) packages all current files.</span></li>
+      <li><span class="zh">单个文件（如 <code>SKILL.md</code>）的读取是公开的。</span><span class="en">Reading a single file (e.g. <code>SKILL.md</code>) is public.</span></li>
+      <li><span class="zh">打包下载类操作需要登录。</span><span class="en">Bundled downloads require sign-in.</span></li>
+    </ul>
+  </section>
+
+  <section id="s11">
+    <h2><span class="zh">11. 给测试人员的注意点</span><span class="en">11. Notes for testers</span></h2>
+    <ul>
+      <li><span class="zh"><strong>注册需审核</strong>：新账号提交后默认不能登录，必须管理员通过。</span><span class="en"><strong>Registration needs review</strong>: a new account cannot sign in until an admin approves it.</span></li>
+      <li><span class="zh"><strong>公开技能需审核</strong>：选「公开」发布的技能，要等管理员审核通过才在公开列表与搜索中可见；选「私有」仅自己/所在命名空间可见。</span><span class="en"><strong>Public skills need review</strong>: a "public" skill appears in public lists/search only after admin approval; "private" is visible only to you / your namespace.</span></li>
+      <li><span class="zh"><strong>限流</strong>：连续大量请求（尤其下载、发布）会触发限流（返回 429 并带 <code>Retry-After</code>）；正常手动操作不会遇到。</span><span class="en"><strong>Rate limiting</strong>: heavy repeated requests (especially downloads/publishes) return 429 with <code>Retry-After</code>; normal manual use won't hit it.</span></li>
+      <li><span class="zh"><strong>文件大小</strong>：单个文件 ≤ 5 MB，单次上传文件数 ≤ 500。</span><span class="en"><strong>File size</strong>: each file ≤ 5 MB, up to 500 files per upload.</span></li>
+      <li><span class="zh"><strong>中文搜索</strong>：关键词至少 3 个字才有全文检索效果。</span><span class="en"><strong>Chinese search</strong>: keywords need at least 3 characters for full-text search.</span></li>
+      <li><span class="zh"><strong>一次性密钥</strong>：团队 Token 与管理端 API Key 创建后明文只显示一次，务必立即复制保存。</span><span class="en"><strong>One-time secrets</strong>: team tokens and admin API keys show their plaintext only once — copy immediately.</span></li>
+      <li><span class="zh"><strong>命名空间角色</strong>：<code>reader</code> 只能查看，不能发布。</span><span class="en"><strong>Namespace role</strong>: <code>reader</code> can only view, not publish.</span></li>
+    </ul>
+  </section>
+
+  <footer>
+    <span class="zh">如界面行为与本说明不一致，以实际产品为准，并请反馈给开发同学。</span><span class="en">If the UI behaves differently from this guide, trust the actual product and report back to the developers.</span>
+  </footer>
+</div>
+
+<script>
+  function setLang(lang) {
+    document.body.className = 'lang-' + lang;
+    document.documentElement.lang = lang === 'zh' ? 'zh' : 'en';
+    document.getElementById('btn-zh').classList.toggle('active', lang === 'zh');
+    document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+    try { localStorage.setItem('sh-doc-lang', lang); } catch (e) {}
+  }
+  (function () {
+    var saved;
+    try { saved = localStorage.getItem('sh-doc-lang'); } catch (e) {}
+    if (saved === 'en' || saved === 'zh') setLang(saved);
+  })();
+</script>
+</body>
+</html>

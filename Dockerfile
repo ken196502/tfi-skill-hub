@@ -41,6 +41,10 @@ COPY --from=build /app/dist ./dist
 # 生产启动器（桥接 Node ↔ Web 标准请求/响应 + 静态资源）
 COPY scripts/serve.mjs ./scripts/serve.mjs
 
+# 静态文档（产品说明等）：默认随镜像提供，运行时可用挂载卷覆盖，
+# 改文档无需重新构建镜像。serve.mjs 从 /app/static 提供 /docs/* 。
+COPY static/ /app/static/
+
 # 非 root 运行用户；数据目录在 entrypoint 里改成该用户可写
 RUN groupadd --system --gid 1001 nodejs \
   && useradd --system --uid 1001 --gid nodejs --home-dir /app appuser \
