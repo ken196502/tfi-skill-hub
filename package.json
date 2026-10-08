@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vite dev",
     "build": "vite build",
-    "start": "NODE_OPTIONS=--disable-warning=ExperimentalWarning node dist/server/server.js",
+    "start": "NODE_OPTIONS=--disable-warning=ExperimentalWarning node --env-file-if-exists=.env scripts/serve.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-api.mjs",
     "seed:admin": "node --disable-warning=ExperimentalWarning scripts/create-admin.mjs"

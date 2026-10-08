@@ -39,9 +39,11 @@ services:
       SKILLHUB_PORT: "10070"
       SKILLHUB_DB_PATH: "/app/data/skillhub.db"
 
-      # 仅在库为空时生效：首次启动创建一个管理员账号，请务必修改密码
-      SKILLHUB_ADMIN_USER: "admin"
-      SKILLHUB_ADMIN_PASSWORD: "admin12345"
+      # 管理员凭据从同目录的 .env 读取（compose 会自动加载项目根目录的 .env 做变量替换），
+      # 仓库里不再保留任何默认口令。未设置或为空时 compose 会直接报错退出，避免带默认口令上线。
+      # 仅在库为空时生效：首次启动创建管理员；已有账号的口令不会被改写。
+      SKILLHUB_ADMIN_USER: "${SKILLHUB_ADMIN_USER:?请在 .env 中设置 SKILLHUB_ADMIN_USER}"
+      SKILLHUB_ADMIN_PASSWORD: "${SKILLHUB_ADMIN_PASSWORD:?请在 .env 中设置 SKILLHUB_ADMIN_PASSWORD}"
 
       # 可选：公开访问地址，用于设备码校验等回链
       SKILLHUB_BASE_URL: "https://skills.subx.fun"
