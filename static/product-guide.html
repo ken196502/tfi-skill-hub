@@ -50,6 +50,7 @@
   li { margin: 4px 0; }
   code { background: #eef2ef; padding: 1px 5px; border-radius: 4px; font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; }
   .note { background: #fff8e6; border: 1px solid #f0dca0; border-radius: 8px; padding: 10px 14px; color: #6b5a1e; }
+  .admin-note { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 10px 14px; color: #1e3a8a; }
   footer { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 14px; color: var(--muted); font-size: 13px; }
   /* language visibility */
   body.lang-zh .en { display: none; }
@@ -79,7 +80,8 @@
       <li><a href="#s3"><span class="zh">注册账号</span><span class="en">Register</span></a></li>
       <li><a href="#s4"><span class="zh">收藏 / 取消收藏</span><span class="en">Favorite / unfavorite</span></a></li>
       <li><a href="#s5"><span class="zh">下载技能</span><span class="en">Download</span></a></li>
-      <li><a href="#s6"><span class="zh">给测试人员的注意点</span><span class="en">Notes for testers</span></a></li>
+      <li><a href="#s6"><span class="zh">管理员功能（仅 admin）</span><span class="en">Admin functions (admin only)</span></a></li>
+      <li><a href="#s7"><span class="zh">给测试人员的注意点</span><span class="en">Notes for testers</span></a></li>
     </ol>
   </nav>
 
@@ -108,7 +110,7 @@
     <ul>
       <li><span class="zh">字段：用户名、密码（≥ 8 位）、显示名称（可选）、邮箱（可选）。</span><span class="en">Fields: username, password (≥ 8 chars), display name (optional), email (optional).</span></li>
       <li><span class="zh">用户名规则：2–32 位，可用字母、数字、点、短横线、下划线，且<strong>以字母或数字开头</strong>。</span><span class="en">Username rule: 2–32 chars, letters/digits/dot/dash/underscore, and <strong>must start with a letter or digit</strong>.</span></li>
-      <li><span class="zh">提交注册后，使用「用户名 + 密码」即可登录。</span><span class="en">After registering, sign in with username + password.</span></li>
+      <li><span class="zh">提交注册后账号状态为<strong>待审核</strong>，<strong>需管理员审核通过后才能登录</strong>；登录时若提示「账号待审核」即表示尚未通过。</span><span class="en">After registering, the account is <strong>pending review</strong> and <strong>can sign in only after an admin approves it</strong>; a "account pending" message at sign-in means it is not approved yet.</span></li>
     </ul>
   </section>
 
@@ -129,10 +131,27 @@
   </section>
 
   <section id="s6">
-    <h2><span class="zh">6. 给测试人员的注意点</span><span class="en">6. Notes for testers</span></h2>
+    <h2><span class="zh">6. 管理员功能（仅 admin 账号）</span><span class="en">6. Admin functions (admin accounts only)</span></h2>
+    <p class="admin-note"><span class="zh">以下模块只有角色为 <code>admin</code> 的账号才能进入（地址以 <code>/admin</code> 开头）。普通注册用户看不到，也不需要使用——它们不属于测试人员的日常操作范围。</span><span class="en">Only accounts with the <code>admin</code> role can reach these modules (URLs start with <code>/admin</code>). Regular users cannot see or use them — they are outside the everyday tester scope.</span></p>
+    <table>
+      <thead><tr><th><span class="zh">模块</span><span class="en">Module</span></th><th><span class="zh">功能</span><span class="en">What it does</span></th></tr></thead>
+      <tbody>
+        <tr><td><span class="zh">总览</span><span class="en">Overview</span></td><td><span class="zh">展示用户 / 技能 / 插件 / 首页精选的数量统计。</span><span class="en">Counts of users / skills / plugins / featured skills.</span></td></tr>
+        <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色（普通用户 / 管理员）、封禁账号、为账号签发 Token；按状态（待审核 / 已通过 / 已驳回）筛选，逐条通过或驳回注册申请（驳回可填理由）。</span><span class="en">Create users, change roles (user / admin), ban accounts, mint tokens for a user; filter by status (pending / approved / rejected) and approve or reject each sign-up (rejection may include a reason).</span></td></tr>
+        <tr><td><span class="zh">内容审核</span><span class="en">Content review</span></td><td><span class="zh">审核技能与插件（通过 / 拒绝）；设置公开或私有可见性；按 待审核 / 全部 / 公开 / 私有 筛选。</span><span class="en">Review skills and plugins (approve / reject); set public or private visibility; filter by pending / all / public / private.</span></td></tr>
+        <tr><td><span class="zh">首页精选</span><span class="en">Featured</span></td><td><span class="zh">选择首页展示的精选技能，最多 12 个，顺序按勾选保存。</span><span class="en">Pick up to 12 skills for the homepage; order follows your selection.</span></td></tr>
+        <tr><td><span class="zh">API Keys</span><span class="en">API Keys</span></td><td><span class="zh">签发管理端专用密钥，按用途授权（读取 / 发布 / 删除 / 审核 / 用户审核）；可绑定命名空间、设有效期（长期 / 30 / 90 / 365 天）、撤销；完整密钥仅显示一次。</span><span class="en">Issue admin API keys scoped to uses (read / publish / delete / moderate / review sign-ups); bind to a namespace, set expiry (never / 30 / 90 / 365 days), revoke; the full key shows only once.</span></td></tr>
+        <tr><td><span class="zh">审计日志</span><span class="en">Audit logs</span></td><td><span class="zh">查看管理员在用户、内容、首页配置上的操作记录，可按操作 / 资源筛选，含时间、操作、资源、详情、来源 IP。</span><span class="en">Review admin actions on users, content, and homepage curation; filter by action / resource; shows time, action, resource, details, and source IP.</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="s7">
+    <h2><span class="zh">7. 给测试人员的注意点</span><span class="en">7. Notes for testers</span></h2>
     <ul>
       <li><span class="zh"><strong>收藏不影响下载</strong>：收藏只是把技能加入你的收藏列表，不改变技能本身，也不影响下载。</span><span class="en"><strong>Favoriting does not affect downloading</strong>: it only adds the skill to your list; it does not change the skill or block downloads.</span></li>
       <li><span class="zh"><strong>下载得到压缩包</strong>：下载会把该技能当前文件打包成一个 ZIP 压缩文件保存到本地。</span><span class="en"><strong>Download returns a ZIP</strong>: the skill's current files are packaged into a ZIP saved locally.</span></li>
+      <li><span class="zh"><strong>管理员功能与上述无关</strong>：第 6 节的管理后台仅 <code>admin</code> 账号可用，普通测试账号无需使用；若以普通账号访问 <code>/admin</code> 会被跳转到登录页。</span><span class="en"><strong>Admin functions are separate</strong>: the admin console in section 6 is for <code>admin</code> accounts only; a regular test account does not need it, and visiting <code>/admin</code> as a normal user redirects to sign-in.</span></li>
     </ul>
   </section>
 
