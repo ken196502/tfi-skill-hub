@@ -46,11 +46,11 @@ node scripts/create-admin.mjs --handle alice --password newsecret --set-password
 npm run smoke          # 端到端自检：临时库 + 真实 HTTP
 ```
 
-自检脚本会自己拉起一份服务（独立临时数据库、独立端口），走真实 HTTP 覆盖 **185 项断言**，
-逐项输出 ✓/✗，并以退出码 0/1 表示结果。最近一次运行：**185 passed, 0 failed**。
+自检脚本会自己拉起一份服务（独立临时数据库、独立端口），走真实 HTTP 覆盖 **269 项断言**，
+逐项输出 ✓/✗，并以退出码 0/1 表示结果。最近一次运行：**269 passed, 0 failed**。
 
-覆盖范围包括：发现类接口、登录/会话/Token 鉴权、发布与版本管理、文件读取、ZIP 下载与 ETag/304、
-指纹反查、全文搜索（含中文）、收藏/评分/评论、命名空间与成员/邀请/团队 Token、
+覆盖范围包括：发现类接口、登录/会话/API Key 鉴权、发布与版本管理、文件读取、ZIP 下载与 ETag/304、
+指纹反查、全文搜索（含中文）、收藏/评分/评论、命名空间与成员/邀请、
 可见性与权限边界（401/403/404/409）、插件全流程、Agent Skill API、Runtime API、
 管理端审核与审计、管理端 API Key（签发、按用途放行/拒绝、命名空间绑定、有效期、撤销、审计）、
 详情 HTML（写入与回读、XSS 负载被清洗、列表不带正文、清空回退、权限边界、审计）、
@@ -139,10 +139,16 @@ scripts/
 8. **接口文档端点未实现**（`/openapi.json`、`/docs`、`/schemas`）。原实现由 Huma 生成，
    而仓库里手写的 `web/openapi.yaml` 与真实运行时有多处不符（字段名、必填性）。
    与其复制一份不准确的规范，不如不提供。完整契约见 `src/server/api/routes.ts` 的路由表。
-9. **管理端 API Key 是本重写新增的能力**，原 Go 版没有对应功能。原实现里「用接口管理技能」
-   只能靠个人 Token（`clh_`），而个人 Token 等同于账号本体、能调用该用户能调用的一切。
-   这里另建 `api_keys` 表并给路由表加 `apiKeyScope` 标注，让一把 key 只覆盖技能管理，
-   且可绑定命名空间、可设有效期、可单独撤销。个人 Token 的行为未作任何改动。
+9. **个人访问令牌与命名空间团队令牌已整体移除**，管理端 API Key（`api_keys`，`shk_` 前缀）
+   成为唯一的程序化凭证。原 Go 版里「用接口管理技能」只能靠个人 Token（`clh_`），
+   而个人 Token 等同于账号本体、能调用该用户能调用的一切；这里另建 `api_keys` 表并给路由表加
+   `apiKeyScope` 标注，让一把 key 只覆盖技能管理，且可绑定命名空间、可设有效期、可单独撤销。
+   随之撤下的还有 `/api/v1/tokens`、`POST /api/v1/admin/tokens`、
+   `/api/v1/namespaces/:slug/tokens`、CLI 设备码登录（`/auth/device/*`）与 agent 自动开通
+   （`/api/v1/agent/provision`）—— 后两者存在的唯一目的就是下发一枚 Bearer 令牌。
+   登录会话原先也寄居在 `api_tokens`（`label = 'web-session'`），现迁入独立的 `sessions` 表
+   （迁移 v11），**已有登录态不受影响**。`/api/agent/skills` 的发布与读取接口保留，
+   改用管理端会话或 API Key 调用。
 10. **技能详情页支持富文本**，原 Go 版只渲染 SKILL.md。`PUT /api/v1/skills/:slug/detail-html`
     写入一段 HTML，详情页优先展示它，没有则回退到最新版本的 SKILL.md；传空串即清除。
     由于它绕开了「先转义再排版」的 Markdown 渲染器，入库前会过一遍自研白名单消毒器
@@ -177,10 +183,9 @@ scripts/
 | 发现 | `/healthz`、`/readyz`、`/metrics`、`/.well-known/clawhub.json`、`/skills.md` | 公开 |
 | 浏览与搜索 | `/api/v1/{search,categories,skills,resolve,plugins}`、单文件读取 `.../file` | 公开（可选身份用于可见性过滤） |
 | **打包下载** | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` | **需登录** |
-| 会话 | `POST /login`、`POST /logout`、`POST /register`、`GET /api/v1/registration`、`/auth/device/*` | 公开 / 需登录 |
+| 会话 | `POST /login`、`POST /logout`、`POST /register`、`GET /api/v1/registration` | 公开 / 需登录 |
 | 身份 | `GET /api/v1/whoami` | 需登录 |
 | 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件、`PUT .../detail-html` | 仅 `admin` |
-| 个人 Token | `/api/v1/tokens` | 仅 `admin` |
 | 管理端 API Key | `GET/POST /api/v1/admin/api-keys`、`DELETE /api/v1/admin/api-keys/:id` | 仅 `admin` |
 | 用户审核 | `GET /api/v1/admin/users`、`POST /api/v1/admin/users/review` | 仅 `admin`（可用 `users:moderate` key） |
 | 命名空间 | `/api/v1/namespaces/*`、`/api/v1/invitations/*` | 仅 `admin` |
@@ -203,17 +208,14 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 收藏与取消收藏（`POST/DELETE /api/v1/stars/*`），并查看自己的收藏（`GET /api/v1/stars`）；
 * 下载技能 ZIP 与插件 ZIP（均需登录）。
 
-发布（技能、插件、Agent 发布接口）、命名空间与团队、个人 Token、评分与评论的写接口，
+发布（技能、插件、Agent 发布接口）、命名空间、评分与评论的写接口，
 以及整个 `/api/v1/admin/*`，一律要求 `role = admin`。`/publish` 与 `/namespaces` 页面在客户端
 也会把非管理员重定向到 `/skills`。
 
 ### 作用域与角色
 
-* 用户角色只有两种：`user` / `admin`（另有 `agent`，是 `/api/agent/provision` 自动建号的内部标记，不对外开放、界面上也不可选）。
-* 个人 Token 的三个作用域取值（`full` / `read` / `publish`）**目前只作为元数据记录，不做强制**：
-  签发与鉴权都要求 `admin`，而路由层不读 `tokenScope`。
+* 用户角色只有两种：`user` / `admin`。
 * 命名空间角色：`owner` / `admin` / `member` / `reader` —— 只在管理员之间生效（命名空间接口已收为 admin-only）。
-* 团队 Token 绑定到命名空间，只能向其绑定的命名空间发布；成员退出或命名空间删除时会级联吊销。
 * 管理端 API Key（`shk_` 前缀，在 `/admin/api-keys` 页面签发）按用途授权，与签发者的角色无关：
   `skills:read`（搜索、列表、详情、文件、下载）、`skills:publish`（发布新版本、改单文件）、
   `skills:delete`（删除、恢复、彻底清除）、`skills:moderate`（yank/deprecate、审核、可见性）、
@@ -242,17 +244,16 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 |---|---|---|
 | `SKILLHUB_PORT` | 监听端口 | `10070` |
 | `SKILLHUB_HOST` | 绑定地址 | `0.0.0.0` |
-| `SKILLHUB_BASE_URL` | 公开访问 URL（用于设备码校验地址） | `""` |
+| `SKILLHUB_BASE_URL` | 公开访问 URL（用于 skills.md 里的安装示例） | `""` |
 | `SKILLHUB_DATABASE_URL` | SQLite 文件路径 | `./data/skillhub.db` |
 | `SKILLHUB_ADMIN_USER` | 首启创建的管理员用户名 | 空 |
 | `SKILLHUB_ADMIN_PASSWORD` | 管理员密码（≥ 8 位） | 空 |
 | `SKILLHUB_ALLOW_REGISTRATION` | 是否开放公开注册（`0`/`false`/`no`/`off` 关闭） | `1`（开放） |
-| `SKILLHUB_TOKEN_PREFIX` | API Token 前缀 | `clh_` |
-| `SKILLHUB_API_KEY_PREFIX` | 管理端 API Key 前缀（须与上一项不同） | `shk_` |
+| `SKILLHUB_SESSION_PREFIX` | 登录会话令牌前缀 | `sess_` |
+| `SKILLHUB_API_KEY_PREFIX` | 管理端 API Key 前缀 | `shk_` |
 | `SKILLHUB_RATE_READ_LIMIT` / `_WINDOW` | 读接口限流（次数 / 秒） | `120` / `600` |
 | `SKILLHUB_RATE_WRITE_LIMIT` / `_WINDOW` | 写接口限流 | `30` / `120` |
 | `SKILLHUB_RATE_DOWNLOAD_LIMIT` / `_WINDOW` | 下载限流 | `20` / `120` |
-| `SKILLHUB_AGENT_SECRET` | 启用 `/api/v1/agent/provision`（未设置则返回 404） | 空 |
 
 服务器入口另支持 `SKILLHUB_SERVER_ENTRY` / `SKILLHUB_CLIENT_DIR`，用于把构建产物放在 `dist/` 之外的目录。
 

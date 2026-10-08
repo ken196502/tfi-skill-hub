@@ -65,9 +65,17 @@
   `SKILLHUB_STATIC_DIR=/app/static`，宿主改文件刷新即生效。
 - 验证方式：临时库 + 临时端口起 `serve.mjs` 后 `curl /docs/product-guide.html` 期望 200 + no-cache。
 
-## 管理员 API Key（2026-10-08 起：明文持久化）
+## 管理员 API Key = 唯一的程序化凭证（2026-10-08）
 - `api_keys` 迁移 **v10** 加 `key_secret TEXT`；`AdminApiKey` 新增 `secret?`（旧行缺列时键不出现，非 null），
-  `GET /admin/api-keys` 会回传完整 key，供列表「复制调用说明」直接生成可执行示例。
-- 校验路径**不变**：仍 `getByPrefix` → `key_hash` 比对；`key_secret` 纯展示。
-- 前端 `routes/admin.api-keys.tsx` 已去掉「只显示这一次」类提示。**个人 Token**（`api_tokens`，
-  `admin.users.tsx`）是另一套资源，仍是哈希存储 + 一次性展示，勿混淆。
+  `GET /admin/api-keys` 回传完整 key，供列表「复制调用说明」生成可执行示例。校验仍走 `key_hash`。
+- **个人/团队令牌已整体删除**（迁移 **v11**）：`api_tokens` 表连同 `/api/v1/tokens*`、
+  `/api/v1/admin/tokens`、`/api/v1/namespaces/:slug/tokens*`、`/auth/device/*`、
+  `/api/v1/agent/provision` 一起撤下。
+- ⚠️ **`api_tokens` 曾是会话表**：`login` 写 `label='web-session'` 行、Cookie 即其值。
+  v11 先把这类行搬进新表 `sessions`（`repo/core.ts` 的 `sessions` 仓库 + `http.ts` 的
+  `authenticateSession`）再 DROP，旧登录态不失效。改会话相关代码时先看 `sessions`，别再找 `api_tokens`。
+- 凭证判定：`isApiKey(raw)` = `raw.startsWith(apiKeyPrefix)`；否则按 `sessionPrefix` 查 `sessions`。
+  环境变量 `SKILLHUB_TOKEN_PREFIX` 已改为 `SKILLHUB_SESSION_PREFIX`（默认 `sess_`）。
+- **多数管理路由没有 `apiKeyScope`，按设计拒绝一切 API Key**（命名空间/插件/评分/评论/admin users 等）。
+  写自检或接第三方时：admin 全量操作走**会话 Cookie**，只有技能域操作用 Bearer key。
+- `ctx.tokenNamespaceId` 链路保留（命名空间绑定现只来自 API Key，字段名沿用未重命名）。

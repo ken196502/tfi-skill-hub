@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Navigate } from '@tanstack/react-router'
 import { useQueries } from '@tanstack/react-query'
-import { adminListFeatures, adminListSkills, adminListUsers } from '../lib/api'
+import { adminListApiKeys, adminListFeatures, adminListSkills, adminListUsers } from '../lib/api'
 import { useSession } from '../lib/auth'
 import { useT } from '../lib/i18n'
 import { ErrorBox, Loading, PageHeader } from '../components/ui'
@@ -15,12 +15,17 @@ function AdminPage() {
     { queryKey: ['admin-users'], queryFn: () => adminListUsers() },
     { queryKey: ['admin-skills'], queryFn: () => adminListSkills() },
     { queryKey: ['admin-features'], queryFn: adminListFeatures },
+    { queryKey: ['admin-api-keys'], queryFn: adminListApiKeys },
   ] })
   if (booting) return <Loading />
   if (!user || user.role !== 'admin') return <Navigate to="/login" />
   if (results.some((result) => result.isLoading)) return <Loading />
   if (results.some((result) => result.isError)) return <div className="container page-container"><ErrorBox message={t('加载管理后台数据失败，请稍后重试。', 'Failed to load admin data. Please try again later.')} /></div>
-  const [users, skills, features] = results
+  const [users, skills, features, apiKeys] = results
+  const keyTotal = apiKeys.data?.data.length ?? 0
+  const keyActive = (apiKeys.data?.data ?? []).filter(
+    (key) => !key.revokedAt && (!key.expiresAt || new Date(key.expiresAt) > new Date()),
+  ).length
   return <div className="container page-container">
     <AdminNav active="overview" />
     <PageHeader title={t('管理后台', 'Admin')} subtitle={`${t('欢迎回来', 'Welcome back')}，${user.displayName || user.handle}。`} />
@@ -28,6 +33,10 @@ function AdminPage() {
       <div className="admin-stat"><strong>{users.data?.data.length ?? 0}</strong><span>{t('用户', 'Users')}</span></div>
       <div className="admin-stat"><strong>{skills.data?.data.length ?? 0}</strong><span>{t('技能', 'Skills')}</span></div>
       <div className="admin-stat"><strong>{features.data?.data.length ?? 0}</strong><span>{t('首页精选', 'Featured')}</span></div>
+      <div className="admin-stat">
+        <strong>{keyTotal}</strong>
+        <span>{t('API Key', 'API Keys')}{keyActive < keyTotal ? ` · ${t('有效', 'Active')} ${keyActive}` : ''}</span>
+      </div>
     </div>
     <h2 className="admin-section-title">{t('管理模块', 'Modules')}</h2>
     <div className="admin-module-grid">
@@ -46,9 +55,9 @@ function AdminPage() {
         <span><strong>{t('内容管理', 'Content management')}</strong><small>{t('增删技能，维护展示信息与详情内容', 'Add and remove skills, and maintain their details')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
-      <Link className="admin-module-card" to="/admin/audit-logs">
-        <span className="admin-module-icon admin-module-icon-hue-hint">≋</span>
-        <span><strong>{t('审计日志', 'Audit logs')}</strong><small>{t('追踪用户、审核与精选配置的管理员操作', 'Trace admin actions on users, reviews, and featured curation')}</small></span>
+      <Link className="admin-module-card" to="/admin/api-keys">
+        <span className="admin-module-icon admin-module-icon-hue-hint">⌘</span>
+        <span><strong>{t('API Key 管理', 'API Keys')}</strong><small>{t('签发 API Key、设置权限范围与有效期，并可撤销', 'Issue API keys, set scopes and expiry, and revoke them')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
     </div>

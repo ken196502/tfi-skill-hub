@@ -197,6 +197,6 @@ curl -H "Authorization: Bearer <admin会话或另一把key>" \
 | 限流 | 批量发布约 85 次后会 429，带 `Retry-After`；实测连发 ~20 次也可能触发，脚本里加退避（等 ~70s 重试）即可 |
 | 单文件大小 | ≤ 5MB；单次上传文件数 ≤ 500 |
 | key 边界 | 一把 key 只做被授权的那件事：`skills:*` 管技能（含精选），`users:moderate` 管注册审核（列表 + 通过/驳回）。建命名空间、封禁用户、改角色、管其他 key、读审计日志等接口一律 403 |
-| 打包下载 | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` 需要登录（会话或任意 token/key）；单文件读取仍然公开 |
+| 打包下载 | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` 需要登录（管理端会话或 API Key）；单文件读取仍然公开 |
 | 身份绑定 | key 的所有操作记在签发者（admin）名下；签发者被降权/封禁后 key 立即失效 |
 | 错误格式 | 本组接口返回 `{"error":"…"}`；403 = key 无此接口权限，404 = 技能/用户不存在，409 = 版本冲突 |

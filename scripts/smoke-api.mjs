@@ -195,6 +195,38 @@ function skillMd(name, extra = '') {
   return `---\nname: ${name}\ndescription: smoke test skill\n---\n\n# ${name}\n\nA skill used by the smoke test.\n${extra}\n`
 }
 
+/** Signs an account in and returns its bare `session_token` cookie. */
+async function loginCookie(handle, password = ADMIN_PASSWORD) {
+  const res = await fetch(`${base}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ handle, password }),
+  })
+  const raw = res.headers.get('set-cookie') ?? ''
+  return res.status === 200 && raw.startsWith('session_token=') ? raw.split(';')[0] : ''
+}
+
+/**
+ * Registers a handle through the public form and approves it as the signed-in
+ * admin, returning the new account's id. Personal tokens no longer exist, so a
+ * second account can only be brought up this way.
+ */
+async function signUpAndApprove(handle) {
+  const reg = await req('POST', '/register', {
+    body: { handle, password: ADMIN_PASSWORD, email: `${handle}@example.com` },
+  })
+  if (reg.status !== 201 && reg.status !== 200) return ''
+
+  const queue = await req('GET', '/api/v1/admin/users?status=pending')
+  const account = (queue.body?.data ?? []).find((u) => u.handle === handle)
+  if (!account) return ''
+
+  const decision = await req('POST', '/api/v1/admin/users/review', {
+    body: { userId: account.id, action: 'approve' },
+  })
+  return decision.status === 200 ? account.id : ''
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Run
 // ─────────────────────────────────────────────────────────────────────────────
@@ -224,7 +256,7 @@ try {
   r = await req('GET', '/.well-known/clawhub.json')
   check(
     'GET /.well-known/clawhub.json advertises endpoints',
-    r.status === 200 && r.body?.apiVersion === 'v1' && r.body?.endpoints?.publish === '/api/agent/skills',
+    r.status === 200 && r.body?.apiVersion === 'v1' && r.body?.endpoints?.publish === '/api/v1/skills',
     r.text,
   )
 
@@ -273,32 +305,39 @@ try {
   )
   check('whoami never leaks passwordHash', r.body?.passwordHash === undefined)
 
-  // A personal token for the remaining write calls, so the token path is
-  // exercised alongside the cookie path.
-  r = await req('POST', '/api/v1/tokens', { body: { label: 'smoke', scope: 'full' } })
-  const adminToken = r.body?.token
-  check('POST /api/v1/tokens → 201 with a clh_ token', r.status === 201 && typeof adminToken === 'string' && adminToken.startsWith('clh_'), r.text)
-  check('token metadata hides tokenHash', r.body?.metadata?.tokenHash === undefined)
-  check('token prefix is 16 chars', (r.body?.metadata?.prefix ?? '').length === 16, r.body?.metadata?.prefix)
+  // The API key is the only programmatic credential; it is minted through the
+  // same admin route the console uses, with the session cookie.
+  const adminCookie = cookie
+  r = await req('POST', '/api/v1/admin/api-keys', {
+    body: { name: 'smoke-admin', scopes: ['skills:read', 'skills:publish', 'skills:delete', 'skills:moderate', 'users:moderate'] },
+  })
+  const adminKey = r.body?.key
+  check('POST /admin/api-keys → 201 with an shk_ key', r.status === 201 && typeof adminKey === 'string' && adminKey.startsWith('shk_'), r.text)
+  check('the key metadata hides keyHash', r.body?.metadata?.keyHash === undefined)
+  check('the key prefix is 16 chars', (r.body?.metadata?.prefix ?? '').length === 16, r.body?.metadata?.prefix)
 
-  r = await req('GET', '/api/v1/whoami', { token: adminToken })
-  check('bearer token authenticates', r.status === 200 && r.body?.handle === ADMIN_USER, r.text)
+  r = await req('GET', '/api/v1/whoami', { token: adminKey })
+  check('an API key authenticates as its creator', r.status === 200 && r.body?.handle === ADMIN_USER, r.text)
 
   // Drop the session cookie first: otherwise it would silently authenticate the
   // credential-rejection checks below (the resolver falls back to the cookie).
   cookie = ''
 
-  r = await req('GET', '/api/v1/whoami', { token: 'clh_totally-invalid-token' })
-  check('a bogus bearer token → 401', r.status === 401, `${r.status} ${r.text}`)
+  r = await req('GET', '/api/v1/whoami', { token: 'shk_totally-invalid-key' })
+  check('a bogus bearer key → 401', r.status === 401, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/whoami')
   check('no credential at all → 401', r.status === 401, `${r.status}`)
+
+  // Everything below runs as the signed-in admin — the way the console does it.
+  // The routes that only administrators may touch do not carry an API-key scope,
+  // so a bearer key is refused on them by design.
+  cookie = adminCookie
 
   // ── 3. publishing ─────────────────────────────────────────────────────────
   section('Skill publishing')
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart(
       {
         slug: 'smoke-skill',
@@ -321,13 +360,11 @@ try {
   const skillRef = `@${ADMIN_USER}/smoke-skill`
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart({ slug: 'smoke-skill', version: '1.0.0' }, { 'SKILL.md': skillMd('smoke-skill') }),
   })
   check('publishing a duplicate version → 409', r.status === 409, `${r.status} ${r.text}`)
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart({ slug: 'smoke-skill', version: '0.9.0' }, { 'SKILL.md': skillMd('smoke-skill') }),
   })
   check(
@@ -337,7 +374,6 @@ try {
   )
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart({ slug: 'admin', version: '1.0.0' }, { 'SKILL.md': skillMd('x') }),
   })
   check(
@@ -347,7 +383,6 @@ try {
   )
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart({ slug: 'bad-semver', version: '1.0' }, { 'SKILL.md': skillMd('x') }),
   })
   check('a non-semver version is rejected → 400', r.status === 400 && /must be valid semver/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
@@ -439,7 +474,7 @@ try {
   const anonFile = await fetch(`${base}/api/v1/skills/smoke-skill/file?version=latest&path=SKILL.md`)
   check('reading a single skill file still works signed out → 200', anonFile.status === 200, `${anonFile.status}`)
 
-  const authHeader = { Authorization: `Bearer ${adminToken}` }
+  const authHeader = { Cookie: adminCookie }
   const dl = await fetch(`${base}/api/v1/download?slug=smoke-skill&version=latest`, { headers: authHeader })
   const zipBytes = new Uint8Array(await dl.arrayBuffer())
   check('download with credentials → 200 application/zip', dl.status === 200 && dl.headers.get('content-type') === 'application/zip', `${dl.status}`)
@@ -457,7 +492,7 @@ try {
   })
   check('If-None-Match on the fingerprint → 304', cached.status === 304, `${cached.status}`)
 
-  r = await req('GET', '/api/v1/download', { token: adminToken })
+  r = await req('GET', '/api/v1/download')
   check('download without slug → 400', r.status === 400 && r.body?.error === 'slug is required', r.text)
 
   r = await req('GET', '/api/v1/skills/smoke-skill')
@@ -492,7 +527,7 @@ try {
   // ── 7. social ─────────────────────────────────────────────────────────────
   section('Stars, ratings, comments')
 
-  r = await req('POST', '/api/v1/skills/smoke-skill/comments', { token: adminToken, body: { body: '  第一条评论  ' } })
+  r = await req('POST', '/api/v1/skills/smoke-skill/comments', { body: { body: '  第一条评论  ' } })
   check(
     'POST a comment → 200 with the bare comment',
     r.status === 200 && r.body?.body === '第一条评论' && r.body?.handle === undefined,
@@ -507,7 +542,7 @@ try {
     r.text.slice(0, 200),
   )
 
-  r = await req('POST', '/api/v1/skills/smoke-skill/ratings', { token: adminToken, body: { score: 5, comment: '很好' } })
+  r = await req('POST', '/api/v1/skills/smoke-skill/ratings', { body: { score: 5, comment: '很好' } })
   check(
     'rating your own skill → 400 "cannot rate your own skill"',
     r.status === 400 && /cannot rate your own skill/.test(r.body?.error ?? ''),
@@ -517,20 +552,19 @@ try {
   r = await req('GET', '/api/v1/skills/smoke-skill/ratings')
   check('GET ratings → 200 with an empty list', r.status === 200 && Array.isArray(r.body?.data), r.text.slice(0, 150))
 
-  r = await req('POST', '/api/v1/stars/smoke-skill', { token: adminToken })
+  r = await req('POST', '/api/v1/stars/smoke-skill')
   check('star a skill → 200 {"message":"starred"}', r.status === 200 && r.body?.message === 'starred', `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/skills/smoke-skill')
   check('starring updates starsCount', r.body?.starsCount === 1, `starsCount=${r.body?.starsCount}`)
 
-  r = await req('DELETE', '/api/v1/stars/smoke-skill', { token: adminToken })
+  r = await req('DELETE', '/api/v1/stars/smoke-skill')
   check('unstar → 200', r.status === 200 && r.body?.message === 'unstarred', r.text)
 
   // ── 8. version lifecycle ──────────────────────────────────────────────────
   section('Version lifecycle')
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart(
       { slug: 'smoke-skill', version: '1.1.0', changelog: 'second release', visibility: 'public' },
       { 'SKILL.md': skillMd('smoke-skill', 'extra line') },
@@ -542,7 +576,7 @@ try {
   const latestText = await r.text()
   check('latest now resolves to v1.1.0', latestText.includes('extra line'), latestText.slice(0, 80))
 
-  r = await req('POST', '/api/v1/skills/smoke-skill/versions/1.1.0/yank', { token: adminToken, body: { reason: 'broken' } })
+  r = await req('POST', '/api/v1/skills/smoke-skill/versions/1.1.0/yank', { body: { reason: 'broken' } })
   check('yank v1.1.0 → 200', r.status === 200 && r.body?.message === 'version yanked', `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/skills/smoke-skill/file?version=latest&path=SKILL.md', { raw: true })
@@ -552,17 +586,16 @@ try {
   const pinned = await req('GET', '/api/v1/skills/smoke-skill/file?version=1.1.0&path=SKILL.md', { raw: true })
   check('a yanked version is still fetchable by exact pin', pinned.status === 200, `${pinned.status}`)
 
-  r = await req('POST', '/api/v1/skills/smoke-skill/versions/1.1.0/yank', { token: adminToken, body: { reason: 'again' } })
+  r = await req('POST', '/api/v1/skills/smoke-skill/versions/1.1.0/yank', { body: { reason: 'again' } })
   check('yanking twice → 400 "already yanked"', r.status === 400 && /already yanked/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('DELETE', '/api/v1/skills/smoke-skill/versions/1.1.0/yank', { token: adminToken })
+  r = await req('DELETE', '/api/v1/skills/smoke-skill/versions/1.1.0/yank')
   check('unyank → 200', r.status === 200, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/skills/smoke-skill/file?version=latest&path=SKILL.md', { raw: true })
   check('latest returns to v1.1.0 after unyank', (await r.text()).includes('extra line'))
 
   r = await req('POST', '/api/v1/skills/smoke-skill/versions/1.1.0/yank', {
-    token: adminToken,
     headers: { 'Content-Type': 'application/json' },
     body: '{not valid json',
   })
@@ -572,7 +605,6 @@ try {
   section('Visibility and permissions')
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart(
       { slug: 'private-skill', version: '1.0.0', visibility: 'private' },
       { 'SKILL.md': skillMd('private-skill') },
@@ -581,7 +613,6 @@ try {
   check('publish a private skill → 200', r.status === 200, `${r.status} ${r.text.slice(0, 200)}`)
 
   r = await req('POST', '/api/v1/skills', {
-    token: adminToken,
     body: multipart({ slug: 'default-vis-skill', version: '1.0.0' }, { 'SKILL.md': skillMd('default') }),
   })
   check(
@@ -590,6 +621,8 @@ try {
     r.body?.skill?.visibility,
   )
 
+  // Anonymous readers must not see it; the owner (the signed-in admin) can.
+  cookie = ''
   r = await req('GET', '/api/v1/skills/private-skill')
   check('a private skill is invisible to anonymous callers → 404', r.status === 404 && r.body?.error === 'skill not found', `${r.status} ${r.text}`)
 
@@ -599,7 +632,8 @@ try {
     !(r.body?.data ?? []).some((s) => s.slug === 'private-skill'),
   )
 
-  r = await req('GET', '/api/v1/skills/private-skill', { token: adminToken })
+  cookie = adminCookie
+  r = await req('GET', '/api/v1/skills/private-skill')
   check('the owner can read their own private skill', r.status === 200, `${r.status}`)
 
   cookie = ''
@@ -607,90 +641,54 @@ try {
     body: multipart({ slug: 'anon-skill', version: '1.0.0' }, { 'SKILL.md': skillMd('x') }),
   })
   check('publishing without credentials → 401', r.status === 401, `${r.status}`)
+  cookie = adminCookie
 
-  // A non-admin user must be refused on admin routes.
-  r = await req('POST', '/api/v1/admin/users', {
-    token: adminToken,
-    body: { handle: 'smokeuser', password: ADMIN_PASSWORD },
-  })
-  check('admin creates a user → 201', r.status === 201 && r.body?.handle === 'smokeuser', `${r.status} ${r.text.slice(0, 200)}`)
+  // A non-admin user must be refused on admin routes. Personal tokens are gone,
+  // so the plain account goes through the real sign-up path and is identified by
+  // its session cookie from then on.
+  const smokeUserId = await signUpAndApprove('smokeuser')
+  check('a self-service sign-up is approved by an admin', smokeUserId !== '', `${smokeUserId}`)
 
-  const plainUserTokenRes = await fetch(`${base}/api/v1/admin/tokens`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
-    body: JSON.stringify({ userId: r.body?.id, label: 'smoke-user', scope: 'full' }),
-  })
-  const plainUserToken = (await plainUserTokenRes.json())?.token
-  check('admin mints a token for the plain user', typeof plainUserToken === 'string' && plainUserToken.startsWith('clh_'))
+  const plainUserCookie = await loginCookie('smokeuser')
+  check('the plain user can sign in', plainUserCookie !== '', `${plainUserCookie}`)
 
-  r = await req('GET', '/api/v1/admin/users', { token: plainUserToken })
+  cookie = plainUserCookie
+  r = await req('GET', '/api/v1/admin/users')
   check('a non-admin hitting an admin route → 403', r.status === 403, `${r.status} ${r.text}`)
+  cookie = adminCookie
 
-  r = await req('GET', '/api/v1/admin/users', { token: 'clh_bogus' })
+  cookie = ''
+  r = await req('GET', '/api/v1/admin/users', { token: 'sess_bogus' })
   check('admin route without valid auth → 401', r.status === 401, `${r.status}`)
+  cookie = adminCookie
 
   // ── 10. namespaces ────────────────────────────────────────────────────────
   section('Namespaces')
 
-  r = await req('POST', '/api/v1/namespaces', { token: adminToken, body: { slug: 'smoke-team', displayName: 'Smoke Team' } })
+  r = await req('POST', '/api/v1/namespaces', { body: { slug: 'smoke-team', displayName: 'Smoke Team' } })
   check('create a namespace → 201', r.status === 201 && r.body?.slug === 'smoke-team', `${r.status} ${r.text.slice(0, 200)}`)
 
-  r = await req('POST', '/api/v1/namespaces', { token: adminToken, body: { slug: 'smoke-team' } })
+  r = await req('POST', '/api/v1/namespaces', { body: { slug: 'smoke-team' } })
   check('a duplicate namespace slug → 400', r.status === 400 && /already taken/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/namespaces', { token: adminToken, body: { slug: 'AB' } })
+  r = await req('POST', '/api/v1/namespaces', { body: { slug: 'AB' } })
   check('an invalid namespace slug → 400', r.status === 400, `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/namespaces', { token: adminToken })
+  r = await req('GET', '/api/v1/namespaces')
   check('list namespaces includes the new one', r.body?.data?.some((n) => n.slug === 'smoke-team'), r.text.slice(0, 200))
 
-  r = await req('POST', '/api/v1/namespaces/smoke-team/members', { token: adminToken, body: { handle: 'smokeuser', role: 'member' } })
+  r = await req('POST', '/api/v1/namespaces/smoke-team/members', { body: { handle: 'smokeuser', role: 'member' } })
   check('add a member → 200', r.status === 200 && r.body?.message === 'member added', `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/namespaces/smoke-team/members', { token: adminToken })
+  r = await req('GET', '/api/v1/namespaces/smoke-team/members')
   check(
     'member list includes both users with handles',
     r.body?.data?.length === 2 && r.body.data.some((m) => m.handle === 'smokeuser' && m.displayName === undefined),
     r.text.slice(0, 250),
   )
 
-  r = await req('POST', '/api/v1/namespaces/smoke-team/tokens', {
-    token: adminToken,
-    body: { label: 'ci', scope: 'publish', expiresIn: '720h' },
-  })
-  const teamToken = r.body?.token
-  check('create a team token → 201', r.status === 201 && typeof teamToken === 'string', `${r.status} ${r.text.slice(0, 250)}`)
-  check('team token metadata carries namespaceId', typeof r.body?.metadata?.namespaceId === 'string', JSON.stringify(r.body?.metadata))
-
-  r = await req('POST', '/api/v1/namespaces/smoke-team/tokens', { token: adminToken, body: { scope: 'full', expiresIn: '1h' } })
-  check('an invalid team scope → 400', r.status === 400 && /invalid team-token scope/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
-
-  r = await req('POST', '/api/v1/namespaces/smoke-team/tokens', { token: adminToken, body: { scope: 'publish' } })
-  check('a team token without expiresIn → 400', r.status === 400 && /expiresIn is required/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
-
-  // Team-token namespace binding: publishing into the bound namespace works.
-  r = await req('POST', '/api/v1/skills', {
-    token: teamToken,
-    body: multipart(
-      { slug: 'team-skill', version: '1.0.0', visibility: 'public' },
-      { 'SKILL.md': skillMd('team-skill') },
-    ),
-  })
-  check(
-    'a team token publishes into its bound namespace',
-    r.status === 200 && r.body?.skill?.namespaceSlug === 'smoke-team',
-    `${r.status} ${r.text.slice(0, 250)}`,
-  )
-
-  r = await req('POST', '/api/v1/skills', {
-    token: teamToken,
-    body: multipart({ slug: 'wrong-ns-skill', version: '1.0.0', namespace: ADMIN_USER }, { 'SKILL.md': skillMd('x') }),
-  })
-  check(
-    'a team token cannot publish to another namespace → 403',
-    r.status === 403 && /team token can only publish to its bound namespace/.test(r.body?.error ?? ''),
-    `${r.status} ${r.text}`,
-  )
+  // The team-token surface is gone; namespace binding is covered by the
+  // namespace-scoped API keys in the "Admin API keys" section below.
 
   // ── 11. plugin ────────────────────────────────────────────────────────────
   section('Plugins')
@@ -701,7 +699,7 @@ try {
   pluginForm.set('summary', '冒烟测试插件')
   pluginForm.set('visibility', 'public')
   pluginForm.append('files', new Blob([JSON.stringify({ name: 'smoke-plugin', version: '1.0.0' })], { type: 'application/json' }), 'plugin.json')
-  r = await req('POST', '/api/v1/plugins', { token: adminToken, body: pluginForm })
+  r = await req('POST', '/api/v1/plugins', { body: pluginForm })
   check('publish a plugin → 201', r.status === 201 && r.body?.plugin?.slug === 'smoke-plugin', `${r.status} ${r.text.slice(0, 250)}`)
 
   // A plugin published without an explicit visibility inherits the namespace
@@ -714,7 +712,7 @@ try {
     new Blob([JSON.stringify({ name: 'default-vis-plugin', version: '1.0.0' })], { type: 'application/json' }),
     'plugin.json',
   )
-  r = await req('POST', '/api/v1/plugins', { token: adminToken, body: defaultVisForm })
+  r = await req('POST', '/api/v1/plugins', { body: defaultVisForm })
   check(
     'omitting plugin visibility inherits the namespace default (private)',
     r.status === 201 && r.body?.plugin?.visibility === 'private',
@@ -753,7 +751,6 @@ try {
   section('Agent skill API')
 
   r = await req('POST', '/api/agent/skills', {
-    token: adminToken,
     body: multipart(
       { slug: 'agent-skill', version: '1.0.0', visibility: 'public' },
       { 'SKILL.md': skillMd('agent-skill') },
@@ -766,7 +763,6 @@ try {
   )
 
   r = await req('POST', '/api/agent/skills', {
-    token: adminToken,
     body: multipart({ slug: 'agent-no-md', version: '1.0.0' }, { 'notes.txt': 'no skill md here' }),
   })
   check(
@@ -775,7 +771,7 @@ try {
     `${r.status} ${r.text.slice(0, 250)}`,
   )
 
-  r = await req('GET', '/api/agent/skills?page=1&pageSize=50', { token: adminToken })
+  r = await req('GET', '/api/agent/skills?page=1&pageSize=50')
   check(
     'agent skill list returns items and pagination',
     r.status === 200 && Array.isArray(r.body?.data) && r.body?.pagination?.pageSize === 50,
@@ -788,14 +784,14 @@ try {
   )
 
   const agentItem = r.body?.data?.find((it) => it.name === 'agent-skill')
-  r = await req('GET', `/api/agent/skills/${agentItem?.id}`, { token: adminToken })
+  r = await req('GET', `/api/agent/skills/${agentItem?.id}` )
   check(
     'agent skill detail includes skillMd and detail',
     r.status === 200 && typeof r.body?.data?.skillMd === 'string' && r.body.data.skillMd.includes('# agent-skill'),
     `${r.status} ${r.text.slice(0, 200)}`,
   )
 
-  r = await req('GET', `/api/agent/skills/${agentItem?.id}/download`, { token: adminToken })
+  r = await req('GET', `/api/agent/skills/${agentItem?.id}/download` )
   check(
     'agent download returns an archive URL',
     r.status === 200 && /\/api\/agent\/skills\/.+\/archive$/.test(r.body?.data?.downloadUrl ?? ''),
@@ -803,7 +799,7 @@ try {
   )
 
   const archive = await fetch(`${base}/api/agent/skills/${agentItem?.id}/archive`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
+    headers: { Cookie: adminCookie },
   })
   const archiveBytes = new Uint8Array(await archive.arrayBuffer())
   check(
@@ -812,7 +808,7 @@ try {
     `${archive.status}`,
   )
 
-  r = await req('GET', '/api/agent/skills/not-a-uuid', { token: adminToken })
+  r = await req('GET', '/api/agent/skills/not-a-uuid')
   check('agent detail with a bad id → 400 INVALID_REQUEST', r.status === 400 && r.body?.error?.code === 'INVALID_REQUEST', `${r.status} ${r.text}`)
 
   // ── 13. runtime API ───────────────────────────────────────────────────────
@@ -878,7 +874,7 @@ try {
   r = await req(
     'POST',
     '/api/v1/skills',
-    { token: adminToken, body: multipart({ slug: 'smoke-skill', version: '1.2.0' }, { 'SKILL.md': skillMd('smoke-skill'), 'assets/icon.png': Buffer.from(ICON_PNG, 'base64') }) },
+    { body: multipart({ slug: 'smoke-skill', version: '1.2.0' }, { 'SKILL.md': skillMd('smoke-skill'), 'assets/icon.png': Buffer.from(ICON_PNG, 'base64') }) },
   )
   check('publish with a package image → 200', r.status === 200 && r.body?.version?.version === '1.2.0', `${r.status} ${r.text.slice(0, 200)}`)
   const iconRes = await fetch(`${base}/api/runtime/skills/files?slug=${encodeURIComponent(skillRef)}&path=assets%2Ficon.png`)
@@ -937,7 +933,7 @@ try {
     `${pending.res.status} ${JSON.stringify(pending.body)}`,
   )
 
-  r = await req('GET', '/api/v1/admin/users?status=pending', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/users?status=pending')
   const pendingUser = (r.body?.data ?? []).find((u) => u.handle === NEWBIE)
   check(
     'the review queue lists the new account',
@@ -946,13 +942,13 @@ try {
   )
   check('the review queue never leaks passwordHash', pendingUser?.passwordHash === undefined)
 
-  const approvedView = await req('GET', '/api/v1/admin/users?status=approved', { token: adminToken })
+  const approvedView = await req('GET', '/api/v1/admin/users?status=approved')
   check('a pending account is filtered out of the approved view', !(approvedView.body?.data ?? []).some((u) => u.handle === NEWBIE), approvedView.text.slice(0, 200))
 
-  r = await req('GET', '/api/v1/admin/users?status=bogus', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/users?status=bogus')
   check('an unknown status filter is ignored rather than rejected', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
 
-  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: pendingUser.id, action: 'reject', note: 'smoke rejection' } })
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'reject', note: 'smoke rejection' } })
   check('rejecting a sign-up → 200 "user rejected"', r.status === 200 && r.body?.message === 'user rejected', `${r.status} ${r.text}`)
 
   const rejected = await signIn(NEWBIE_PASSWORD)
@@ -962,7 +958,7 @@ try {
     `${rejected.res.status} ${JSON.stringify(rejected.body)}`,
   )
 
-  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: pendingUser.id, action: 'approve' } })
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'approve' } })
   check('approving the same sign-up → 200 "user approved"', r.status === 200 && r.body?.message === 'user approved', `${r.status} ${r.text}`)
 
   const approved = await signIn(NEWBIE_PASSWORD)
@@ -972,19 +968,21 @@ try {
     `${approved.res.status}`,
   )
 
-  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: pendingUser.id, action: 'explode' } })
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'explode' } })
   check('an unknown review action → 400', r.status === 400 && /approve, reject/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: 'not-a-uuid', action: 'approve' } })
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: 'not-a-uuid', action: 'approve' } })
   check('a malformed user id → 400', r.status === 400 && r.body?.error === 'invalid user ID', `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: crypto.randomUUID(), action: 'approve' } })
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: crypto.randomUUID(), action: 'approve' } })
   check('reviewing an unknown account → 404', r.status === 404, `${r.status} ${r.text}`)
 
+  cookie = ''
   r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'approve' } })
   check('reviewing without credentials → 401', r.status === 401, `${r.status} ${r.text}`)
+  cookie = adminCookie
 
-  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100')
   check(
     'the review decisions are audited',
     r.status === 200
@@ -996,48 +994,48 @@ try {
   // ── 15. admin ─────────────────────────────────────────────────────────────
   section('Admin')
 
-  r = await req('GET', '/api/v1/admin/skills?limit=100', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/skills?limit=100')
   check(
     'admin skill list sees private skills too',
     r.status === 200 && (r.body?.data ?? []).some((s) => s.slug === 'private-skill'),
     r.text.slice(0, 200),
   )
 
-  r = await req('POST', '/api/v1/admin/skills/private-skill/visibility', { token: adminToken, body: { visibility: 'public' } })
+  r = await req('POST', '/api/v1/admin/skills/private-skill/visibility', { body: { visibility: 'public' } })
   check('admin sets visibility → 200', r.status === 200, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/skills/private-skill')
   check('the skill is now publicly visible', r.status === 200, `${r.status}`)
 
-  r = await req('POST', '/api/v1/admin/skills/private-skill/visibility', { token: adminToken, body: { visibility: 'bogus' } })
+  r = await req('POST', '/api/v1/admin/skills/private-skill/visibility', { body: { visibility: 'bogus' } })
   check(
     "an invalid visibility → 400 \"must be 'public' or 'private'\"",
     r.status === 400 && /must be 'public' or 'private'/.test(r.body?.error ?? ''),
     `${r.status} ${r.text}`,
   )
 
-  r = await req('POST', '/api/v1/admin/skills/smoke-skill/review', { token: adminToken, body: { action: 'approve' } })
+  r = await req('POST', '/api/v1/admin/skills/smoke-skill/review', { body: { action: 'approve' } })
   check('review approve → 200 "skill approved"', r.status === 200 && r.body?.message === 'skill approved', `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100')
   check(
     'audit log recorded the publish',
     r.status === 200 && (r.body?.data ?? []).some((l) => l.action === 'publish'),
     r.text.slice(0, 250),
   )
 
-  r = await req('POST', '/api/v1/admin/users/role', { token: adminToken, body: { userId: 'not-a-uuid', role: 'admin' } })
+  r = await req('POST', '/api/v1/admin/users/role', { body: { userId: 'not-a-uuid', role: 'admin' } })
   check('an invalid user id → 400 "invalid user ID"', r.status === 400 && r.body?.error === 'invalid user ID', `${r.status} ${r.text}`)
 
   // People hold one of two roles: admin or user. The inherited moderator role
   // is gone, so it must be refused even though the column's CHECK still lists it.
-  r = await req('POST', '/api/v1/admin/users/role', { token: adminToken, body: { userId: crypto.randomUUID(), role: 'moderator' } })
+  r = await req('POST', '/api/v1/admin/users/role', { body: { userId: crypto.randomUUID(), role: 'moderator' } })
   check("the moderator role is refused → 400", r.status === 400 && /must be one of: user, admin/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/users', { token: adminToken, body: { handle: 'smoke-mod-attempt', role: 'moderator' } })
+  r = await req('POST', '/api/v1/admin/users', { body: { handle: 'smoke-mod-attempt', role: 'moderator' } })
   check('creating a moderator → 400', r.status === 400 && /must be one of: user, admin/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/admin/plugins?limit=20', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/plugins?limit=20')
   check(
     'admin plugin list returns the raw Plugin shape',
     r.status === 200 && (r.body?.data ?? []).some((p) => p.slug === 'smoke-plugin' && p.moderationStatus !== undefined),
@@ -1049,7 +1047,7 @@ try {
 
   // Numbered paging for the console. `total` is what lets it render a page
   // count, and `page` is additive — omitting it keeps the cursor walk.
-  r = await req('GET', '/api/v1/admin/skills?page=1&limit=2', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/skills?page=1&limit=2')
   const pageOneIds = (r.body?.data ?? []).map((s) => s.id)
   check(
     'page 1 honours `limit` and reports a total',
@@ -1058,7 +1056,7 @@ try {
   )
   check('page 1 clears nextCursor', r.body?.nextCursor === '', JSON.stringify(r.body?.nextCursor))
 
-  r = await req('GET', '/api/v1/admin/skills?page=2&limit=2', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/skills?page=2&limit=2')
   const pageTwoIds = (r.body?.data ?? []).map((s) => s.id)
   check(
     'page 2 returns the next slice without repeating page 1',
@@ -1066,14 +1064,14 @@ try {
     r.text.slice(0, 200),
   )
 
-  r = await req('GET', '/api/v1/admin/skills?page=999&limit=2', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/skills?page=999&limit=2')
   check(
     'a page past the end is empty rather than an error',
     r.status === 200 && (r.body?.data ?? []).length === 0,
     `${r.status} ${r.text.slice(0, 160)}`,
   )
 
-  r = await req('GET', '/api/v1/admin/skills?limit=2', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/skills?limit=2')
   check(
     'the legacy cursor mode still answers with nextCursor',
     r.status === 200 && typeof r.body?.nextCursor === 'string' && r.body.nextCursor !== '',
@@ -1082,7 +1080,6 @@ try {
 
   // Create from the console form — the server synthesises the SKILL.md.
   r = await req('POST', '/api/v1/admin/skills', {
-    token: adminToken,
     body: {
       slug: 'smoke-managed',
       displayName: '受管技能',
@@ -1102,7 +1099,7 @@ try {
     `${r.status} ${r.text.slice(0, 200)}`,
   )
 
-  r = await req('GET', '/api/v1/skills/smoke-managed', { token: adminToken })
+  r = await req('GET', '/api/v1/skills/smoke-managed')
   check(
     'the new skill carries one version, its metadata and the rich body',
     r.status === 200 &&
@@ -1113,29 +1110,28 @@ try {
     r.text.slice(0, 250),
   )
 
-  r = await req('GET', '/api/v1/skills/smoke-managed/versions', { token: adminToken })
+  r = await req('GET', '/api/v1/skills/smoke-managed/versions')
   check('the synthesised version is 1.0.0', r.body?.versions?.[0]?.version === '1.0.0', r.text.slice(0, 200))
 
-  r = await req('GET', '/api/v1/skills/smoke-managed/file?path=SKILL.md', { token: adminToken })
+  r = await req('GET', '/api/v1/skills/smoke-managed/file?path=SKILL.md')
   check(
     'the SKILL.md stub exists and carries the display name',
     r.status === 200 && r.text.includes('name: "受管技能"'),
     `${r.status} ${r.text.slice(0, 160)}`,
   )
 
-  r = await req('POST', '/api/v1/admin/skills', { token: adminToken, body: { slug: 'smoke-managed' } })
+  r = await req('POST', '/api/v1/admin/skills', { body: { slug: 'smoke-managed' } })
   check('a duplicate slug → 409', r.status === 409 && /already exists/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/skills', { token: adminToken, body: { displayName: 'no slug' } })
+  r = await req('POST', '/api/v1/admin/skills', { body: { displayName: 'no slug' } })
   check('a missing slug → 400 "slug is required"', r.status === 400 && r.body?.error === 'slug is required', `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/skills', { token: adminToken, body: { slug: 'x', displayName: 42 } })
+  r = await req('POST', '/api/v1/admin/skills', { body: { slug: 'x', displayName: 42 } })
   check('a mistyped field → 400 "invalid request body"', r.status === 400 && r.body?.error === 'invalid request body', `${r.status} ${r.text}`)
 
   // Update is a full replace: an emptied input clears its column, which is the
   // whole reason this path does not reuse `updateMetadata`.
   r = await req('PUT', '/api/v1/admin/skills/smoke-managed', {
-    token: adminToken,
     body: {
       displayName: '改过的名字',
       summary: '',
@@ -1154,7 +1150,7 @@ try {
     `${r.status} ${r.text.slice(0, 200)}`,
   )
 
-  r = await req('GET', '/api/v1/skills/smoke-managed', { token: adminToken })
+  r = await req('GET', '/api/v1/skills/smoke-managed')
   check(
     'an emptied summary is cleared (key absent, not null)',
     r.body?.summary === undefined && r.body?.displayNameEn === 'Renamed' && r.body?.visibility === 'public',
@@ -1168,12 +1164,11 @@ try {
   // "general" — that bug would silently reclassify every seeded skill the first
   // time an admin pressed Save. The PUT echoes the row's own values, so it also
   // proves a save with no changes loses nothing.
-  r = await req('GET', '/api/v1/skills/@builtin/accessibility-ecc', { token: adminToken })
+  r = await req('GET', '/api/v1/skills/@builtin/accessibility-ecc')
   const seeded = r.body
   check('the seeded skill uses a category outside VALID_CATEGORIES', seeded?.category === 'design', JSON.stringify(seeded?.category))
 
   r = await req('PUT', '/api/v1/admin/skills/@builtin/accessibility-ecc', {
-    token: adminToken,
     body: {
       displayName: seeded?.displayName ?? '',
       summary: seeded?.summary ?? '',
@@ -1197,17 +1192,16 @@ try {
     JSON.stringify(r.body?.skill?.displayNameEn),
   )
 
-  r = await req('DELETE', '/api/v1/skills/smoke-managed/purge', { token: adminToken })
+  r = await req('DELETE', '/api/v1/skills/smoke-managed/purge')
   check('purging a skill → 200', r.status === 200, `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/skills/smoke-managed', { token: adminToken })
+  r = await req('GET', '/api/v1/skills/smoke-managed')
   check('the purged skill is gone → 404', r.status === 404, `${r.status}`)
 
   // ── 17. admin API keys ───────────────────────────────────────────────────
   section('Admin API keys')
 
   r = await req('POST', '/api/v1/admin/api-keys', {
-    token: adminToken,
     body: { name: 'smoke-full', scopes: ['skills:read', 'skills:publish', 'skills:delete', 'skills:moderate'] },
   })
   const fullKey = r.body?.key
@@ -1217,7 +1211,7 @@ try {
   check('the stored prefix is 16 chars', (r.body?.metadata?.prefix ?? '').length === 16, r.body?.metadata?.prefix)
   check('the granted scopes are echoed back', r.body?.metadata?.scopes?.length === 4, JSON.stringify(r.body?.metadata?.scopes))
 
-  r = await req('GET', '/api/v1/admin/api-keys', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/api-keys')
   check(
     'GET /admin/api-keys lists the new key',
     r.status === 200 && (r.body?.data ?? []).some((k) => k.id === fullKeyId && !k.revokedAt),
@@ -1256,7 +1250,7 @@ try {
   check('the homepage featured rail reflects the key-made change', r.status === 200 && (r.body?.data ?? []).every((s) => s.id === featuredSkillId), `${r.status} ${r.text.slice(0, 250)}`)
 
   // A read-only key proves the per-endpoint narrowing: same creator, fewer powers.
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-readonly', scopes: ['skills:read'] } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'smoke-readonly', scopes: ['skills:read'] } })
   const readOnlyKey = r.body?.key
   check('a read-only key is minted', r.status === 201 && typeof readOnlyKey === 'string', r.text)
 
@@ -1272,7 +1266,7 @@ try {
   r = await req('PUT', '/api/v1/admin/features', { token: readOnlyKey, body: { skillIds: [] } })
   check('a read-only key cannot curate featured skills → 403', r.status === 403 && r.body?.error === 'this API key is not allowed for this endpoint', `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/tokens', { token: fullKey })
+  r = await req('GET', '/api/v1/namespaces', { token: fullKey })
   check('no key reaches endpoints outside the skill catalogue → 403', r.status === 403, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/admin/api-keys', { token: fullKey })
@@ -1280,7 +1274,7 @@ try {
 
   // `users:moderate` is its own capability: it opens the review queue and
   // nothing else, and conversely the skill scopes do not reach the queue.
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-user-reviewer', scopes: ['users:moderate'] } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'smoke-user-reviewer', scopes: ['users:moderate'] } })
   const reviewKey = r.body?.key
   check('a users:moderate key is minted', r.status === 201 && typeof reviewKey === 'string', r.text)
 
@@ -1300,10 +1294,9 @@ try {
   check('banning stays session-only, so a user key is refused → 403', r.status === 403, `${r.status} ${r.text}`)
 
   // Bound to a namespace: publishing without an explicit namespace lands there.
-  r = await req('POST', '/api/v1/namespaces', { token: adminToken, body: { slug: 'apikey-ns', displayName: 'API key namespace' } })
+  r = await req('POST', '/api/v1/namespaces', { body: { slug: 'apikey-ns', displayName: 'API key namespace' } })
   const boundNamespace = r.body?.slug ?? 'apikey-ns'
   r = await req('POST', '/api/v1/admin/api-keys', {
-    token: adminToken,
     body: { name: 'smoke-bound', scopes: ['skills:publish'], namespaceSlug: boundNamespace },
   })
   const boundKey = r.body?.key
@@ -1322,19 +1315,19 @@ try {
   check('a bound key cannot publish elsewhere → 403', r.status === 403, `${r.status} ${r.text}`)
 
   // Validation.
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { scopes: ['skills:read'] } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { scopes: ['skills:read'] } })
   check('a key without a name → 400', r.status === 400 && r.body?.error === 'name is required', `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'no-scopes', scopes: [] } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'no-scopes', scopes: [] } })
   check('a key without scopes → 400', r.status === 400 && /scopes must include/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'bad-scope', scopes: ['skills:everything'] } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'bad-scope', scopes: ['skills:everything'] } })
   check('an unknown scope → 400', r.status === 400 && /invalid scope/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'bad-ns', scopes: ['skills:read'], namespaceSlug: 'nope-ns' } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'bad-ns', scopes: ['skills:read'], namespaceSlug: 'nope-ns' } })
   check('an unknown namespace → 404', r.status === 404, `${r.status} ${r.text}`)
 
-  r = await req('DELETE', '/api/v1/admin/api-keys/not-a-uuid', { token: adminToken })
+  r = await req('DELETE', '/api/v1/admin/api-keys/not-a-uuid')
   check('an invalid key id → 400 "invalid API key ID"', r.status === 400 && r.body?.error === 'invalid API key ID', `${r.status} ${r.text}`)
 
   // Deleting goes through the key while it still exists. `undelete` only
@@ -1348,31 +1341,36 @@ try {
   // Expiry: a key that runs out behaves like a revoked one. `whoami` requires
   // authentication, so a dead credential answers 401 rather than simply falling
   // back to anonymous access the way a public read would.
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-expiring', scopes: ['skills:read'], expiresIn: '1s' } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'smoke-expiring', scopes: ['skills:read'], expiresIn: '1s' } })
   const expiringKey = r.body?.key
   check('a key can carry an expiry', r.status === 201 && r.body?.metadata?.expiresAt !== undefined, r.text)
   await sleep(1300)
+  // The session cookie is dropped so it cannot stand in for the dead key.
+  cookie = ''
   r = await req('GET', '/api/v1/whoami', { token: expiringKey })
   check('an expired key → 401', r.status === 401, `${r.status} ${r.text}`)
 
   // Revocation takes effect immediately.
-  r = await req('DELETE', `/api/v1/admin/api-keys/${fullKeyId}`, { token: adminToken })
+  cookie = adminCookie
+  r = await req('DELETE', `/api/v1/admin/api-keys/${fullKeyId}`)
   check('DELETE /admin/api-keys/:id → 200', r.status === 200 && r.body?.message === 'API key revoked', `${r.status} ${r.text}`)
 
+  cookie = ''
   r = await req('GET', '/api/v1/whoami', { token: fullKey })
   check('a revoked key → 401', r.status === 401, `${r.status} ${r.text}`)
+  cookie = adminCookie
 
-  r = await req('GET', '/api/v1/admin/api-keys', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/api-keys')
   check(
     'the revoked key stays in the list with revokedAt set',
     (r.body?.data ?? []).some((k) => k.id === fullKeyId && k.revokedAt),
     r.text.slice(0, 250),
   )
 
-  r = await req('DELETE', `/api/v1/admin/api-keys/${fullKeyId}`, { token: adminToken })
+  r = await req('DELETE', `/api/v1/admin/api-keys/${fullKeyId}` )
   check('revoking twice → 400', r.status === 400, `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100')
   check(
     'minting and revoking a key is audited',
     r.status === 200 &&
@@ -1397,7 +1395,7 @@ try {
     '<p style="color:red">styled</p>',
   ].join('')
 
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: hostile } })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: hostile } })
   const storedHtml = r.body?.detailHtml ?? ''
   check('PUT detail-html → 200 with the skill', r.status === 200 && r.body?.slug === 'smoke-skill', `${r.status} ${r.text.slice(0, 200)}`)
   check('the stored body keeps legitimate markup', storedHtml.includes('<h2>详情</h2>') && storedHtml.includes('<strong>粗体</strong>'), storedHtml.slice(0, 200))
@@ -1423,7 +1421,6 @@ try {
   // Image-only bodies are content too — isBlankHtml must not clear them.
   const PNG_PIXEL = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
   r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', {
-    token: adminToken,
     body: {
       html:
         `<img src="data:image/png;base64,${PNG_PIXEL}">` +
@@ -1445,15 +1442,15 @@ try {
 
   // The English body is its own column: it updates and clears independently,
   // and the page falls back to the Chinese body while it is absent.
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { htmlEn: '<p>English body</p>' } })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { htmlEn: '<p>English body</p>' } })
   check(
     'htmlEn updates only the English body',
     r.status === 200 && r.body?.detailHtmlEn === '<p>English body</p>' && r.body?.detailHtml === dataUriHtml,
     `${r.status} ${r.text.slice(0, 200)}`,
   )
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: {} })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: {} })
   check('a body without html or htmlEn → 400', r.status === 400 && r.body?.error === 'html or htmlEn is required', `${r.status} ${r.text}`)
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { htmlEn: '' } })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { htmlEn: '' } })
   check(
     'blank htmlEn clears only the English body',
     r.status === 200 && r.body?.detailHtmlEn === undefined && r.body?.detailHtml === dataUriHtml,
@@ -1471,22 +1468,24 @@ try {
     `${r.status} ${r.text.slice(0, 120)}`,
   )
 
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: '   ' } })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: '   ' } })
   check('blank input clears the detail body', r.status === 200 && r.body?.detailHtml === undefined, `${r.status} ${r.text.slice(0, 150)}`)
 
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: '<p>回到 SKILL.md</p>' } })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: '<p>回到 SKILL.md</p>' } })
   check('a detail body can be set again', r.status === 200 && r.body?.detailHtml === '<p>回到 SKILL.md</p>', `${r.status} ${r.text.slice(0, 150)}`)
 
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: adminToken, body: { html: 42 } })
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: 42 } })
   check('a non-string html → 400', r.status === 400 && r.body?.error === 'html must be a string', `${r.status} ${r.text}`)
 
+  cookie = ''
   r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: '<p>x</p>' } })
   check('no credentials → 401', r.status === 401, `${r.status} ${r.text}`)
+  cookie = adminCookie
 
   r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: readOnlyKey, body: { html: '<p>x</p>' } })
   check('a read-only key cannot update it → 403', r.status === 403, `${r.status} ${r.text}`)
 
-  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-detail-publish', scopes: ['skills:publish'] } })
+  r = await req('POST', '/api/v1/admin/api-keys', { body: { name: 'smoke-detail-publish', scopes: ['skills:publish'] } })
   const publishKey = r.body?.key
   check('a publishing key is minted', r.status === 201 && typeof publishKey === 'string', r.text)
 
@@ -1494,19 +1493,19 @@ try {
   check('a key with skills:publish can update it', r.status === 200 && r.body?.detailHtml === '<p>来自 API Key</p>', `${r.status} ${r.text.slice(0, 200)}`)
 
   // A second account with no relationship to the skill must be refused.
-  r = await req('POST', '/api/v1/admin/users', { token: adminToken, body: { handle: 'detail-other' } })
-  const otherUserId = r.body?.id
-  r = await req('POST', '/api/v1/admin/tokens', { token: adminToken, body: { userId: otherUserId, scope: 'full' } })
-  const otherToken = r.body?.token
-  check('a second account is provisioned', typeof otherToken === 'string' && otherToken.startsWith('clh_'), `${r.status} ${r.text.slice(0, 150)}`)
+  const otherUserId = await signUpAndApprove('detail-other')
+  const otherCookie = await loginCookie('detail-other')
+  check('a second account signs in', otherCookie !== '', `${otherCookie}`)
 
-  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { token: otherToken, body: { html: '<p>mine now</p>' } })
+  cookie = otherCookie
+  r = await req('PUT', '/api/v1/skills/@admin/smoke-skill/detail-html', { body: { html: '<p>mine now</p>' } })
   check('an unrelated account cannot update it → 403', r.status === 403, `${r.status} ${r.text}`)
+  cookie = adminCookie
 
-  r = await req('PUT', '/api/v1/skills/@admin/does-not-exist/detail-html', { token: adminToken, body: { html: '<p>x</p>' } })
+  r = await req('PUT', '/api/v1/skills/@admin/does-not-exist/detail-html', { body: { html: '<p>x</p>' } })
   check('an unknown skill → 404', r.status === 404, `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100')
   check(
     'updating the detail body is audited',
     r.status === 200 && (r.body?.data ?? []).some((l) => l.action === 'update_detail_html'),
@@ -1515,36 +1514,35 @@ try {
 
   // ── 18. ordinary-user permissions ────────────────────────────────────────
   section('Ordinary user permissions')
+  cookie = plainUserCookie
 
-  // `plainUserToken` belongs to `smokeuser`, whose role is `user`. The policy is
+  // Everything below runs as `smokeuser`, whose role is `user`. The policy is
   // that such an account may only browse, favourite and download a skill —
   // everything else is administrator territory, refused with 403 by the
   // middleware before any handler runs.
-  const catalogue = await req('GET', '/api/v1/skills?limit=20&sort=name', { token: plainUserToken })
+  const catalogue = await req('GET', '/api/v1/skills?limit=20&sort=name')
   const anySkill = (catalogue.body?.data ?? []).find(
     (s) => s.visibility === 'public' && s.moderationStatus === 'approved',
   )
   const anyRef = anySkill?.namespaceSlug ? `@${anySkill.namespaceSlug}/${anySkill.slug}` : anySkill?.slug
   check('a plain user can browse the catalogue', catalogue.status === 200 && !!anyRef, `${catalogue.status} ${catalogue.text.slice(0, 120)}`)
 
-  r = await req('POST', `/api/v1/stars/${anyRef}`, { token: plainUserToken })
+  r = await req('POST', `/api/v1/stars/${anyRef}`)
   check('a plain user can favourite a skill', r.status === 200 && r.body?.message === 'starred', `${r.status} ${r.text}`)
 
-  r = await req('GET', '/api/v1/stars', { token: plainUserToken })
+  r = await req('GET', '/api/v1/stars')
   check('a plain user can read their own collection', r.status === 200 && Array.isArray(r.body?.data), `${r.status}`)
 
-  r = await req('DELETE', `/api/v1/stars/${anyRef}`, { token: plainUserToken })
+  r = await req('DELETE', `/api/v1/stars/${anyRef}`)
   check('a plain user can un-favourite', r.status === 200 && r.body?.message === 'unstarred', `${r.status} ${r.text}`)
 
   r = await req(
     'GET',
     `/api/v1/download?slug=${anySkill?.slug}&version=latest${anySkill?.namespaceSlug ? `&namespace=${anySkill.namespaceSlug}` : ''}`,
-    { token: plainUserToken },
   )
   check('a plain user can download a skill', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
 
   r = await req('POST', '/api/v1/skills', {
-    token: plainUserToken,
     body: multipart({ slug: 'plain-denied', version: '1.0.0' }, { 'SKILL.md': skillMd('plain-denied') }),
   })
   check(
@@ -1554,14 +1552,14 @@ try {
   )
 
   // The console's own create/edit pair is administrator-only too.
-  r = await req('POST', '/api/v1/admin/skills', { token: plainUserToken, body: { slug: 'plain-denied', visibility: 'private' } })
+  r = await req('POST', '/api/v1/admin/skills', { body: { slug: 'plain-denied', visibility: 'private' } })
   check(
     'a plain user cannot create content → 403',
     r.status === 403 && r.body?.error === 'insufficient permissions',
     `${r.status} ${r.text.slice(0, 120)}`,
   )
 
-  r = await req('PUT', '/api/v1/admin/skills/smoke-skill', { token: plainUserToken, body: { displayName: 'x' } })
+  r = await req('PUT', '/api/v1/admin/skills/smoke-skill', { body: { displayName: 'x' } })
   check(
     'a plain user cannot edit content → 403',
     r.status === 403 && r.body?.error === 'insufficient permissions',
@@ -1574,8 +1572,6 @@ try {
     ['publish via the agent API', 'POST', '/api/agent/skills', multipart({ slug: 'plain-denied-agent', version: '1.0.0' }, { 'SKILL.md': skillMd('plain-denied-agent') })],
     ['create a namespace', 'POST', '/api/v1/namespaces', { slug: 'plain-denied-ns' }],
     ['list namespaces', 'GET', '/api/v1/namespaces', undefined],
-    ['mint a personal token', 'POST', '/api/v1/tokens', { label: 'plain', scope: 'full' }],
-    ['list personal tokens', 'GET', '/api/v1/tokens', undefined],
     ['rate a skill', 'POST', `/api/v1/skills/${anyRef}/ratings`, { score: 5 }],
     ['comment on a skill', 'POST', `/api/v1/skills/${anyRef}/comments`, { body: 'nope' }],
     ['edit a skill file', 'PUT', `/api/v1/skills/${anyRef}/file`, { path: 'SKILL.md', content: 'x' }],
@@ -1586,9 +1582,11 @@ try {
     ['update the featured list', 'PUT', '/api/v1/admin/features', { skillIds: [] }],
   ]
   for (const [label, method, path, body] of refusals) {
-    const res = await req(method, path, { token: plainUserToken, body })
+    const res = await req(method, path, { body })
     check(`a plain user cannot ${label} → 403`, res.status === 403, `${res.status} ${res.text.slice(0, 120)}`)
   }
+
+  cookie = adminCookie
 
   // ── 19. rate limiting (tight limits, separate process) ───────────────────
   section('Rate limiting')
