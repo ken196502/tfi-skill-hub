@@ -1012,6 +1012,7 @@ main { flex: 1; }
 }
 .sidebar-section { margin-bottom: 20px; }
 .sidebar-section:last-child { margin-bottom: 0; }
+.sidebar-hint { margin-top: 8px; font-size: 0.75rem; line-height: 1.5; }
 .sidebar-label {
   font-size: 0.75rem;
   color: var(--sec-label);
@@ -1329,6 +1330,46 @@ main { flex: 1; }
   flex-shrink: 0;
 }
 
+/* Alternate action under the form (e.g. "no account yet? sign up"). */
+.login-alt {
+  margin: 16px 0 0;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--sec-meta);
+}
+.login-alt a {
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+.login-alt a:hover { text-decoration: underline; }
+
+/* Standalone message panel: sign-up submitted, or sign-up switched off. */
+.login-note {
+  margin: 0 0 18px;
+  text-align: center;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* Privileged-role chip beside the signed-in name in the header. */
+.nav-role-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.nav-role-chip-mod {
+  color: var(--sec-stat-icon);
+  background: var(--sec-chip-alt-bg);
+}
+
 @keyframes login-fade-in {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -1445,6 +1486,26 @@ main { flex: 1; }
 .admin-status-danger { color: var(--danger); background: rgba(239, 68, 68, .12); }
 .btn-danger { border: 1px solid rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .12); color: var(--danger); }
 .btn-danger:hover { background: rgba(239, 68, 68, .2); }
+
+/* Nudge above a table when something is waiting to be dealt with. */
+.admin-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-lg);
+  background: var(--accent-bg);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+/* Two badges (review state + ban state) stacked without overflowing the cell. */
+.admin-status-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .admin-empty { padding: 36px 16px !important; color: var(--sec-hint); text-align: center; }
 .admin-details { max-width: 360px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .admin-scope-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 4px; }

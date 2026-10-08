@@ -22,6 +22,7 @@ import type {
   SkillVersion,
   SkillWithOwner,
   User,
+  UserStatus,
 } from './types'
 
 export class ApiError extends Error {
@@ -124,6 +125,35 @@ export async function login(handle: string, password: string): Promise<void> {
 
 export async function logout(): Promise<void> {
   await fetch('/logout', { method: 'POST', credentials: 'same-origin' })
+}
+
+/**
+ * Registers an account, which then waits for an admin decision. No session is
+ * issued: signing in only works once the account has been approved.
+ */
+export async function register(input: {
+  handle: string
+  password: string
+  displayName?: string
+  email?: string
+}): Promise<{ ok: boolean; status: UserStatus }> {
+  const body = new URLSearchParams({ handle: input.handle, password: input.password })
+  if (input.displayName) body.set('displayName', input.displayName)
+  if (input.email) body.set('email', input.email)
+  const res = await fetch('/register', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
+  const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) throw new ApiError(res.status, parsed)
+  return parsed as { ok: boolean; status: UserStatus }
+}
+
+/** Whether the sign-up form is open; drives the entry point in the UI. */
+export function registrationStatus(): Promise<{ enabled: boolean }> {
+  return request<{ enabled: boolean }>('/registration')
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -471,8 +501,27 @@ export function markAllRead(): Promise<{ message: string }> {
   return request<{ message: string }>('/notifications/read-all', { method: 'POST' })
 }
 
-export function adminListUsers(cursor = ''): Promise<{ data: User[]; nextCursor: string }> {
-  return request(`/admin/users${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`)
+export function adminListUsers(
+  cursor = '',
+  status = '',
+): Promise<{ data: User[]; nextCursor: string; pendingCount: number }> {
+  const qs = new URLSearchParams()
+  if (cursor) qs.set('cursor', cursor)
+  if (status) qs.set('status', status)
+  const suffix = qs.toString()
+  return request(`/admin/users${suffix ? `?${suffix}` : ''}`)
+}
+
+/** Approve or reject an account created through public registration. */
+export function adminReviewUser(
+  userId: string,
+  action: 'approve' | 'reject',
+  note = '',
+): Promise<{ message: string }> {
+  return request<{ message: string }>('/admin/users/review', {
+    method: 'POST',
+    body: JSON.stringify({ userId, action, note }),
+  })
 }
 
 export function adminCreateUser(input: {

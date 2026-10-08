@@ -4,15 +4,16 @@
  */
 
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from '@tanstack/react-router'
-import { login } from '../lib/api'
-import { homeFor, useSession } from '../lib/auth'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { ApiError, login } from '../lib/api'
+import { homeFor, useRegistrationOpen, useSession } from '../lib/auth'
 import { useT } from '../lib/i18n'
 import { ErrorBox } from './ui'
 
 export function LoginPage() {
   const navigate = useNavigate()
   const { refresh } = useSession()
+  const registrationOpen = useRegistrationOpen()
   const t = useT()
   const [handle, setHandle] = useState('')
   const [password, setPassword] = useState('')
@@ -36,8 +37,21 @@ export function LoginPage() {
       // Preserve a deep link when one was supplied, else land on the catalogue.
       const redirect = new URLSearchParams(window.location.search).get('redirect')
       await navigate({ to: redirect && redirect.startsWith('/') ? redirect : homeFor(session.data ?? null) })
-    } catch {
-      setError(t('用户名或密码不正确。', 'Incorrect username or password.'))
+    } catch (e) {
+      // A 403 here is about the account's state, not the credentials — those
+      // only get reported once the password has already been accepted.
+      if (e instanceof ApiError && e.status === 403) {
+        const code = typeof e.body.code === 'string' ? e.body.code : ''
+        if (code === 'account_pending') {
+          setError(t('账号正在等待管理员审核，通过后即可登录。', 'This account is still waiting for approval.'))
+        } else if (code === 'account_rejected') {
+          setError(t('该注册申请未通过审核，如有疑问请联系管理员。', 'This registration was not approved. Please contact an administrator.'))
+        } else {
+          setError(t('暂时无法登录，请稍后重试。', 'Could not log in right now. Please try again.'))
+        }
+      } else {
+        setError(t('用户名或密码不正确。', 'Incorrect username or password.'))
+      }
     } finally {
       setBusy(false)
     }
@@ -126,6 +140,13 @@ export function LoginPage() {
             {busy && <span className="login-spinner" />}
             {busy ? t('登录中...', 'Logging in...') : t('登录', 'Log in')}
           </button>
+
+          {registrationOpen && (
+            <p className="login-alt">
+              {t('还没有账号？', 'No account yet?')}{' '}
+              <Link to="/register">{t('去注册', 'Sign up')}</Link>
+            </p>
+          )}
         </form>
       </div>
     </div>

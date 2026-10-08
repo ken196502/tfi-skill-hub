@@ -298,7 +298,9 @@ function authenticateToken(raw: string): Identity {
     if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) continue
 
     const user = users.getById(row.userId)
-    if (!user || user.isBanned) return ANONYMOUS
+    // Unreviewed and rejected accounts hold no session at all: a registration
+    // only starts working once an admin approves it.
+    if (!user || user.isBanned || user.status !== 'approved') return ANONYMOUS
 
     tokens.touchLastUsed(row.id)
     return {
@@ -324,7 +326,9 @@ function authenticateApiKey(raw: string): Identity {
     if (row.expiresAt && Date.parse(row.expiresAt) <= Date.now()) return ANONYMOUS
 
     const user = users.getById(row.createdBy)
-    if (!user || user.isBanned || user.role !== 'admin') return ANONYMOUS
+    if (!user || user.isBanned || user.role !== 'admin' || user.status !== 'approved') {
+      return ANONYMOUS
+    }
 
     const namespaceId = row.namespaceId ?? null
     apiKeys.touchLastUsed(row.id)

@@ -20,6 +20,7 @@ import type {
   TokenScope,
   User,
   UserRole,
+  UserStatus,
   Visibility,
 } from '../../lib/types'
 
@@ -42,8 +43,14 @@ function mapUser(r: Row): UserRecord {
     ...(r.email != null ? { email: asString(r.email) } : {}),
     ...(r.password_hash != null ? { passwordHash: asString(r.password_hash) } : {}),
     role: asString(r.role) as UserRole,
+    // Always present: the column is NOT NULL with an 'approved' default, so
+    // accounts that predate registration keep working unchanged.
+    status: (asString(r.status) || 'approved') as UserStatus,
     isBanned: asBool(r.is_banned),
     ...(r.ban_reason != null ? { banReason: asString(r.ban_reason) } : {}),
+    ...(r.review_note != null ? { reviewNote: asString(r.review_note) } : {}),
+    ...(r.reviewed_at != null ? { reviewedAt: asString(r.reviewed_at) } : {}),
+    ...(r.reviewed_by != null ? { reviewedBy: asString(r.reviewed_by) } : {}),
     createdAt: asString(r.created_at),
     updatedAt: asString(r.updated_at),
   }
@@ -75,12 +82,14 @@ export const users = {
     email?: string | null
     avatarUrl?: string | null
     passwordHash?: string | null
+    /** Defaults to 'approved' — only self-registration passes 'pending'. */
+    status?: UserStatus
   }): UserRecord {
     const id = newId()
     const now = nowIso()
     query.run(
-      `INSERT INTO users (id, handle, display_name, avatar_url, email, password_hash, role, is_banned, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      `INSERT INTO users (id, handle, display_name, avatar_url, email, password_hash, role, status, is_banned, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       id,
       input.handle,
       input.displayName ?? null,
@@ -88,6 +97,7 @@ export const users = {
       input.email ?? null,
       input.passwordHash ?? null,
       input.role ?? 'user',
+      input.status ?? 'approved',
       now,
       now,
     )
@@ -108,6 +118,21 @@ export const users = {
       banned ? 1 : 0,
       reason ?? null,
       nowIso(),
+      id,
+    )
+  },
+
+  /** Records the admin decision on a self-registered account. */
+  review(id: string, status: UserStatus, note?: string | null, reviewedBy?: string | null): void {
+    const now = nowIso()
+    query.run(
+      `UPDATE users SET status = ?, review_note = ?, reviewed_at = ?, reviewed_by = ?, updated_at = ?
+       WHERE id = ?`,
+      status,
+      note ?? null,
+      now,
+      reviewedBy ?? null,
+      now,
       id,
     )
   },
@@ -133,18 +158,33 @@ export const users = {
     query.run(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`, ...params)
   },
 
-  /** Admin listing: fixed page size, keyset cursor on `id`. */
-  list(cursor: string, limit = 20): { data: UserRecord[]; nextCursor: string } {
-    const rows = cursor
-      ? query.all<Row>(
-          'SELECT * FROM users WHERE id > ? ORDER BY id LIMIT ?',
-          cursor,
-          limit + 1,
-        )
-      : query.all<Row>('SELECT * FROM users ORDER BY id LIMIT ?', limit + 1)
+  /** Admin listing: fixed page size, keyset cursor on `id`, optional status filter. */
+  list(cursor: string, limit = 20, status?: UserStatus): { data: UserRecord[]; nextCursor: string } {
+    const where: string[] = []
+    const params: unknown[] = []
+    if (status) {
+      where.push('status = ?')
+      params.push(status)
+    }
+    if (cursor) {
+      where.push('id > ?')
+      params.push(cursor)
+    }
+    const clause = where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''
+    const rows = query.all<Row>(
+      `SELECT * FROM users${clause} ORDER BY id LIMIT ?`,
+      ...params,
+      limit + 1,
+    )
     const items = rows.map(mapUser)
     const nextCursor = items.length > limit ? items[limit].id : ''
     return { data: items.slice(0, limit), nextCursor }
+  },
+
+  countByStatus(status: UserStatus): number {
+    return asNumber(
+      query.get<Row>('SELECT COUNT(*) AS c FROM users WHERE status = ?', status)?.c,
+    )
   },
 
   countAdmins(): number {

@@ -29,6 +29,13 @@ const K_READ = { apiKeyScope: 'skills:read' } as const satisfies { apiKeyScope: 
 const K_PUBLISH = { apiKeyScope: 'skills:publish' } as const satisfies { apiKeyScope: ApiKeyScope }
 const K_DELETE = { apiKeyScope: 'skills:delete' } as const satisfies { apiKeyScope: ApiKeyScope }
 const K_MODERATE = { apiKeyScope: 'skills:moderate' } as const satisfies { apiKeyScope: ApiKeyScope }
+/**
+ * Account review. Deliberately its own capability: a key minted to drive the
+ * skill catalogue must not be able to approve or reject people, and vice versa.
+ * It covers the review queue and its listing — banning and role changes stay
+ * session-only (they carry no scope, so every key is refused).
+ */
+const K_USER = { apiKeyScope: 'users:moderate' } as const satisfies { apiKeyScope: ApiKeyScope }
 
 /** Response headers marking the legacy slug-addressed skill routes as deprecated. */
 const SUNSET = '2026-12-31'
@@ -45,6 +52,10 @@ function buildRoutes(): RouteDef[] {
     // ── Session ──────────────────────────────────────────────────────────────
     { method: 'POST', path: '/login', handler: h.auth.login, auth: 'optional', bucket: 'write' },
     { method: 'POST', path: '/logout', handler: h.auth.logout, auth: 'optional', bucket: 'none' },
+    // Self-service sign-up. The account it creates waits for an admin decision
+    // and holds no session in the meantime.
+    { method: 'POST', path: '/register', handler: h.auth.register, auth: 'public', bucket: 'write' },
+    { method: 'GET', path: '/api/v1/registration', handler: h.auth.registrationStatus, ...pub },
 
     // ── Device flow (both mount points; the CLI expects the /api/v1 alias) ───
     { method: 'POST', path: '/auth/device/code', handler: h.auth.deviceCode, auth: 'public', bucket: 'write' },
@@ -79,13 +90,16 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/skills/@:namespace/:slug/comments', handler: h.social.listComments, ...opt },
 
     // ── Download ─────────────────────────────────────────────────────────────
-    { method: 'GET', path: '/api/v1/download', handler: h.skillRead.download, auth: 'optional', bucket: 'download', ...K_READ },
+    // Bulk archives require a signed-in account. Individual file reads above
+    // stay open: they are how a skill's page renders its own content, so
+    // gating them would hide the catalogue from signed-out visitors.
+    { method: 'GET', path: '/api/v1/download', handler: h.skillRead.download, auth: 'required', bucket: 'download', ...K_READ },
 
     // ── Plugins (reads) ──────────────────────────────────────────────────────
     { method: 'GET', path: '/api/v1/plugins', handler: h.pluginRead.listPlugins, ...opt },
     { method: 'GET', path: '/api/v1/plugins/by-id/:id', handler: h.pluginRead.getPluginById, ...opt },
     { method: 'GET', path: '/api/v1/plugins/file', handler: h.pluginRead.pluginFile, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/download', handler: h.pluginRead.pluginDownload, ...opt },
+    { method: 'GET', path: '/api/v1/plugins/download', handler: h.pluginRead.pluginDownload, auth: 'required', bucket: 'read' },
     { method: 'GET', path: '/api/v1/plugins/:slug', handler: h.pluginRead.getPlugin, ...opt },
     { method: 'GET', path: '/api/v1/plugins/:slug/versions', handler: h.pluginRead.pluginVersions, ...opt },
     { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug', handler: h.pluginRead.getPlugin, ...opt },
@@ -180,7 +194,10 @@ function buildRoutes(): RouteDef[] {
     // ── Admin ────────────────────────────────────────────────────────────────
     { method: 'POST', path: '/api/v1/admin/users/ban', handler: h.admin.banUser, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/users/role', handler: h.admin.setRole, auth: 'admin' },
-    { method: 'GET', path: '/api/v1/admin/users', handler: h.admin.listUsers, auth: 'admin' },
+    // The review queue and its listing are reachable with `users:moderate`, so
+    // an approval bot can be driven by a key that can do nothing else.
+    { method: 'GET', path: '/api/v1/admin/users', handler: h.admin.listUsers, auth: 'admin', ...K_USER },
+    { method: 'POST', path: '/api/v1/admin/users/review', handler: h.admin.reviewUser, auth: 'admin', ...K_USER },
     { method: 'POST', path: '/api/v1/admin/users', handler: h.admin.createUser, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/tokens', handler: h.admin.createToken, auth: 'admin' },
     { method: 'GET', path: '/api/v1/admin/api-keys', handler: h.admin.listApiKeys, auth: 'admin', bucket: 'write' },
@@ -213,7 +230,8 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/runtime/skills/by-id/:id', handler: h.runtime.byId, ...opt },
     { method: 'GET', path: '/api/runtime/skills/by-slug', handler: h.runtime.bySlug, ...opt },
     { method: 'GET', path: '/api/runtime/skills/files', handler: h.runtime.file, ...opt },
-    { method: 'GET', path: '/api/runtime/skills/bundle', handler: h.runtime.bundle, ...opt },
+    // Bundles are bulk downloads, so they need an account like the other archives.
+    { method: 'GET', path: '/api/runtime/skills/bundle', handler: h.runtime.bundle, auth: 'required', bucket: 'read' },
   ]
 }
 

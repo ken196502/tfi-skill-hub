@@ -21,6 +21,30 @@
   `PUT /admin/features → skills:moderate`（skillIds 数组，≤12，audit 记 replace_featured_skills）。
 - key 认证得到的是签发者身份，但签发者必须是仍是 admin 且未封禁，否则视为无效。
 - 页面在 `/admin/api-keys`（AdminShell 的 `apikeys` 导航项）。
+- **新增 `users:moderate`（2026-10-08）**：只覆盖 `GET /admin/users` 与 `POST /admin/users/review`；
+  **封禁 / 改角色 / 建用户 / 签 token 故意不标 scope**，因此只有登录会话能用，key 一律 403。
+
+## 用户注册与审核（2026-10-08 新增）
+
+- migration **v7**：`users.status`（`pending|approved|rejected`，NOT NULL DEFAULT 'approved' + CHECK）、
+  `review_note` / `reviewed_at` / `reviewed_by`。存量账号=approved，行为不变；驳回**不删号**（可审计、handle 不被复用）。
+- 公开注册 `POST /register`（页面 `routes/register.tsx`，POST handler 仿 `login.tsx`）+
+  `GET /api/v1/registration` 返回 `{enabled}` 供前端隐藏入口；开关 `SKILLHUB_ALLOW_REGISTRATION`（默认开）。
+- **待审 / 被驳回账号不能登录、也不持有会话**：`login` 在**密码校验通过之后**才报 403 +
+  `code: 'account_pending' | 'account_rejected'`（新增的可加性字段，前端按 code 出双语提示，别去匹配英文文案）；
+  `http.ts` 的 `authenticateToken` / `authenticateApiKey` 都要求 `status === 'approved'`。
+- 审核：`POST /api/v1/admin/users/review` `{userId, action: approve|reject, note?}`；
+  `GET /admin/users?status=pending|approved|rejected`（非法值静默忽略），响应额外带 `pendingCount`；
+  audit action：`register_user` / `review_user_approve` / `review_user_reject`。
+- `login` 的错误折叠策略只在**凭据错误**时生效（401 一律 "invalid username or password"），
+  账号状态类错误在验密后单独报——不要把这个顺序调换，否则会泄漏账号是否存在。
+
+## 打包下载需要登录（2026-10-08，契约变更）
+
+- `auth: 'required'`：`/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle`。
+- **单文件读取保持公开**（`.../file`、`/api/runtime/skills/files`）——技能详情页靠它渲染正文/图片，
+  一并锁掉会让未登录访客看不到任何内容。
+- 技能详情页未登录时下载按钮改为跳 `/login?redirect=<当前路径>`（cookie 同源，登录后直接可下）。
 
 ## 技能详情 HTML（2026-09-24 新增）
 
@@ -44,8 +68,15 @@
 
 ## 运行入口
 
-- 生产：`npm run build`（输出 `dist/`）→ `npm start`（`scripts/serve.mjs` 桥接 Node ↔ Web）
+- 生产：`npm run build`（输出 `dist/`）→ `npm start`
+  （2026-10-08 修正：`start` 原本指向 `dist/server/server.js`，那个只导出 handler、
+  不监听端口，跑起来会立刻退出；现改为 `node --env-file-if-exists=.env scripts/serve.mjs`）
 - `dist/server/server.js` 导出的是 Web 标准 handler，**不是**监听进程；改动启动逻辑要动 `serve.mjs`
+- **管理员凭据必须由 `.env` 注入**（2026-10-08）：`docker-compose.yml` 用
+  `${SKILLHUB_ADMIN_USER:?}` / `${SKILLHUB_ADMIN_PASSWORD:?}` 强校验，缺值即 compose 报错退出；
+  仓库与 README 中**不再出现任何默认口令**。模板 `.env.example`（入库），`.env` 不入库/不进镜像
+  （`.gitignore` L17 + `.dockerignore`）。首启创建是幂等的，改已有账号口令要用
+  `scripts/create-admin.mjs --password ... --set-password`。
 - 开发：`npm run dev`
 - `node:sqlite` 的 ExperimentalWarning 用 `--disable-warning=ExperimentalWarning` 屏蔽
   （`NODE_OPTIONS` 对 vite dev 有效）；不要写运行时 patch 的 hack 文件

@@ -37,6 +37,19 @@ export function useLogout() {
   }
 }
 
+/** Whether self-service sign-up is open, so the entry point can be hidden. */
+export function useRegistrationOpen(): boolean {
+  const query = useQuery({
+    queryKey: ['registration', 'status'],
+    queryFn: api.registrationStatus,
+    staleTime: 300_000,
+    retry: false,
+  })
+  // Optimistic while loading: the form is public, and the server is the real
+  // gate — it refuses submissions whenever registration is switched off.
+  return query.data?.enabled ?? true
+}
+
 export function homeFor(user: User | null): string {
   if (!user) return '/login'
   return user.role === 'admin' ? '/admin' : '/skills'

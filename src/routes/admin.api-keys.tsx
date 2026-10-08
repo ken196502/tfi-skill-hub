@@ -27,6 +27,10 @@ const SCOPE_COPY: Record<ApiKeyScope, { title: [string, string]; hint: [string, 
     title: ['审核与可见性', 'Review & visibility'],
     hint: ['下架与弃用标记、审核结果、公开范围', 'Yank, deprecate, review results and visibility'],
   },
+  'users:moderate': {
+    title: ['审核注册用户', 'Review sign-ups'],
+    hint: ['查看待审核的注册用户、通过或驳回', 'See pending sign-ups and approve or reject them'],
+  },
 }
 
 const SCOPE_SHORT: Record<ApiKeyScope, [string, string]> = {
@@ -34,6 +38,7 @@ const SCOPE_SHORT: Record<ApiKeyScope, [string, string]> = {
   'skills:publish': ['发布', 'Publish'],
   'skills:delete': ['删除', 'Delete'],
   'skills:moderate': ['审核', 'Review'],
+  'users:moderate': ['用户', 'Users'],
 }
 
 /** Values are Go-style durations, which the server parses directly. */
@@ -106,6 +111,17 @@ const API_EXAMPLES: ApiExample[] = [
     label: ['设置公开或私有', 'Set visibility'],
     command: (o, k) =>
       `curl -X POST -H "Authorization: Bearer ${k}" -H 'Content-Type: application/json' \\\n  -d '{"visibility":"public"}' \\\n  ${o}/api/v1/admin/skills/@<namespace>/<slug>/visibility`,
+  },
+  {
+    scope: 'users:moderate',
+    label: ['查看待审核用户', 'List accounts awaiting review'],
+    command: (o, k) => `curl -H "Authorization: Bearer ${k}" "${o}/api/v1/admin/users?status=pending"`,
+  },
+  {
+    scope: 'users:moderate',
+    label: ['通过或驳回注册用户', 'Approve or reject a sign-up'],
+    command: (o, k) =>
+      `curl -X POST -H "Authorization: Bearer ${k}" -H 'Content-Type: application/json' \\\n  -d '{"userId":"<user-id>","action":"approve"}' \\\n  ${o}/api/v1/admin/users/review`,
   },
 ]
 

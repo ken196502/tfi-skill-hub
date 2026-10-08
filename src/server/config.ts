@@ -20,6 +20,13 @@ function envInt(key: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
+/** Truthy unless explicitly switched off (`0` / `false` / `no` / `off`). */
+function envBool(key: string, fallback: boolean): boolean {
+  const raw = process.env[key]
+  if (raw === undefined || raw === '') return fallback
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
+}
+
 const root = process.cwd()
 
 export interface RateLimitConfig {
@@ -43,6 +50,12 @@ export interface Config {
   sessionTtlSeconds: number
   adminUser: string
   adminPassword: string
+  /**
+   * Whether the public registration form is open. Accounts created through it
+   * start out awaiting review; switching this off hides the entry point and
+   * rejects submissions, without affecting existing accounts.
+   */
+  allowRegistration: boolean
   rateLimit: RateLimitConfig
   runId: string
 }
@@ -69,6 +82,7 @@ export function getConfig(): Config {
     sessionTtlSeconds: envInt('SKILLHUB_SESSION_TTL', 30 * 24 * 3600),
     adminUser: envStr('SKILLHUB_ADMIN_USER', ''),
     adminPassword: envStr('SKILLHUB_ADMIN_PASSWORD', ''),
+    allowRegistration: envBool('SKILLHUB_ALLOW_REGISTRATION', true),
     rateLimit: {
       readLimit: envInt('SKILLHUB_RATE_READ_LIMIT', 120),
       readWindow: envInt('SKILLHUB_RATE_READ_WINDOW', 600),

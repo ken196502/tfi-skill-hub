@@ -45,6 +45,7 @@ export function AdminStatus({ value }: { value: string }) {
     public: ['公开', 'Public'],
     private: ['私有', 'Private'],
     approved: ['已通过', 'Approved'],
+    pending: ['待审核', 'Awaiting review'],
     pending_review: ['待审核', 'Pending review'],
     rejected: ['已拒绝', 'Rejected'],
     active: ['正常', 'Active'],

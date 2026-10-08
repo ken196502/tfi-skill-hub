@@ -101,6 +101,12 @@ export function Layout({ children }: { children: ReactNode }) {
                     {(user.displayName || user.handle).charAt(0).toUpperCase()}
                   </span>
                   {user.displayName || user.handle}
+                  {/* Privileged roles are labelled right here so it is obvious
+                      at a glance which account is signed in. */}
+                  {user.role === 'admin' && <span className="nav-role-chip">{t('管理员', 'Admin')}</span>}
+                  {user.role === 'moderator' && (
+                    <span className="nav-role-chip nav-role-chip-mod">{t('审核员', 'Moderator')}</span>
+                  )}
                 </span>
                 <button className="btn btn-secondary btn-small" onClick={onLogout} type="button">
                   {t('退出', 'Log out')}

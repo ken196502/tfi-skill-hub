@@ -431,9 +431,18 @@ try {
   // ── 5. download ───────────────────────────────────────────────────────────
   section('Download')
 
-  const dl = await fetch(`${base}/api/v1/download?slug=smoke-skill&version=latest`)
+  // Archives need an account now; single-file reads below stay open, which is
+  // what lets a signed-out visitor read a skill's page.
+  const anonDl = await fetch(`${base}/api/v1/download?slug=smoke-skill&version=latest`)
+  check('download without credentials → 401', anonDl.status === 401, `${anonDl.status}`)
+
+  const anonFile = await fetch(`${base}/api/v1/skills/smoke-skill/file?version=latest&path=SKILL.md`)
+  check('reading a single skill file still works signed out → 200', anonFile.status === 200, `${anonFile.status}`)
+
+  const authHeader = { Authorization: `Bearer ${adminToken}` }
+  const dl = await fetch(`${base}/api/v1/download?slug=smoke-skill&version=latest`, { headers: authHeader })
   const zipBytes = new Uint8Array(await dl.arrayBuffer())
-  check('download → 200 application/zip', dl.status === 200 && dl.headers.get('content-type') === 'application/zip', `${dl.status}`)
+  check('download with credentials → 200 application/zip', dl.status === 200 && dl.headers.get('content-type') === 'application/zip', `${dl.status}`)
   check('zip has a PK header', zipBytes[0] === 0x50 && zipBytes[1] === 0x4b, `first bytes: ${zipBytes[0]},${zipBytes[1]}`)
   check('ETag is the version fingerprint', dl.headers.get('etag') === `"${fingerprint}"`, dl.headers.get('etag'))
   check('X-Skill-Version is set', dl.headers.get('x-skill-version') === '1.0.0', dl.headers.get('x-skill-version'))
@@ -444,11 +453,11 @@ try {
   )
 
   const cached = await fetch(`${base}/api/v1/download?slug=smoke-skill&version=latest`, {
-    headers: { 'If-None-Match': `"${fingerprint}"` },
+    headers: { ...authHeader, 'If-None-Match': `"${fingerprint}"` },
   })
   check('If-None-Match on the fingerprint → 304', cached.status === 304, `${cached.status}`)
 
-  r = await req('GET', '/api/v1/download')
+  r = await req('GET', '/api/v1/download', { token: adminToken })
   check('download without slug → 400', r.status === 400 && r.body?.error === 'slug is required', r.text)
 
   r = await req('GET', '/api/v1/skills/smoke-skill')
@@ -731,8 +740,11 @@ try {
   check('plugin detail omits ownerId (projection contract)', r.body?.ownerId === undefined)
   check('plugin detail omits moderationStatus', r.body?.moderationStatus === undefined)
 
-  const pluginDl = await fetch(`${base}/api/v1/plugins/download?slug=smoke-plugin`)
-  check('plugin download → 200 application/zip', pluginDl.status === 200 && pluginDl.headers.get('content-type') === 'application/zip', `${pluginDl.status}`)
+  const anonPluginDl = await fetch(`${base}/api/v1/plugins/download?slug=smoke-plugin`)
+  check('plugin download without credentials → 401', anonPluginDl.status === 401, `${anonPluginDl.status}`)
+
+  const pluginDl = await fetch(`${base}/api/v1/plugins/download?slug=smoke-plugin`, { headers: authHeader })
+  check('plugin download with credentials → 200 application/zip', pluginDl.status === 200 && pluginDl.headers.get('content-type') === 'application/zip', `${pluginDl.status}`)
 
   r = await req('GET', '/api/v1/plugins/file?slug=smoke-plugin&path=plugin.json', { raw: true })
   check('plugin file read → 200 octet-stream', r.status === 200 && (r.headers.get('content-type') ?? '').includes('application/octet-stream'), `${r.status}`)
@@ -849,7 +861,10 @@ try {
     r.text.slice(0, 250),
   )
 
-  const bundleRes = await fetch(`${base}/api/runtime/skills/bundle?slug=${skillRef}`)
+  const anonBundle = await fetch(`${base}/api/runtime/skills/bundle?slug=${skillRef}`)
+  check('runtime bundle without credentials → 401', anonBundle.status === 401, `${anonBundle.status}`)
+
+  const bundleRes = await fetch(`${base}/api/runtime/skills/bundle?slug=${skillRef}`, { headers: authHeader })
   const bundleBytes = new Uint8Array(await bundleRes.arrayBuffer())
   check(
     'runtime bundle streams a zip with digest headers',
@@ -873,7 +888,103 @@ try {
     `${iconRes.status} ${iconRes.headers.get('content-type')}`,
   )
 
-  // ── 14. admin ─────────────────────────────────────────────────────────────
+  // ── 14. registration & account review ─────────────────────────────────────
+  section('Registration & account review')
+
+  r = await req('GET', '/api/v1/registration')
+  check('GET /api/v1/registration reports sign-up is open', r.status === 200 && r.body?.enabled === true, r.text)
+
+  const NEWBIE = 'smoke-newbie'
+  const NEWBIE_PASSWORD = 'newbie-password'
+
+  r = await req('POST', '/register', {
+    body: { handle: NEWBIE, password: NEWBIE_PASSWORD, displayName: 'Smoke Newbie', email: 'newbie@example.com' },
+  })
+  check('POST /register → 201 awaiting review', r.status === 201 && r.body?.status === 'pending', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: { handle: NEWBIE, password: NEWBIE_PASSWORD } })
+  check('registering a taken handle → 400', r.status === 400 && /already exists/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: { handle: 'smoke-short', password: 'short' } })
+  check('registering with a too-short password → 400', r.status === 400 && /at least/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: { handle: 'x', password: NEWBIE_PASSWORD } })
+  check('registering a one-character handle → 400', r.status === 400 && /invalid username/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  const signIn = async (password) => {
+    const res = await fetch(`${base}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ handle: NEWBIE, password }),
+    })
+    return { res, body: await res.json().catch(() => ({})) }
+  }
+
+  // A registration holds no session until an admin approves it.
+  let pending = await signIn(NEWBIE_PASSWORD)
+  check(
+    'a pending account cannot sign in → 403 account_pending',
+    pending.res.status === 403 && pending.body?.code === 'account_pending',
+    `${pending.res.status} ${JSON.stringify(pending.body)}`,
+  )
+
+  r = await req('GET', '/api/v1/admin/users?status=pending', { token: adminToken })
+  const pendingUser = (r.body?.data ?? []).find((u) => u.handle === NEWBIE)
+  check(
+    'the review queue lists the new account',
+    r.status === 200 && !!pendingUser?.id && r.body?.pendingCount >= 1,
+    r.text.slice(0, 250),
+  )
+  check('the review queue never leaks passwordHash', pendingUser?.passwordHash === undefined)
+
+  const approvedView = await req('GET', '/api/v1/admin/users?status=approved', { token: adminToken })
+  check('a pending account is filtered out of the approved view', !(approvedView.body?.data ?? []).some((u) => u.handle === NEWBIE), approvedView.text.slice(0, 200))
+
+  r = await req('GET', '/api/v1/admin/users?status=bogus', { token: adminToken })
+  check('an unknown status filter is ignored rather than rejected', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: pendingUser.id, action: 'reject', note: 'smoke rejection' } })
+  check('rejecting a sign-up → 200 "user rejected"', r.status === 200 && r.body?.message === 'user rejected', `${r.status} ${r.text}`)
+
+  const rejected = await signIn(NEWBIE_PASSWORD)
+  check(
+    'a rejected account still cannot sign in → 403 account_rejected',
+    rejected.res.status === 403 && rejected.body?.code === 'account_rejected',
+    `${rejected.res.status} ${JSON.stringify(rejected.body)}`,
+  )
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: pendingUser.id, action: 'approve' } })
+  check('approving the same sign-up → 200 "user approved"', r.status === 200 && r.body?.message === 'user approved', `${r.status} ${r.text}`)
+
+  const approved = await signIn(NEWBIE_PASSWORD)
+  check(
+    'an approved account can sign in and gets a session',
+    approved.res.status === 200 && (approved.res.headers.get('set-cookie') ?? '').startsWith('session_token='),
+    `${approved.res.status}`,
+  )
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: pendingUser.id, action: 'explode' } })
+  check('an unknown review action → 400', r.status === 400 && /approve, reject/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: 'not-a-uuid', action: 'approve' } })
+  check('a malformed user id → 400', r.status === 400 && r.body?.error === 'invalid user ID', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: adminToken, body: { userId: crypto.randomUUID(), action: 'approve' } })
+  check('reviewing an unknown account → 404', r.status === 404, `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'approve' } })
+  check('reviewing without credentials → 401', r.status === 401, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/admin/audit-logs?limit=100', { token: adminToken })
+  check(
+    'the review decisions are audited',
+    r.status === 200
+      && (r.body?.data ?? []).some((l) => l.action === 'review_user_approve')
+      && (r.body?.data ?? []).some((l) => l.action === 'review_user_reject'),
+    r.text.slice(0, 250),
+  )
+
+  // ── 15. admin ─────────────────────────────────────────────────────────────
   section('Admin')
 
   r = await req('GET', '/api/v1/admin/skills?limit=100', { token: adminToken })
@@ -916,7 +1027,7 @@ try {
     r.text.slice(0, 250),
   )
 
-  // ── 15. admin API keys ───────────────────────────────────────────────────
+  // ── 16. admin API keys ───────────────────────────────────────────────────
   section('Admin API keys')
 
   r = await req('POST', '/api/v1/admin/api-keys', {
@@ -985,6 +1096,27 @@ try {
 
   r = await req('GET', '/api/v1/admin/api-keys', { token: fullKey })
   check('a key cannot administer other keys → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  // `users:moderate` is its own capability: it opens the review queue and
+  // nothing else, and conversely the skill scopes do not reach the queue.
+  r = await req('POST', '/api/v1/admin/api-keys', { token: adminToken, body: { name: 'smoke-user-reviewer', scopes: ['users:moderate'] } })
+  const reviewKey = r.body?.key
+  check('a users:moderate key is minted', r.status === 201 && typeof reviewKey === 'string', r.text)
+
+  r = await req('GET', '/api/v1/admin/users?status=pending', { token: reviewKey })
+  check('a users:moderate key can read the review queue', r.status === 200 && Array.isArray(r.body?.data), `${r.status} ${r.text.slice(0, 150)}`)
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: reviewKey, body: { userId: crypto.randomUUID(), action: 'approve' } })
+  check('a users:moderate key reaches the review endpoint (404 for an unknown id)', r.status === 404, `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/skills?limit=5', { token: reviewKey })
+  check('a users:moderate key cannot read the skill catalogue → 403', r.status === 403, `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/review', { token: readOnlyKey, body: { userId: crypto.randomUUID(), action: 'approve' } })
+  check('a skills-only key cannot review accounts → 403', r.status === 403 && r.body?.error === 'this API key is not allowed for this endpoint', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/ban', { token: reviewKey, body: { userId: crypto.randomUUID(), reason: 'x' } })
+  check('banning stays session-only, so a user key is refused → 403', r.status === 403, `${r.status} ${r.text}`)
 
   // Bound to a namespace: publishing without an explicit namespace lands there.
   r = await req('POST', '/api/v1/namespaces', { token: adminToken, body: { slug: 'apikey-ns', displayName: 'API key namespace' } })

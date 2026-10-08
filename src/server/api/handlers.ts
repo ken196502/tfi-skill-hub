@@ -539,6 +539,16 @@ export const auth: Record<string, Handler> = {
     if (!verifyPassword(password, user.passwordHash)) {
       return errorJson('invalid username or password', 401)
     }
+    // Only reachable once the password checks out, so telling the caller the
+    // account is still awaiting review leaks nothing to a stranger. The extra
+    // `code` is additive — like `candidates` on the ambiguous-slug error — so
+    // the UI can say the right thing without matching on prose.
+    if (user.status === 'pending') {
+      return json({ error: 'this account is waiting for approval', code: 'account_pending' }, 403)
+    }
+    if (user.status === 'rejected') {
+      return json({ error: 'this registration was not approved', code: 'account_rejected' }, 403)
+    }
 
     const raw = generateRawToken()
     tokenRepo.create({
@@ -555,6 +565,34 @@ export const auth: Record<string, Handler> = {
 
   logout: (ctx) =>
     json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie(ctx.request) }),
+
+  /**
+   * Public self-service registration. Creates an account that must be approved
+   * by an admin before it can sign in; the response never issues a session.
+   */
+  register: async (ctx) => {
+    if (!getConfig().allowRegistration) return errorJson('registration is closed', 403)
+    const fields = await formFields(ctx.request)
+    const handle = (fields.get('handle') ?? '').trim()
+    const password = fields.get('password') ?? ''
+    if (handle === '' || password === '') {
+      return errorJson('username and password are required', 400)
+    }
+    try {
+      const created = manageSvc.registerUser({
+        handle,
+        password,
+        displayName: fields.get('displayName') ?? '',
+        email: fields.get('email') ?? '',
+      })
+      return json({ ok: true, status: created.status }, 201)
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  /** Whether the registration form is open, so the UI can hide the entry point. */
+  registrationStatus: () => json({ enabled: getConfig().allowRegistration }),
 
   whoami: (ctx) => {
     if (!ctx.user) return errorJson('not authenticated', 401)
@@ -1436,9 +1474,22 @@ export const admin: Record<string, Handler> = {
 
   listUsers: (ctx) => {
     try {
-      return json(manageSvc.listUsers(qStr(ctx.url, 'cursor')))
+      return json(manageSvc.listUsers(qStr(ctx.url, 'cursor'), qStr(ctx.url, 'status')))
     } catch {
       return errorJson('failed to list users', 500)
+    }
+  },
+
+  /** Approve or reject a self-registered account. */
+  reviewUser: async (ctx) => {
+    const body = await jsonBody<{ userId?: string; action?: string; note?: string }>(ctx.request)
+    if (!body?.userId || !body.action) return errorJson('invalid request', 400)
+    if (!isUuidLike(body.userId)) return errorJson('invalid user ID', 400)
+    try {
+      manageSvc.reviewUser(ctx.user!.id, body.userId, body.action, body.note ?? '')
+      return json({ message: body.action === 'approve' ? 'user approved' : 'user rejected' })
+    } catch (e) {
+      return serviceError(e)
     }
   },
 

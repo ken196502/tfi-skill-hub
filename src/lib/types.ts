@@ -11,6 +11,12 @@ export type Visibility = 'private' | 'public'
 export type ModerationStatus = 'approved' | 'pending_review' | 'rejected'
 export type SkillKind = 'builtin' | 'domain' | 'learned' | 'custom'
 export type UserRole = 'user' | 'moderator' | 'admin' | 'agent'
+/**
+ * Review state of an account. Self-service registration lands in `pending` and
+ * waits for an admin decision; accounts that predate registration (or were
+ * created by an admin) are `approved` from the start.
+ */
+export type UserStatus = 'pending' | 'approved' | 'rejected'
 export type NamespaceType = 'personal' | 'team'
 export type NamespaceRole = 'owner' | 'admin' | 'member' | 'reader'
 export type TokenScope = 'full' | 'read' | 'publish'
@@ -19,18 +25,24 @@ export type TokenScope = 'full' | 'read' | 'publish'
  * Capabilities an admin API key can hold.
  *
  * Unlike personal tokens (which carry a broad `full`/`read`/`publish` scope),
- * an API key is minted for one job — managing the skill catalogue over HTTP —
- * so its powers are enumerated per endpoint group. A route declares the single
- * capability it needs (`apiKeyScope` in the route table) and a key is refused
- * unless it holds that one.
+ * an API key is minted for one job — driving the skill catalogue over HTTP, or
+ * reviewing accounts — so its powers are enumerated per endpoint group. A route
+ * declares the single capability it needs (`apiKeyScope` in the route table)
+ * and a key is refused unless it holds that one.
  */
-export type ApiKeyScope = 'skills:read' | 'skills:publish' | 'skills:delete' | 'skills:moderate'
+export type ApiKeyScope =
+  | 'skills:read'
+  | 'skills:publish'
+  | 'skills:delete'
+  | 'skills:moderate'
+  | 'users:moderate'
 
 export const API_KEY_SCOPES: ApiKeyScope[] = [
   'skills:read',
   'skills:publish',
   'skills:delete',
   'skills:moderate',
+  'users:moderate',
 ]
 export type SignatureStatus = 'unsigned' | 'unverified' | 'verified' | 'invalid'
 
@@ -55,8 +67,14 @@ export interface User {
   avatarUrl?: string
   email?: string
   role: UserRole
+  /** Present on every account; `pending` until an admin reviews it. */
+  status: UserStatus
   isBanned: boolean
   banReason?: string
+  /** Note left by the admin who rejected the account. */
+  reviewNote?: string
+  reviewedAt?: string
+  reviewedBy?: string
   createdAt: string
   updatedAt: string
 }

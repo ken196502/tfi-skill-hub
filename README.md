@@ -14,12 +14,12 @@
 npm install
 npm run build
 
-# 首次启动会自动创建管理员（用户名/密码来自环境变量）
-SKILLHUB_ADMIN_USER=admin SKILLHUB_ADMIN_PASSWORD=admin12345 npm start
-# → http://localhost:10070
+# 管理员账号从项目根目录的 .env 读取（模板见 .env.example），仓库内不含任何默认口令
+cp .env.example .env    # 填写 SKILLHUB_ADMIN_USER / SKILLHUB_ADMIN_PASSWORD（≥ 8 位）
+npm start               # → http://localhost:10070
 ```
 
-浏览器打开 <http://localhost:10070>，用 `admin` / `admin12345` 登录。
+浏览器打开 <http://localhost:10070>，用 `.env` 中设置的管理员账号登录。
 数据默认落在 `./data/skillhub.db`。
 
 每个新实例首次启动时还会自动创建 `@builtin` 命名空间，并幂等灌入 38 个内置技能（设计、研究、文档、写作四类）。其中日文元数据已统一翻译为中文；每个技能都带有可下载的 `SKILL.md` 和原始 SkillHub 来源链接。
@@ -175,17 +175,19 @@ scripts/
 | 分组 | 前缀 | 鉴权 |
 |---|---|---|
 | 发现 | `/healthz`、`/readyz`、`/metrics`、`/.well-known/clawhub.json`、`/skills.md` | 公开 |
-| 浏览与搜索 | `/api/v1/{search,categories,skills,resolve,plugins,download}` | 公开（可选身份用于可见性过滤） |
-| 会话 | `POST /login`、`POST /logout`、`/auth/device/*` | 公开 / 需登录 |
+| 浏览与搜索 | `/api/v1/{search,categories,skills,resolve,plugins}`、单文件读取 `.../file` | 公开（可选身份用于可见性过滤） |
+| **打包下载** | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` | **需登录** |
+| 会话 | `POST /login`、`POST /logout`、`POST /register`、`GET /api/v1/registration`、`/auth/device/*` | 公开 / 需登录 |
 | 身份 | `GET /api/v1/whoami` | 需登录 |
 | 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件、`PUT .../detail-html` | 需登录 |
 | 个人 Token | `/api/v1/tokens` | 需登录 |
 | 管理端 API Key | `GET/POST /api/v1/admin/api-keys`、`DELETE /api/v1/admin/api-keys/:id` | 仅 `admin` |
+| 用户审核 | `GET /api/v1/admin/users`、`POST /api/v1/admin/users/review` | 仅 `admin`（可用 `users:moderate` key） |
 | 命名空间 | `/api/v1/namespaces/*`、`/api/v1/invitations/*` | 需登录（按命名空间角色授权） |
 | 社交 | `/api/v1/stars/*`、`.../ratings`、`.../comments`、`/api/v1/notifications/*` | 需登录 |
 | 管理端 | `/api/v1/admin/*` | 仅 `admin` |
 | Agent 发布 | `/api/agent/skills*` | 需登录（`publish` 作用域可用） |
-| Runtime 加载 | `/api/runtime/*` | 公开（可选身份） |
+| Runtime 加载 | `/api/runtime/*`（`bundle` 除外，需登录） | 公开（可选身份） |
 
 错误响应沿用原实现的两套约定：注册中心接口用 `{"error": "<message>"}`（歧义 slug 额外带 `candidates`），
 Agent/Runtime 接口用 `{"error":{"code","message"}}`。
@@ -198,10 +200,21 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 团队 Token 绑定到命名空间，只能向其绑定的命名空间发布；成员退出或命名空间删除时会级联吊销。
 * 管理端 API Key（`shk_` 前缀，在 `/admin/api-keys` 页面签发）按用途授权，与签发者的角色无关：
   `skills:read`（搜索、列表、详情、文件、下载）、`skills:publish`（发布新版本、改单文件）、
-  `skills:delete`（删除、恢复、彻底清除）、`skills:moderate`（yank/deprecate、审核、可见性）。
-  路由表未标注能力的端点一律拒绝 API Key 调用，因此一把钥匙只能管理技能，
-  碰不到用户、插件、命名空间等接口。可额外绑定一个命名空间（此后只能向它发布）并设定有效期；
+  `skills:delete`（删除、恢复、彻底清除）、`skills:moderate`（yank/deprecate、审核、可见性）、
+  `users:moderate`（查看待审核注册用户、通过或驳回）。
+  路由表未标注能力的端点一律拒绝 API Key 调用，因此一把钥匙只能做它被授权的那件事；
+  `users:moderate` 只覆盖审核队列与 `.../users/review`，**封禁与改角色仍只认登录会话**。
+  可额外绑定一个命名空间（此后只能向它发布）并设定有效期；
   撤销、过期、或签发者被降级/封禁都会让 key 立即失效。
+
+### 注册与审核
+
+* 公开注册页 `/register`，默认开放；`SKILLHUB_ALLOW_REGISTRATION=0` 可关闭（关闭后入口隐藏、提交被拒）。
+* 注册成功的账号状态为 `pending`：**不能登录**（登录返回 403 + `code: "account_pending"`），
+  也不持有任何会话。审核通过（`approved`）后才能登录，驳回为 `rejected`（登录 403 + `code: "account_rejected"`）。
+* 审核在管理页「用户管理」完成：可按状态筛选（全部 / 待审核 / 已通过 / 已驳回），逐行「通过 / 驳回」，
+  驳回可填写理由。也可用 `POST /api/v1/admin/users/review`（`{ userId, action: approve|reject, note? }`）。
+* 存量账号在迁移时统一记为 `approved`，行为不变；驳回的账号保留在库中（不删除），决策可审计、handle 不会被重复注册。
 
 ---
 
@@ -217,6 +230,7 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 | `SKILLHUB_DATABASE_URL` | SQLite 文件路径 | `./data/skillhub.db` |
 | `SKILLHUB_ADMIN_USER` | 首启创建的管理员用户名 | 空 |
 | `SKILLHUB_ADMIN_PASSWORD` | 管理员密码（≥ 8 位） | 空 |
+| `SKILLHUB_ALLOW_REGISTRATION` | 是否开放公开注册（`0`/`false`/`no`/`off` 关闭） | `1`（开放） |
 | `SKILLHUB_TOKEN_PREFIX` | API Token 前缀 | `clh_` |
 | `SKILLHUB_API_KEY_PREFIX` | 管理端 API Key 前缀（须与上一项不同） | `shk_` |
 | `SKILLHUB_RATE_READ_LIMIT` / `_WINDOW` | 读接口限流（次数 / 秒） | `120` / `600` |
@@ -225,6 +239,10 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 | `SKILLHUB_AGENT_SECRET` | 启用 `/api/v1/agent/provision`（未设置则返回 404） | 空 |
 
 服务器入口另支持 `SKILLHUB_SERVER_ENTRY` / `SKILLHUB_CLIENT_DIR`，用于把构建产物放在 `dist/` 之外的目录。
+
+`SKILLHUB_ADMIN_USER` / `SKILLHUB_ADMIN_PASSWORD` 在 docker compose 部署时是**必填项**：compose 从项目根目录的
+`.env` 读取（模板见 `.env.example`），未设置或为空会直接报错退出，不会退回到任何默认口令。已有数据库的实例
+不受影响——首启创建是幂等的，改口令请用 `node scripts/create-admin.mjs --handle <账号> --password <新口令> --set-password`。
 
 ---
 

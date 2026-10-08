@@ -475,6 +475,25 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE skills ADD COLUMN detail_html_en_updated_at TEXT;
     `,
   },
+  {
+    // Self-service registration queues an account for an admin decision. Only
+    // accounts created through the public registration form start out
+    // 'pending'; the NOT NULL DEFAULT backfills every existing row to
+    // 'approved', so no account that works today changes behaviour.
+    //
+    // A rejected account is kept rather than deleted: the decision stays
+    // auditable, and the handle cannot be silently re-registered.
+    v: 7,
+    name: 'user review status',
+    sql: `
+      ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'approved'
+        CHECK (status IN ('pending','approved','rejected'));
+      ALTER TABLE users ADD COLUMN review_note TEXT;
+      ALTER TABLE users ADD COLUMN reviewed_at TEXT;
+      ALTER TABLE users ADD COLUMN reviewed_by TEXT;
+      CREATE INDEX idx_users_status ON users (status);
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

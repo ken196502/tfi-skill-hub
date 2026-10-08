@@ -10,11 +10,11 @@ import crypto from 'node:crypto'
 import { fail, notFound } from '../errors'
 import { asNumber, nowIso, query, type Row } from '../db'
 import { VALID_ROLES } from '../../lib/types'
-import type { SkillWithOwner, UserRole, Visibility } from '../../lib/types'
+import type { SkillWithOwner, UserRole, UserStatus, Visibility } from '../../lib/types'
 import { audit, users, tokens as tokenRepo, type UserRecord } from '../repo/core'
 import { skills as skillRepo } from '../repo/skills'
 import { plugins as pluginRepo } from '../repo/plugins'
-import { generateRawToken, hashToken, extractPrefix } from '../auth'
+import { generateRawToken, hashPassword, hashToken, extractPrefix, MIN_PASSWORD_LENGTH } from '../auth'
 import { auditLog, reindexSkill, reindexPlugin, resolvePluginRef, resolveSkillRef } from './shared'
 import type { SkillRef } from '../../lib/types'
 import type { APIToken } from '../../lib/types'
@@ -23,14 +23,51 @@ import type { APIToken } from '../../lib/types'
 // Users
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function listUsers(cursor: string) {
+export function listUsers(cursor: string, status?: string) {
   // `limit` is fixed at 20 upstream — a supplied value is ignored. Strip the
   // internal credential projection before returning it to an API handler.
-  const page = users.list(cursor, 20)
+  const filter = isUserStatus(status) ? status : undefined
+  const page = users.list(cursor, 20, filter)
   return {
     ...page,
+    // Carried alongside the page so the console can badge the review queue
+    // without a second round trip.
+    pendingCount: users.countByStatus('pending'),
     data: page.data.map(({ passwordHash: _passwordHash, ...user }) => user),
   }
+}
+
+/** Number of accounts still waiting for a decision — drives the admin badge. */
+export function countPendingUsers(): number {
+  return users.countByStatus('pending')
+}
+
+function isUserStatus(value: string | undefined): value is UserStatus {
+  return value === 'pending' || value === 'approved' || value === 'rejected'
+}
+
+/**
+ * Approve or reject a self-registered account. A decision is recorded rather
+ * than the row being deleted: rejected accounts stay visible (and their handle
+ * stays taken) so the outcome is auditable and not silently re-registerable.
+ */
+export function reviewUser(actorId: string, userId: string, action: string, note: string): void {
+  if (action !== 'approve' && action !== 'reject') {
+    fail('invalid action, must be one of: approve, reject')
+  }
+  const target = users.getById(userId)
+  if (!target) notFound('user not found')
+  if (target.id === actorId) fail('you cannot review your own account')
+
+  const reason = action === 'reject' && note.trim() !== '' ? note.trim() : null
+  users.review(userId, action === 'approve' ? 'approved' : 'rejected', reason, actorId)
+  auditLog({
+    actorId,
+    action: `review_user_${action}`,
+    resourceType: 'user',
+    resourceId: userId,
+    details: reason ? `handle=${target.handle},note=${reason}` : `handle=${target.handle}`,
+  })
 }
 
 export function createUser(input: {
@@ -60,6 +97,46 @@ export function createUser(input: {
     resourceType: 'user',
     resourceId: created.id,
     details: `handle=${created.handle},role=${role}`,
+  })
+  return created
+}
+
+/** Handles offered through public registration: 2–32 chars, URL-safe. */
+const HANDLE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/
+
+/**
+ * Self-service registration. Unlike `createUser` this sets a password straight
+ * away, but the account lands in `pending`: it cannot sign in until an admin
+ * approves it (see `reviewUser`).
+ */
+export function registerUser(input: {
+  handle: string
+  password: string
+  displayName?: string
+  email?: string
+}): UserRecord {
+  const handle = input.handle.trim()
+  if (!HANDLE_PATTERN.test(handle)) {
+    fail('invalid username: 2-32 characters, letters, digits, dot, dash or underscore')
+  }
+  if (input.password.length < MIN_PASSWORD_LENGTH) {
+    fail(`password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+  }
+  if (users.getByHandle(handle)) fail(`handle '${handle}' already exists`)
+
+  const created = users.create({
+    handle,
+    displayName: input.displayName?.trim() || null,
+    email: input.email?.trim() || null,
+    passwordHash: hashPassword(input.password),
+    role: 'user',
+    status: 'pending',
+  })
+  auditLog({
+    action: 'register_user',
+    resourceType: 'user',
+    resourceId: created.id,
+    details: `handle=${created.handle}`,
   })
   return created
 }

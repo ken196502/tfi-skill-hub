@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../../lib/api'
+import { useSession } from '../../lib/auth'
 import { useLang, useT } from '../../lib/i18n'
 import {
   HtmlContent,
@@ -26,6 +27,7 @@ export const Route = createFileRoute('/skills/$')({
 function SkillDetailPage() {
   const { _splat: ref = '' } = useParams({ from: '/skills/$' })
   const { lang } = useLang()
+  const { user } = useSession()
   const t = useT()
 
   const skill = useQuery({
@@ -98,9 +100,22 @@ function SkillDetailPage() {
         <aside className="detail-sidebar">
           <div className="sidebar-section">
             <div className="sidebar-label">{t('安装', 'Install')}</div>
-            <a className="btn btn-primary" href={downloadHref} style={{ width: '100%', justifyContent: 'center' }}>
-              {t('下载 ZIP', 'Download ZIP')}
-            </a>
+            {user ? (
+              <a className="btn btn-primary" href={downloadHref} style={{ width: '100%', justifyContent: 'center' }}>
+                {t('下载 ZIP', 'Download ZIP')}
+              </a>
+            ) : (
+              <>
+                <a
+                  className="btn btn-secondary"
+                  href={`/login?redirect=${encodeURIComponent(`/skills/${ref}`)}`}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  {t('登录后下载', 'Log in to download')}
+                </a>
+                <p className="muted sidebar-hint">{t('下载需要登录。', 'Sign in to download.')}</p>
+              </>
+            )}
           </div>
 
           <div className="sidebar-section">

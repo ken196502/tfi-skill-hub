@@ -152,7 +152,35 @@ curl -X PUT -H "Authorization: Bearer shk_Dc8r_AffkQsAluKZJu2OTTBXJqkimubuHGlBvU
 > `skillIds` 用技能的 `id`（UUID），不是 slug；可以从第 1 条「列出技能」或本接口的返回里拿。
 > 首页公开接口 `GET /api/v1/features` 无需认证，改完立即可见。
 
-## 10. 管理这条 key 自己
+## 11. 审核注册用户（需要 `users:moderate`）
+
+普通用户可以在站点 `/register` 自助注册，注册后处于**待审核**状态、无法登录，
+需要管理员在「用户管理」页或通过本接口审核。审核能力是独立的 scope，
+**上面这把技能 key 没有它**，要另签一把 `users:moderate` 的 key（`/admin/api-keys` 页面或 `POST /api/v1/admin/api-keys`）。
+
+```bash
+KEY=shk_xxx        # 一把带 users:moderate 的 key
+
+# 1. 列出待审核的用户（也会返回 pendingCount）
+curl -H "Authorization: Bearer $KEY" \
+  "https://skills.subx.fun/api/v1/admin/users?status=pending"
+# status 可取 pending | approved | rejected；不带则返回全部
+
+# 2. 通过 / 驳回（userId 取上一步返回的 id，UUID）
+curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"userId":"<user-id>","action":"approve"}' \
+  "https://skills.subx.fun/api/v1/admin/users/review"
+
+# 驳回可附理由（会写进审计日志，并显示在该用户的审核状态下方）
+curl -X POST -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  -d '{"userId":"<user-id>","action":"reject","note":"信息不完整"}' \
+  "https://skills.subx.fun/api/v1/admin/users/review"
+```
+
+> 审核通过后该账号即可登录；驳回后仍无法登录，但记录会保留（不会删除账号，handle 也不会被重复注册）。
+> 分页同样是游标制：返回 `nextCursor`，翻页加 `&cursor=<nextCursor>`。
+
+## 12. 管理这条 key 自己
 
 ```bash
 # 看所有 key
@@ -168,6 +196,7 @@ curl -H "Authorization: Bearer <admin会话或另一把key>" \
 |---|---|
 | 限流 | 批量发布约 85 次后会 429，带 `Retry-After`；实测连发 ~20 次也可能触发，脚本里加退避（等 ~70s 重试）即可 |
 | 单文件大小 | ≤ 5MB；单次上传文件数 ≤ 500 |
-| key 边界 | 只能管技能（含精选）。建命名空间、管用户/插件/审计日志等接口一律 403 |
+| key 边界 | 一把 key 只做被授权的那件事：`skills:*` 管技能（含精选），`users:moderate` 管注册审核（列表 + 通过/驳回）。建命名空间、封禁用户、改角色、管其他 key、读审计日志等接口一律 403 |
+| 打包下载 | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` 需要登录（会话或任意 token/key）；单文件读取仍然公开 |
 | 身份绑定 | key 的所有操作记在签发者（admin）名下；签发者被降权/封禁后 key 立即失效 |
-| 错误格式 | 本组接口返回 `{"error":"…"}`；403 = key 无此接口权限，404 = 技能不存在，409 = 版本冲突 |
+| 错误格式 | 本组接口返回 `{"error":"…"}`；403 = key 无此接口权限，404 = 技能/用户不存在，409 = 版本冲突 |

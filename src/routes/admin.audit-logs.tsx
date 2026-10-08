@@ -12,6 +12,9 @@ export const Route = createFileRoute('/admin/audit-logs')({ component: AuditLogs
 /** Action / resource labels, bilingual: `[zh, en]` keyed by the raw value. */
 const ACTION_LABELS: Record<string, [string, string]> = {
   admin_create_user: ['创建用户', 'Create user'],
+  register_user: ['用户注册', 'Register account'],
+  review_user_approve: ['通过用户审核', 'Approve account'],
+  review_user_reject: ['驳回用户注册', 'Reject account'],
   set_role: ['调整角色', 'Change role'],
   ban_user: ['封禁用户', 'Ban user'],
   admin_create_token: ['签发 Token', 'Mint token'],
