@@ -61,6 +61,33 @@
   一并锁掉会让未登录访客看不到任何内容。
 - 技能详情页未登录时下载按钮改为跳 `/login?redirect=<当前路径>`（cookie 同源，登录后直接可下）。
 
+## 普通用户只读（2026-10-08，访问模型收敛，别改回去）
+
+**产品口径：普通账号（`role = user`）只能注册 + 浏览 + 收藏/取消收藏 + 下载。没有任何发布、管理功能。**
+
+- `http.ts` 的 `auth: 'required'` **只表示「已登录」**，不表示任何限制。要限制到管理员必须用
+  `auth: 'admin'`（中间件在 handler 之前就 403 `insufficient permissions`）。
+- `routes.ts` 新增两个简写：`adminWrite` / `adminRead`。以下区域**全部**是 admin-only：
+  技能发布与生命周期（`POST /skills`、direct-upload、delete/purge/undelete、request-public、
+  `PUT .../file`、`PUT .../detail-html`、transfer、yank、deprecate）、插件全部写接口、
+  `POST /api/agent/skills`、**命名空间与邀请的全部接口**（含 `GET /namespaces`）、
+  `/api/v1/tokens`（个人 token 列表/签发/吊销）、评分与评论的**写**接口、`/api/v1/admin/*`。
+- 保持普通用户可用的：`GET /whoami`、浏览类读接口（skills/plugins/search/categories/features/
+  namespaces/:slug/skills）、`/api/v1/stars*`（含新增的 `GET /stars`）、`/download`、
+  `/plugins/download`、`/api/runtime/skills/bundle`、`GET /api/agent/skills*`、
+  `/api/v1/notifications/*`（个人只读收件箱，**故意保留**）。
+- **API Key 不会被这次收窄误伤**：`auth: 'admin'` 先判身份，key 的身份是签发它的 admin（role=admin），
+  随后才做 `apiKeyScope` 检查。所以 `skills:publish` key 仍能发布，`skills:read` key 仍是 403。
+  **新增受保护路由时，记得同时决定要不要标 `apiKeyScope`**（不标 = 所有 key 一律 403）。
+- 前端：`/publish`、`/namespaces`、`/namespaces/$slug` 用 `<Navigate to="/skills" />` 把非管理员
+  重定向（守卫必须放在**所有 hook 调用之后**，否则 hook 顺序会变）。这三个是**孤儿路由**，
+  导航里本来就没有入口。
+- 遗留待决（本次**故意未动**，要改先问）：①`/auth/device/*` 仍可让普通用户拿到 CLI token
+  （属登录机制）；②`/api/v1/agent/provision` 仍会建 `agent` 账号 + 90 天 `publish` token，
+  但该 token 现在已发不出东西（`SKILLHUB_AGENT_SECRET` 未设时该接口 404，默认状态）。
+- 自检：`smoke-api.mjs` 第 17 段「Ordinary user permissions」用 `plainUserToken`（role=user）
+  固定住这份契约 —— 允许项 + 14 条 403 拒绝项。**改权限一定要跑它。**
+
 ## 技能详情 HTML（2026-09-24 新增）
 
 - `PUT /api/v1/skills/:slug/detail-html`（及 `@:namespace/:slug` 版），`{ html }`；空串清除，
@@ -197,6 +224,8 @@ npm run smoke       # 必须全绿
    API 错误文案语言统一
 10. 收藏（favourites）新增 `GET /api/v1/stars` 与技能载荷上的 `starred` 字段、`/favorites` 页面
     及卡片/详情页的星标切换——原 Go 版只有 star/unstar 写接口，没有任何读接口与前端入口
+11. **权限模型比原实现严**：原 Go 版任何登录用户都能发到自己的个人命名空间；本版把发布、命名空间、
+    个人 token、评分评论写接口全部收为 `admin`。这是**有意的产品决策**，不是漏改，别按原实现"修回去"
 
 ## 未覆盖（按约定不做）
 
