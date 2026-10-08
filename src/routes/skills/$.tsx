@@ -2,6 +2,7 @@ import { createFileRoute, Link, useParams } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import * as api from '../../lib/api'
 import { useSession } from '../../lib/auth'
+import { useFavoriteToggle } from '../../lib/favorites'
 import { useLang, useT } from '../../lib/i18n'
 import {
   HtmlContent,
@@ -52,6 +53,10 @@ function SkillDetailPage() {
     retry: false,
   })
 
+  // Declared before the early returns so hook order stays stable; the fallback
+  // is only ever used while the skill is still loading.
+  const favorite = useFavoriteToggle(skill.data ?? { slug: '', namespaceSlug: '' })
+
   if (skill.isLoading) return <Loading />
   if (skill.isError || !skill.data) {
     return (
@@ -98,6 +103,24 @@ function SkillDetailPage() {
         </div>
 
         <aside className="detail-sidebar">
+          <div className="sidebar-section">
+            <div className="sidebar-label">{t('收藏', 'Favorites')}</div>
+            <button
+              type="button"
+              className={`btn favorite-btn${favorite.starred ? ' is-starred' : ' btn-primary'}`}
+              onClick={favorite.toggle}
+              disabled={favorite.pending}
+              aria-pressed={favorite.starred}
+              style={{ width: '100%', justifyContent: 'center' }}
+            >
+              <span aria-hidden="true">{favorite.starred ? '★' : '☆'}</span>
+              {favorite.starred ? t('已收藏', 'Favorited') : t('收藏', 'Favorite')}
+            </button>
+            <p className="muted sidebar-hint">
+              {formatNumber(s.starsCount)} {t('人已收藏', 'favorited')}
+            </p>
+          </div>
+
           <div className="sidebar-section">
             <div className="sidebar-label">{t('安装', 'Install')}</div>
             {user ? (

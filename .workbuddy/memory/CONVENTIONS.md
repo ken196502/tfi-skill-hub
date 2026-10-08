@@ -73,6 +73,30 @@
 - 页面「API usage」区 + 每行「复制调用说明」：示例按该 key 的 scopes 过滤；
   明文只在创建后那一刻可得，其余行只能嵌入 16 位前缀掩码。
 
+## 收藏 / Favourites（2026-10-08 新增，原 Go 版没有）
+
+- 收藏沿用**既有 `stars` 表**（`stars(user_id, skill_id)`，UNIQUE），不再加新表；写入口仍是
+  `POST/DELETE /api/v1/stars/:slug`（含 `@:namespace/:slug` 版），未改动。
+- 新增读接口 **`GET /api/v1/stars`**（`authed`，会话专属，不接受 API key）→
+  `{ data: SkillWithOwner[], nextCursor }`，按 `stars.created_at DESC` 最新收藏在前。
+  游标是 **stars 行 id**（不是 skill id），因为排序列在关联表上。
+- 技能载荷新增 **`starred?: boolean`**（additive；仅当请求带会话时出现，anonymous 整个键不出现，
+  客户端据此区分「未收藏」与「未登录」）。出现在：`GET /skills`（列表）、`GET /skills/:slug`
+  （详情）、`GET /features`（精选）。**列表是一次 `starredIdSet()` 批量查询，不是 N+1**。
+- 实现落点：`repo/skills.ts` 的 `stars.starredIdSet` / `stars.listByUser`；
+  `services/skills.ts` 的 `listStarredSkills` + `markStarred` helper；`services/manage.ts`
+  `listFeaturedSkills(viewer)`；`handlers.ts` `social.listStars`。
+- **游标语义坑**：`stars.listByUser` 的 `nextCursor` 指向**本页最后一行**，且排序两个键都 DESC
+  （`created_at DESC, id DESC`），这样行值比较 `(a,b) < (ca,cb)` 才严格等于「排在后面」。
+  对照：`skills.list` 把 cursor 停在**第一个未返回的行**且排序是 `created_at DESC, id`（混合方向），
+  严格说会跳行——但 Web 客户端只把 `nextCursor` 当「还有更多」的标志、靠 `limit=20*pages` 累加翻页，
+  从不回放游标，所以没暴露。**不要去"修"`skills.list`**，那是既有契约。
+- 前端：`src/components/Layout.tsx` 头部「技能」右侧加「收藏」tab（`/favorites`，未登录也显示，
+  页面内给登录提示而不是重定向）；`src/routes/favorites.tsx` 列表页；`src/lib/favorites.ts`
+  的 `useFavoriteToggle`（卡片星标点击要 `preventDefault+stopPropagation`，否则会触发 `<Link>` 跳转；
+  未登录改写 `window.location.href='/login?redirect=<当前路径>'`）；`SkillCard` 的星标数
+  （`.stat-stars`）本身就是切换按钮（`☆ n` / `★ n`）。
+
 ## 目录职责（不要越界）
 
 - `src/server/repo/*.ts` —— **唯一**写 SQL 的地方
@@ -171,6 +195,8 @@ npm run smoke       # 必须全绿
    只有 name/summary 被回填双语）
 9. `manage.ts` 精选上限错误文案由中文改为英文（'at most 12 featured skills'），与其余
    API 错误文案语言统一
+10. 收藏（favourites）新增 `GET /api/v1/stars` 与技能载荷上的 `starred` 字段、`/favorites` 页面
+    及卡片/详情页的星标切换——原 Go 版只有 star/unstar 写接口，没有任何读接口与前端入口
 
 ## 未覆盖（按约定不做）
 

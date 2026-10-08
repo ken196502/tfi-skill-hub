@@ -93,6 +93,7 @@ export function Layout({ children }: { children: ReactNode }) {
           </Link>
           <nav className="nav">
             <Link to="/skills">{t('技能', 'Skills')}</Link>
+            <Link to="/favorites">{t('收藏', 'Favorites')}</Link>
             {user ? (
               <>
                 {user.role === 'admin' && <Link to="/admin">{t('管理', 'Admin')}</Link>}

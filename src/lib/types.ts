@@ -138,6 +138,11 @@ export interface SkillWithOwner extends Skill {
   ownerAvatarUrl?: string
   /** Always present; `""` when the joined namespace is missing. */
   namespaceSlug: string
+  /**
+   * Whether the signed-in viewer has favourited this skill. Present only when
+   * the request carried a session — anonymous responses omit it entirely.
+   */
+  starred?: boolean
 }
 
 export interface VersionFile {

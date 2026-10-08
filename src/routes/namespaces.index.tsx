@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, Navigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../lib/api'
 import { useSession } from '../lib/auth'
@@ -42,19 +42,9 @@ function NamespacesPage() {
   })
 
   if (booting) return <Loading />
-  if (!user) {
-    return (
-      <div className="container" style={{ paddingTop: 60 }}>
-        <PageHeader
-          title={t('命名空间', 'Namespaces')}
-          subtitle={t('请先登录后管理命名空间。', 'Please log in to manage namespaces.')}
-        />
-        <Link to="/login" className="btn btn-primary">
-          {t('登录', 'Log in')}
-        </Link>
-      </div>
-    )
-  }
+  // Namespace administration is administrator-only; the matching server-side
+  // posture lives in `routes.ts`.
+  if (!user || user.role !== 'admin') return <Navigate to="/skills" />
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault()

@@ -9,6 +9,7 @@ import type { Plugin, SkillWithOwner } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
 import { sanitizeHtml } from '../lib/sanitizeHtml'
 import type { PluginJson } from '../lib/api'
+import { useFavoriteToggle } from '../lib/favorites'
 import { useLang, useT, localizedName, localizedSummary } from '../lib/i18n'
 
 // Re-exported so page components can pull everything from one module.
@@ -44,6 +45,7 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
   const t = useT()
   const name = localizedName(skill, lang)
   const summary = localizedSummary(skill, lang)
+  const favorite = useFavoriteToggle(skill)
   return (
     <Link to="/skills/$" params={{ _splat: skillPath(skill) }}>
       <div className="card">
@@ -65,10 +67,18 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
             <i className="stat-icon" aria-hidden="true">↓</i>
             <b>{formatNumber(skill.downloads)}</b>
           </span>
-          <span className="stat-stars" title={t('收藏数', 'Stars')}>
-            <i className="stat-icon" aria-hidden="true">★</i>
+          <button
+            type="button"
+            className={`stat-stars star-toggle${favorite.starred ? ' is-starred' : ''}`}
+            onClick={favorite.toggle}
+            disabled={favorite.pending}
+            aria-pressed={favorite.starred}
+            aria-label={favorite.starred ? t('取消收藏', 'Remove from favorites') : t('收藏', 'Add to favorites')}
+            title={favorite.starred ? t('已收藏，点击取消', 'Favorited — click to remove') : t('点击收藏', 'Click to favorite')}
+          >
+            <i className="stat-icon" aria-hidden="true">{favorite.starred ? '★' : '☆'}</i>
             <b>{formatNumber(skill.starsCount)}</b>
-          </span>
+          </button>
           <span className="stat-owner">
             <i className="stat-icon" aria-hidden="true">@</i>
             {skill.ownerHandle}

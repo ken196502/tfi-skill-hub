@@ -459,6 +459,17 @@ export function unstarSkill(ref: string): Promise<{ message: string }> {
   return request<{ message: string }>(`/stars/${encodeURI(ref)}`, { method: 'DELETE' })
 }
 
+/** The signed-in user's collection, most recently starred first. */
+export function listStarredSkills(
+  params: { limit?: number; cursor?: string } = {},
+): Promise<SkillListResponse> {
+  const qs = new URLSearchParams()
+  if (params.limit) qs.set('limit', String(params.limit))
+  if (params.cursor) qs.set('cursor', params.cursor)
+  const suffix = qs.toString()
+  return request<SkillListResponse>(`/stars${suffix ? `?${suffix}` : ''}`)
+}
+
 export function listRatings(ref: string): Promise<{ data: RatingWithUser[]; nextCursor: string }> {
   return request(`/skills/${encodeURI(ref)}/ratings`)
 }

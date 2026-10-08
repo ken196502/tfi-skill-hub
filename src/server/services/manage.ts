@@ -12,10 +12,17 @@ import { asNumber, nowIso, query, type Row } from '../db'
 import { VALID_ROLES } from '../../lib/types'
 import type { SkillWithOwner, UserRole, UserStatus, Visibility } from '../../lib/types'
 import { audit, users, tokens as tokenRepo, type UserRecord } from '../repo/core'
-import { skills as skillRepo } from '../repo/skills'
+import { skills as skillRepo, stars as starRepo } from '../repo/skills'
 import { plugins as pluginRepo } from '../repo/plugins'
 import { generateRawToken, hashPassword, hashToken, extractPrefix, MIN_PASSWORD_LENGTH } from '../auth'
-import { auditLog, reindexSkill, reindexPlugin, resolvePluginRef, resolveSkillRef } from './shared'
+import {
+  auditLog,
+  reindexSkill,
+  reindexPlugin,
+  resolvePluginRef,
+  resolveSkillRef,
+  type Viewer,
+} from './shared'
 import type { SkillRef } from '../../lib/types'
 import type { APIToken } from '../../lib/types'
 
@@ -224,10 +231,21 @@ export function listAllSkills(opts: { visibility: string; cursor: string; limit:
   return skillRepo.listForAdmin({ ...opts, limit })
 }
 
-export function listFeaturedSkills() {
-  return query.all<{ skill_id: string }>(
-    'SELECT skill_id FROM featured_skills ORDER BY position ASC, updated_at DESC',
-  ).map(({ skill_id }) => skillRepo.getWithOwnerById(skill_id)).filter(Boolean)
+export function listFeaturedSkills(viewer: Viewer | null = null) {
+  const items = query
+    .all<{ skill_id: string }>(
+      'SELECT skill_id FROM featured_skills ORDER BY position ASC, updated_at DESC',
+    )
+    .map(({ skill_id }) => skillRepo.getWithOwnerById(skill_id))
+    .filter((skill): skill is SkillWithOwner => skill !== null)
+  if (!viewer) return items
+  // The card grid renders the same star toggle as the catalogue, so featured
+  // rows carry the viewer's flag too.
+  const starred = starRepo.starredIdSet(
+    viewer.id,
+    items.map((skill) => skill.id),
+  )
+  return items.map((skill) => ({ ...skill, starred: starred.has(skill.id) }))
 }
 
 export function replaceFeaturedSkills(actorId: string, skillIds: string[]): void {

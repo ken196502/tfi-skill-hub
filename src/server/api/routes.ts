@@ -15,10 +15,20 @@ import { compileRoutes, dispatch, type RouteDef } from '../http'
 import * as h from './handlers'
 import type { ApiKeyScope } from '../../lib/types'
 
-// Shorthands for the three middleware postures used across the table.
+// Shorthands for the middleware postures used across the table.
 const pub = { auth: 'public', bucket: 'read' } as const
 const opt = { auth: 'optional', bucket: 'read' } as const
 const authed = { auth: 'required', bucket: 'write' } as const
+/**
+ * Administrator-only. An ordinary account may browse, favourite and download —
+ * nothing else. Publishing, namespace and token administration, and the social
+ * writes all sit behind this posture, so `role === 'user'` gets 403 from the
+ * middleware before a handler ever runs.
+ *
+ * Note this is *narrower* than `auth: 'required'`, which only means "signed in".
+ */
+const adminWrite = { auth: 'admin', bucket: 'write' } as const
+const adminRead = { auth: 'admin', bucket: 'read' } as const
 
 /**
  * Capability an admin API key needs to call a route. Routes left unannotated
@@ -106,52 +116,60 @@ function buildRoutes(): RouteDef[] {
     { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug/versions', handler: h.pluginRead.pluginVersions, ...opt },
 
     // ── Identity & personal tokens ───────────────────────────────────────────
+    // `whoami` stays open to any session — the UI needs it to render the header.
+    // Personal tokens are a publishing credential, so they are administrator-only
+    // along with the rest of the publishing surface.
     { method: 'GET', path: '/api/v1/whoami', handler: h.auth.whoami, ...authed, ...K_READ },
-    { method: 'GET', path: '/api/v1/tokens', handler: h.personalTokens.list, ...authed },
-    { method: 'POST', path: '/api/v1/tokens', handler: h.personalTokens.create, ...authed },
-    { method: 'DELETE', path: '/api/v1/tokens/:id', handler: h.personalTokens.revoke, ...authed },
+    { method: 'GET', path: '/api/v1/tokens', handler: h.personalTokens.list, ...adminRead },
+    { method: 'POST', path: '/api/v1/tokens', handler: h.personalTokens.create, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/tokens/:id', handler: h.personalTokens.revoke, ...adminWrite },
 
-    // ── Skill publishing & lifecycle ─────────────────────────────────────────
-    { method: 'POST', path: '/api/v1/skills', handler: h.skillWrite.publish, ...authed, ...K_PUBLISH },
-    { method: 'POST', path: '/api/v1/skills/direct-upload', handler: h.skillWrite.directUploadPlan, ...authed },
-    { method: 'POST', path: '/api/v1/skills/direct-upload/complete', handler: h.skillWrite.directUploadComplete, ...authed },
+    // ── Skill publishing & lifecycle (administrators only) ───────────────────
+    { method: 'POST', path: '/api/v1/skills', handler: h.skillWrite.publish, ...adminWrite, ...K_PUBLISH },
+    { method: 'POST', path: '/api/v1/skills/direct-upload', handler: h.skillWrite.directUploadPlan, ...adminWrite },
+    { method: 'POST', path: '/api/v1/skills/direct-upload/complete', handler: h.skillWrite.directUploadComplete, ...adminWrite },
 
-    { method: 'DELETE', path: '/api/v1/skills/:slug', handler: h.skillWrite.remove, ...authed, ...K_DELETE },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/purge', handler: h.skillWrite.purge, ...authed, ...K_DELETE },
-    { method: 'POST', path: '/api/v1/skills/:slug/undelete', handler: h.skillWrite.undelete, ...authed, ...K_DELETE },
-    { method: 'POST', path: '/api/v1/skills/:slug/request-public', handler: h.skillWrite.requestPublic, ...authed, ...K_PUBLISH },
-    { method: 'PUT', path: '/api/v1/skills/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...authed, ...K_PUBLISH },
-    { method: 'PUT', path: '/api/v1/skills/:slug/file', handler: h.skillWrite.updateFile, ...authed, ...K_PUBLISH },
-    { method: 'POST', path: '/api/v1/skills/:slug/transfer', handler: h.skillWrite.transfer, ...authed, ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...authed, ...K_MODERATE },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...authed, ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...authed, ...K_MODERATE },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...authed, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug', handler: h.skillWrite.remove, ...adminWrite, ...K_DELETE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/purge', handler: h.skillWrite.purge, ...adminWrite, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/:slug/undelete', handler: h.skillWrite.undelete, ...adminWrite, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/:slug/request-public', handler: h.skillWrite.requestPublic, ...adminWrite, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...adminWrite, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/:slug/file', handler: h.skillWrite.updateFile, ...adminWrite, ...K_PUBLISH },
+    { method: 'POST', path: '/api/v1/skills/:slug/transfer', handler: h.skillWrite.transfer, ...adminWrite, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...adminWrite, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...adminWrite, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...adminWrite, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...adminWrite, ...K_MODERATE },
 
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillWrite.remove, ...authed, ...K_DELETE },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/purge', handler: h.skillWrite.purge, ...authed, ...K_DELETE },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/undelete', handler: h.skillWrite.undelete, ...authed, ...K_DELETE },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/request-public', handler: h.skillWrite.requestPublic, ...authed, ...K_PUBLISH },
-    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...authed, ...K_PUBLISH },
-    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillWrite.updateFile, ...authed, ...K_PUBLISH },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/transfer', handler: h.skillWrite.transfer, ...authed, ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...authed, ...K_MODERATE },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...authed, ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...authed, ...K_MODERATE },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...authed, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillWrite.remove, ...adminWrite, ...K_DELETE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/purge', handler: h.skillWrite.purge, ...adminWrite, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/undelete', handler: h.skillWrite.undelete, ...adminWrite, ...K_DELETE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/request-public', handler: h.skillWrite.requestPublic, ...adminWrite, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...adminWrite, ...K_PUBLISH },
+    { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillWrite.updateFile, ...adminWrite, ...K_PUBLISH },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/transfer', handler: h.skillWrite.transfer, ...adminWrite, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.yank, ...adminWrite, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/yank', handler: h.skillWrite.unyank, ...adminWrite, ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.deprecate, ...adminWrite, ...K_MODERATE },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/versions/:version/deprecate', handler: h.skillWrite.undeprecate, ...adminWrite, ...K_MODERATE },
 
     // ── Stars / ratings / comments ───────────────────────────────────────────
+    // The collection listing is session-only by design: `stars` is a personal
+    // view, and the other star routes carry no `skills:read` scope to inherit.
+    { method: 'GET', path: '/api/v1/stars', handler: h.social.listStars, ...authed },
     { method: 'POST', path: '/api/v1/stars/:slug', handler: h.social.star, ...authed },
     { method: 'DELETE', path: '/api/v1/stars/:slug', handler: h.social.unstar, ...authed },
     { method: 'POST', path: '/api/v1/stars/@:namespace/:slug', handler: h.social.star, ...authed },
     { method: 'DELETE', path: '/api/v1/stars/@:namespace/:slug', handler: h.social.unstar, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/ratings', handler: h.social.rate, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/:slug/ratings', handler: h.social.deleteRating, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/ratings', handler: h.social.rate, ...authed },
-    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/ratings', handler: h.social.deleteRating, ...authed },
-    { method: 'POST', path: '/api/v1/skills/:slug/comments', handler: h.social.createComment, ...authed },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/comments', handler: h.social.createComment, ...authed },
-    { method: 'DELETE', path: '/api/v1/comments/:id', handler: h.social.deleteComment, ...authed },
+    // Ratings and comments are curator tools, not end-user features: ordinary
+    // accounts get 403 here. The listings stay public — they are catalogue reads.
+    { method: 'POST', path: '/api/v1/skills/:slug/ratings', handler: h.social.rate, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/skills/:slug/ratings', handler: h.social.deleteRating, ...adminWrite },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/ratings', handler: h.social.rate, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/ratings', handler: h.social.deleteRating, ...adminWrite },
+    { method: 'POST', path: '/api/v1/skills/:slug/comments', handler: h.social.createComment, ...adminWrite },
+    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/comments', handler: h.social.createComment, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/comments/:id', handler: h.social.deleteComment, ...adminWrite },
 
     // ── Notifications ────────────────────────────────────────────────────────
     { method: 'GET', path: '/api/v1/notifications', handler: h.social.listNotifications, ...authed },
@@ -159,37 +177,40 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/api/v1/notifications/read-all', handler: h.social.markAllRead, ...authed },
     { method: 'POST', path: '/api/v1/notifications/:id/read', handler: h.social.markRead, ...authed },
 
-    // ── Namespaces ───────────────────────────────────────────────────────────
-    { method: 'POST', path: '/api/v1/namespaces', handler: h.namespaceHandlers.create, ...authed },
-    { method: 'GET', path: '/api/v1/namespaces', handler: h.namespaceHandlers.list, ...authed },
-    { method: 'GET', path: '/api/v1/namespaces/:slug', handler: h.namespaceHandlers.get, ...authed },
-    { method: 'PUT', path: '/api/v1/namespaces/:slug', handler: h.namespaceHandlers.update, ...authed },
-    { method: 'DELETE', path: '/api/v1/namespaces/:slug', handler: h.namespaceHandlers.remove, ...authed },
-    { method: 'GET', path: '/api/v1/namespaces/:slug/members', handler: h.namespaceHandlers.listMembers, ...authed },
-    { method: 'POST', path: '/api/v1/namespaces/:slug/members', handler: h.namespaceHandlers.addMember, ...authed },
-    { method: 'DELETE', path: '/api/v1/namespaces/:slug/members/:handle', handler: h.namespaceHandlers.removeMember, ...authed },
-    { method: 'POST', path: '/api/v1/namespaces/:slug/leave', handler: h.namespaceHandlers.leave, ...authed },
-    { method: 'POST', path: '/api/v1/namespaces/:slug/transfer', handler: h.namespaceHandlers.transfer, ...authed },
-    { method: 'POST', path: '/api/v1/namespaces/:slug/invitations', handler: h.namespaceHandlers.invite, ...authed },
-    { method: 'GET', path: '/api/v1/namespaces/:slug/invitations', handler: h.namespaceHandlers.listInvitations, ...authed },
-    { method: 'DELETE', path: '/api/v1/namespaces/:slug/invitations/:id', handler: h.namespaceHandlers.revokeInvitation, ...authed },
-    { method: 'GET', path: '/api/v1/namespaces/:slug/tokens', handler: h.namespaceHandlers.listTeamTokens, ...authed },
-    { method: 'POST', path: '/api/v1/namespaces/:slug/tokens', handler: h.namespaceHandlers.createTeamToken, ...authed },
-    { method: 'DELETE', path: '/api/v1/namespaces/:slug/tokens/:id', handler: h.namespaceHandlers.revokeTeamToken, ...authed },
-    { method: 'GET', path: '/api/v1/invitations', handler: h.namespaceHandlers.myInvitations, ...authed },
-    { method: 'POST', path: '/api/v1/invitations/:id/accept', handler: h.namespaceHandlers.acceptInvitation, ...authed },
-    { method: 'POST', path: '/api/v1/invitations/:id/decline', handler: h.namespaceHandlers.declineInvitation, ...authed },
+    // ── Namespaces (administrators only) ─────────────────────────────────────
+    // The whole team surface is curator territory now. Invitations are included
+    // deliberately: letting an ordinary account join a namespace it can no
+    // longer publish into would be an incoherent half-state.
+    { method: 'POST', path: '/api/v1/namespaces', handler: h.namespaceHandlers.create, ...adminWrite },
+    { method: 'GET', path: '/api/v1/namespaces', handler: h.namespaceHandlers.list, ...adminRead },
+    { method: 'GET', path: '/api/v1/namespaces/:slug', handler: h.namespaceHandlers.get, ...adminRead },
+    { method: 'PUT', path: '/api/v1/namespaces/:slug', handler: h.namespaceHandlers.update, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/namespaces/:slug', handler: h.namespaceHandlers.remove, ...adminWrite },
+    { method: 'GET', path: '/api/v1/namespaces/:slug/members', handler: h.namespaceHandlers.listMembers, ...adminRead },
+    { method: 'POST', path: '/api/v1/namespaces/:slug/members', handler: h.namespaceHandlers.addMember, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/namespaces/:slug/members/:handle', handler: h.namespaceHandlers.removeMember, ...adminWrite },
+    { method: 'POST', path: '/api/v1/namespaces/:slug/leave', handler: h.namespaceHandlers.leave, ...adminWrite },
+    { method: 'POST', path: '/api/v1/namespaces/:slug/transfer', handler: h.namespaceHandlers.transfer, ...adminWrite },
+    { method: 'POST', path: '/api/v1/namespaces/:slug/invitations', handler: h.namespaceHandlers.invite, ...adminWrite },
+    { method: 'GET', path: '/api/v1/namespaces/:slug/invitations', handler: h.namespaceHandlers.listInvitations, ...adminRead },
+    { method: 'DELETE', path: '/api/v1/namespaces/:slug/invitations/:id', handler: h.namespaceHandlers.revokeInvitation, ...adminWrite },
+    { method: 'GET', path: '/api/v1/namespaces/:slug/tokens', handler: h.namespaceHandlers.listTeamTokens, ...adminRead },
+    { method: 'POST', path: '/api/v1/namespaces/:slug/tokens', handler: h.namespaceHandlers.createTeamToken, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/namespaces/:slug/tokens/:id', handler: h.namespaceHandlers.revokeTeamToken, ...adminWrite },
+    { method: 'GET', path: '/api/v1/invitations', handler: h.namespaceHandlers.myInvitations, ...adminRead },
+    { method: 'POST', path: '/api/v1/invitations/:id/accept', handler: h.namespaceHandlers.acceptInvitation, ...adminWrite },
+    { method: 'POST', path: '/api/v1/invitations/:id/decline', handler: h.namespaceHandlers.declineInvitation, ...adminWrite },
 
-    // ── Plugin writes ────────────────────────────────────────────────────────
-    { method: 'POST', path: '/api/v1/plugins', handler: h.pluginWrite.publish, ...authed },
-    { method: 'DELETE', path: '/api/v1/plugins/:slug', handler: h.pluginWrite.remove, ...authed },
-    { method: 'POST', path: '/api/v1/plugins/:slug/undelete', handler: h.pluginWrite.undelete, ...authed },
-    { method: 'POST', path: '/api/v1/plugins/:slug/versions/:version/yank', handler: h.pluginWrite.yank, ...authed },
-    { method: 'DELETE', path: '/api/v1/plugins/:slug/versions/:version/yank', handler: h.pluginWrite.unyank, ...authed },
-    { method: 'DELETE', path: '/api/v1/plugins/@:namespace/:slug', handler: h.pluginWrite.remove, ...authed },
-    { method: 'POST', path: '/api/v1/plugins/@:namespace/:slug/undelete', handler: h.pluginWrite.undelete, ...authed },
-    { method: 'POST', path: '/api/v1/plugins/@:namespace/:slug/versions/:version/yank', handler: h.pluginWrite.yank, ...authed },
-    { method: 'DELETE', path: '/api/v1/plugins/@:namespace/:slug/versions/:version/yank', handler: h.pluginWrite.unyank, ...authed },
+    // ── Plugin writes (administrators only) ──────────────────────────────────
+    { method: 'POST', path: '/api/v1/plugins', handler: h.pluginWrite.publish, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/plugins/:slug', handler: h.pluginWrite.remove, ...adminWrite },
+    { method: 'POST', path: '/api/v1/plugins/:slug/undelete', handler: h.pluginWrite.undelete, ...adminWrite },
+    { method: 'POST', path: '/api/v1/plugins/:slug/versions/:version/yank', handler: h.pluginWrite.yank, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/plugins/:slug/versions/:version/yank', handler: h.pluginWrite.unyank, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/plugins/@:namespace/:slug', handler: h.pluginWrite.remove, ...adminWrite },
+    { method: 'POST', path: '/api/v1/plugins/@:namespace/:slug/undelete', handler: h.pluginWrite.undelete, ...adminWrite },
+    { method: 'POST', path: '/api/v1/plugins/@:namespace/:slug/versions/:version/yank', handler: h.pluginWrite.yank, ...adminWrite },
+    { method: 'DELETE', path: '/api/v1/plugins/@:namespace/:slug/versions/:version/yank', handler: h.pluginWrite.unyank, ...adminWrite },
 
     // ── Admin ────────────────────────────────────────────────────────────────
     { method: 'POST', path: '/api/v1/admin/users/ban', handler: h.admin.banUser, auth: 'admin' },
@@ -217,7 +238,9 @@ function buildRoutes(): RouteDef[] {
 
     // ── Agent provisioning & agent skill API ─────────────────────────────────
     { method: 'POST', path: '/api/v1/agent/provision', handler: h.agentProvision.provision, auth: 'public', bucket: 'write' },
-    { method: 'POST', path: '/api/agent/skills', handler: h.agent.publish, auth: 'required', bucket: 'write' },
+    // Second publishing surface — clamped with the rest of publishing. The read
+    // side stays as it was; it exposes nothing beyond the public catalogue.
+    { method: 'POST', path: '/api/agent/skills', handler: h.agent.publish, ...adminWrite },
     { method: 'GET', path: '/api/agent/skills', handler: h.agent.list, auth: 'required', bucket: 'read' },
     { method: 'GET', path: '/api/agent/skills/:id', handler: h.agent.detail, auth: 'required', bucket: 'read' },
     { method: 'GET', path: '/api/agent/skills/:id/download', handler: h.agent.download, auth: 'required', bucket: 'download' },

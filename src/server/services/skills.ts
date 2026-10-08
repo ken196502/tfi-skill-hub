@@ -66,7 +66,7 @@ export interface ListOptions {
 }
 
 export function listSkills(opts: ListOptions) {
-  return skillRepo.list({
+  const page = skillRepo.list({
     limit: opts.limit <= 0 || opts.limit > 100 ? 20 : opts.limit,
     cursor: opts.cursor,
     sort: opts.sort,
@@ -75,11 +75,46 @@ export function listSkills(opts: ListOptions) {
     namespaceSlug: opts.namespaceSlug,
     viewer: opts.viewer,
   })
+  return { ...page, data: markStarred(page.data, opts.viewer) }
+}
+
+/**
+ * The viewer's own collection, most recently starred first. Every row is by
+ * definition starred, so the flag is set without an extra lookup.
+ */
+export function listStarredSkills(
+  userId: string,
+  viewer: Viewer | null,
+  limit: number,
+  cursor: string,
+): { data: SkillWithOwner[]; nextCursor: string } {
+  const page = starRepo.listByUser(userId, {
+    limit: limit <= 0 || limit > 100 ? 20 : limit,
+    cursor,
+    viewer,
+  })
+  return { ...page, data: page.data.map((skill) => ({ ...skill, starred: true })) }
+}
+
+/**
+ * Adds `starred` to a page of skills for a signed-in viewer. Anonymous callers
+ * get the rows untouched — the field is absent rather than `false`, which the
+ * UI reads as "no session, show a sign-in hint".
+ */
+function markStarred(items: SkillWithOwner[], viewer: Viewer | null): SkillWithOwner[] {
+  if (!viewer) return items
+  const starred = starRepo.starredIdSet(
+    viewer.id,
+    items.map((skill) => skill.id),
+  )
+  return items.map((skill) => ({ ...skill, starred: starred.has(skill.id) }))
 }
 
 export function getSkill(ref: SkillRef, viewer: Viewer | null): SkillWithOwner | null {
   const skill = resolveSkillRef(ref, viewer)
-  return skill ? withDetailHtml(skill) : null
+  if (!skill) return null
+  const out = withDetailHtml(skill)
+  return viewer ? { ...out, starred: isStarred(viewer.id, skill.id) } : out
 }
 
 /**

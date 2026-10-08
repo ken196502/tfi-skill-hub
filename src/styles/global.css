@@ -581,6 +581,27 @@ main { flex: 1; }
 .card-meta .stat-stars b { color: var(--sec-stat); font-weight: 600; }
 .card-meta .stat-downloads b { color: var(--sec-stat-icon); font-weight: 600; }
 .card-meta .stat-owner b { color: var(--sec-label); font-weight: 500; }
+
+/* The star count doubles as the favourite toggle on every skill card. It keeps
+   the plain-text look until hovered or armed, so the meta row stays calm. */
+.card-meta .stat-stars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--sec-meta);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.card-meta .stat-stars .stat-icon { color: var(--sec-hint); transition: color 0.15s; }
+.card-meta .stat-stars:hover { color: var(--sec-stat); }
+.card-meta .stat-stars:hover .stat-icon,
+.card-meta .stat-stars.is-starred .stat-icon { color: var(--sec-stat); }
+.card-meta .stat-stars:disabled { cursor: progress; opacity: 0.7; }
 .card-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .card-head { margin-bottom: 6px; }
 .card-head .card-tags { margin-bottom: 12px; }
@@ -741,6 +762,17 @@ main { flex: 1; }
 }
 .btn-small { padding: 6px 16px; font-size: 0.8rem; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Armed favourite state: reads as a filled star chip rather than a call to action. */
+.favorite-btn.is-starred {
+  background: var(--sec-label-bg);
+  color: var(--sec-stat);
+  border: 1px solid var(--sec-tag);
+}
+.favorite-btn.is-starred:hover {
+  background: var(--sec-tag-bg);
+  border-color: var(--sec-tag);
+}
 
 /* ═══════════════════════════════════════
    Hero section
@@ -1059,6 +1091,20 @@ main { flex: 1; }
   flex-shrink: 0;
 }
 .load-more { text-align: center; margin-top: 32px; }
+
+/* Empty collection / signed-out prompt on the favourites page. */
+.favorites-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  text-align: center;
+  padding: 56px 24px;
+  border: 1px dashed var(--card-border);
+  border-radius: var(--radius-lg);
+  background: var(--card-bg);
+}
+.favorites-empty .detail-summary { margin: 0; max-width: 420px; }
 
 /* ═══════════════════════════════════════
    Markdown content

@@ -807,6 +807,79 @@ export const stars = {
   count(skillId: string): number {
     return asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM stars WHERE skill_id = ?', skillId)?.c)
   },
+
+  /**
+   * Which of `skillIds` the user has starred — one query for a whole page, so
+   * list responses can carry a `starred` flag without an N+1.
+   */
+  starredIdSet(userId: string, skillIds: string[]): Set<string> {
+    if (skillIds.length === 0) return new Set()
+    const placeholders = skillIds.map(() => '?').join(', ')
+    const rows = query.all<Row>(
+      `SELECT skill_id FROM stars WHERE user_id = ? AND skill_id IN (${placeholders})`,
+      userId,
+      ...skillIds,
+    )
+    return new Set(rows.map((r) => asString(r.skill_id)))
+  },
+
+  /**
+   * A user's starred skills, most recently starred first.
+   *
+   * The cursor is a `stars` row id, not a skill id, because the ordering column
+   * lives on the join table. Soft-deleted skills are skipped, and the same
+   * visibility rule as the catalogue listing applies — a skill that has since
+   * gone private drops out of the collection rather than leaking to the viewer.
+   *
+   * Both ordering keys are DESC so the row-value `<` comparator used for the
+   * cursor means exactly "comes later in this order" — mixing directions would
+   * silently drop rows whose timestamps tie.
+   */
+  listByUser(
+    userId: string,
+    opts: { limit: number; cursor: string; viewer: Viewer | null },
+  ): { data: SkillWithOwner[]; nextCursor: string } {
+    const where: string[] = ['st.user_id = ?', 's.soft_deleted_at IS NULL']
+    const params: unknown[] = [userId]
+
+    const vis = visibilityClause(opts.viewer)
+    if (vis.sql) {
+      where.push(vis.sql.replace(/^ AND /, ''))
+      params.push(...vis.params)
+    }
+
+    if (opts.cursor) {
+      where.push(
+        '(st.created_at, st.id) < (SELECT created_at, id FROM stars WHERE id = ?)',
+      )
+      params.push(opts.cursor)
+    }
+
+    const rows = query.all<Row>(
+      `SELECT s.*, st.id AS star_id,
+              u.handle       AS owner_handle,
+              u.display_name AS owner_display_name,
+              u.avatar_url   AS owner_avatar_url,
+              n.slug         AS namespace_slug
+       FROM stars st
+       JOIN skills s     ON s.id = st.skill_id
+       JOIN users u      ON u.id = s.owner_id
+       LEFT JOIN namespaces n ON n.id = s.namespace_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY st.created_at DESC, st.id DESC
+       LIMIT ?`,
+      ...params,
+      opts.limit + 1,
+    )
+
+    const items = rows.slice(0, opts.limit).map(mapSkillWithOwner)
+    // The cursor is the *last* row actually returned, so the next page resumes
+    // strictly after it. (The catalogue listing parks the cursor on the first
+    // unreturned row instead — harmless there, since the web client paginates
+    // by growing `limit` and never replays a cursor.)
+    const nextCursor = rows.length > opts.limit ? asString(rows[opts.limit - 1].star_id) : ''
+    return { data: items, nextCursor }
+  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

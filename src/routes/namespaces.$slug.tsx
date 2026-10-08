@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { createFileRoute, Link, useParams } from '@tanstack/react-router'
+import { createFileRoute, Link, Navigate, useParams } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import * as api from '../lib/api'
 import { useSession } from '../lib/auth'
@@ -14,7 +14,7 @@ type Tab = 'members' | 'invitations' | 'tokens'
 
 function NamespaceDetailPage() {
   const { slug } = useParams({ from: '/namespaces/$slug' })
-  const { user } = useSession()
+  const { user, booting } = useSession()
   const queryClient = useQueryClient()
   const t = useT()
   const [tab, setTab] = useState<Tab>('members')
@@ -75,6 +75,10 @@ function NamespaceDetailPage() {
     onSuccess: invalidate,
     onError: (e) => setError(e instanceof Error ? e.message : t('吊销 Token 失败', 'Failed to revoke token')),
   })
+
+  if (booting) return <Loading />
+  // Declared after every hook so the call order stays stable across renders.
+  if (!user || user.role !== 'admin') return <Navigate to="/skills" />
 
   if (ns.isLoading) return <Loading />
   if (ns.isError) {

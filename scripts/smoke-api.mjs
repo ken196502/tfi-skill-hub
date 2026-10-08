@@ -1340,7 +1340,69 @@ try {
     r.text.slice(0, 200),
   )
 
-  // ── 17. rate limiting (tight limits, separate process) ───────────────────
+  // ── 17. ordinary-user permissions ────────────────────────────────────────
+  section('Ordinary user permissions')
+
+  // `plainUserToken` belongs to `smokeuser`, whose role is `user`. The policy is
+  // that such an account may only browse, favourite and download a skill —
+  // everything else is administrator territory, refused with 403 by the
+  // middleware before any handler runs.
+  const catalogue = await req('GET', '/api/v1/skills?limit=20&sort=name', { token: plainUserToken })
+  const anySkill = (catalogue.body?.data ?? []).find(
+    (s) => s.visibility === 'public' && s.moderationStatus === 'approved',
+  )
+  const anyRef = anySkill?.namespaceSlug ? `@${anySkill.namespaceSlug}/${anySkill.slug}` : anySkill?.slug
+  check('a plain user can browse the catalogue', catalogue.status === 200 && !!anyRef, `${catalogue.status} ${catalogue.text.slice(0, 120)}`)
+
+  r = await req('POST', `/api/v1/stars/${anyRef}`, { token: plainUserToken })
+  check('a plain user can favourite a skill', r.status === 200 && r.body?.message === 'starred', `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/stars', { token: plainUserToken })
+  check('a plain user can read their own collection', r.status === 200 && Array.isArray(r.body?.data), `${r.status}`)
+
+  r = await req('DELETE', `/api/v1/stars/${anyRef}`, { token: plainUserToken })
+  check('a plain user can un-favourite', r.status === 200 && r.body?.message === 'unstarred', `${r.status} ${r.text}`)
+
+  r = await req(
+    'GET',
+    `/api/v1/download?slug=${anySkill?.slug}&version=latest${anySkill?.namespaceSlug ? `&namespace=${anySkill.namespaceSlug}` : ''}`,
+    { token: plainUserToken },
+  )
+  check('a plain user can download a skill', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('POST', '/api/v1/skills', {
+    token: plainUserToken,
+    body: multipart({ slug: 'plain-denied', version: '1.0.0' }, { 'SKILL.md': skillMd('plain-denied') }),
+  })
+  check(
+    'a plain user cannot publish a skill → 403',
+    r.status === 403 && r.body?.error === 'insufficient permissions',
+    `${r.status} ${r.text.slice(0, 120)}`,
+  )
+
+  // The remaining write surfaces, all expected to be refused outright.
+  const refusals = [
+    ['publish a plugin', 'POST', '/api/v1/plugins', multipart({ slug: 'plain-denied-plugin', version: '1.0.0' }, { 'plugin.json': JSON.stringify({ name: 'x', version: '1.0.0' }) })],
+    ['publish via the agent API', 'POST', '/api/agent/skills', multipart({ slug: 'plain-denied-agent', version: '1.0.0' }, { 'SKILL.md': skillMd('plain-denied-agent') })],
+    ['create a namespace', 'POST', '/api/v1/namespaces', { slug: 'plain-denied-ns' }],
+    ['list namespaces', 'GET', '/api/v1/namespaces', undefined],
+    ['mint a personal token', 'POST', '/api/v1/tokens', { label: 'plain', scope: 'full' }],
+    ['list personal tokens', 'GET', '/api/v1/tokens', undefined],
+    ['rate a skill', 'POST', `/api/v1/skills/${anyRef}/ratings`, { score: 5 }],
+    ['comment on a skill', 'POST', `/api/v1/skills/${anyRef}/comments`, { body: 'nope' }],
+    ['edit a skill file', 'PUT', `/api/v1/skills/${anyRef}/file`, { path: 'SKILL.md', content: 'x' }],
+    ['edit a skill detail page', 'PUT', `/api/v1/skills/${anyRef}/detail-html`, { html: '<p>x</p>' }],
+    ['delete a skill', 'DELETE', `/api/v1/skills/${anyRef}`, undefined],
+    ['yank a version', 'POST', `/api/v1/skills/${anyRef}/versions/1.0.0/yank`, { reason: 'x' }],
+    ['ban a user', 'POST', '/api/v1/admin/users/ban', { userId: otherUserId, banned: true }],
+    ['update the featured list', 'PUT', '/api/v1/admin/features', { skillIds: [] }],
+  ]
+  for (const [label, method, path, body] of refusals) {
+    const res = await req(method, path, { token: plainUserToken, body })
+    check(`a plain user cannot ${label} → 403`, res.status === 403, `${res.status} ${res.text.slice(0, 120)}`)
+  }
+
+  // ── 18. rate limiting (tight limits, separate process) ───────────────────
   section('Rate limiting')
 
   {
@@ -1388,7 +1450,7 @@ try {
     }
   }
 
-  // ── 18. persistence across restart ────────────────────────────────────────
+  // ── 19. persistence across restart ────────────────────────────────────────
   section('Persistence')
 
   const before = await req('GET', '/api/v1/skills?limit=100')

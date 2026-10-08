@@ -1,5 +1,5 @@
 import { useState, type DragEvent, type FormEvent } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, Navigate } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { publishSkillWithProgress, categories } from '../lib/api'
 import { useSession } from '../lib/auth'
@@ -111,19 +111,9 @@ function PublishPage() {
   }
 
   if (booting) return <Loading />
-  if (!user) {
-    return (
-      <div className="container" style={{ paddingTop: 60 }}>
-        <PageHeader
-          title={t('发布技能', 'Publish a skill')}
-          subtitle={t('请先登录后再发布技能。', 'Please log in before publishing a skill.')}
-        />
-        <Link to="/login" className="btn btn-primary">
-          {t('登录后发布', 'Log in to publish')}
-        </Link>
-      </div>
-    )
-  }
+  // Publishing is administrator-only. The page is never linked from the header,
+  // but it is reachable by URL, so the guard has to live here as well.
+  if (!user || user.role !== 'admin') return <Navigate to="/skills" />
 
   return (
     <div className="container" style={{ paddingTop: 40, maxWidth: 760 }}>

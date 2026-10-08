@@ -179,24 +179,40 @@ scripts/
 | **打包下载** | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` | **需登录** |
 | 会话 | `POST /login`、`POST /logout`、`POST /register`、`GET /api/v1/registration`、`/auth/device/*` | 公开 / 需登录 |
 | 身份 | `GET /api/v1/whoami` | 需登录 |
-| 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件、`PUT .../detail-html` | 需登录 |
-| 个人 Token | `/api/v1/tokens` | 需登录 |
+| 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件、`PUT .../detail-html` | 仅 `admin` |
+| 个人 Token | `/api/v1/tokens` | 仅 `admin` |
 | 管理端 API Key | `GET/POST /api/v1/admin/api-keys`、`DELETE /api/v1/admin/api-keys/:id` | 仅 `admin` |
 | 用户审核 | `GET /api/v1/admin/users`、`POST /api/v1/admin/users/review` | 仅 `admin`（可用 `users:moderate` key） |
-| 命名空间 | `/api/v1/namespaces/*`、`/api/v1/invitations/*` | 需登录（按命名空间角色授权） |
-| 社交 | `/api/v1/stars/*`、`.../ratings`、`.../comments`、`/api/v1/notifications/*` | 需登录 |
+| 命名空间 | `/api/v1/namespaces/*`、`/api/v1/invitations/*` | 仅 `admin` |
+| 收藏 | `/api/v1/stars/*` | 需登录 |
+| 评分 / 评论 | `.../ratings`、`.../comments`（写接口） | 仅 `admin` |
+| 通知 | `/api/v1/notifications/*` | 需登录（个人只读收件箱） |
 | 管理端 | `/api/v1/admin/*` | 仅 `admin` |
-| Agent 发布 | `/api/agent/skills*` | 需登录（`publish` 作用域可用） |
+| Agent 发布 | `POST /api/agent/skills` | 仅 `admin` |
+| Agent 读取 | `GET /api/agent/skills*` | 需登录 |
 | Runtime 加载 | `/api/runtime/*`（`bundle` 除外，需登录） | 公开（可选身份） |
 
 错误响应沿用原实现的两套约定：注册中心接口用 `{"error": "<message>"}`（歧义 slug 额外带 `candidates`），
 Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 
+### 普通用户能做什么
+
+普通账号（`role = user`）注册并经管理员审核通过后，**只能**：
+
+* 浏览目录：技能与插件列表、详情、搜索、分类、精选；
+* 收藏与取消收藏（`POST/DELETE /api/v1/stars/*`），并查看自己的收藏（`GET /api/v1/stars`）；
+* 下载技能 ZIP 与插件 ZIP（均需登录）。
+
+发布（技能、插件、Agent 发布接口）、命名空间与团队、个人 Token、评分与评论的写接口，
+以及整个 `/api/v1/admin/*`，一律要求 `role = admin`。`/publish` 与 `/namespaces` 页面在客户端
+也会把非管理员重定向到 `/skills`。
+
 ### 作用域与角色
 
-* Token 作用域：`full`（全部）、`read`（仅 GET/HEAD）、`publish`（仅 `POST /api/v1/skills`、`/api/agent/skills`、`/api/v1/stars/:slug`）。
 * 用户角色只有两种：`user` / `admin`（另有 `agent`，是 `/api/agent/provision` 自动建号的内部标记，不对外开放、界面上也不可选）。
-* 命名空间角色：`owner` / `admin` / `member` / `reader`（`reader` 可读不可发布）。
+* 个人 Token 的三个作用域取值（`full` / `read` / `publish`）**目前只作为元数据记录，不做强制**：
+  签发与鉴权都要求 `admin`，而路由层不读 `tokenScope`。
+* 命名空间角色：`owner` / `admin` / `member` / `reader` —— 只在管理员之间生效（命名空间接口已收为 admin-only）。
 * 团队 Token 绑定到命名空间，只能向其绑定的命名空间发布；成员退出或命名空间删除时会级联吊销。
 * 管理端 API Key（`shk_` 前缀，在 `/admin/api-keys` 页面签发）按用途授权，与签发者的角色无关：
   `skills:read`（搜索、列表、详情、文件、下载）、`skills:publish`（发布新版本、改单文件）、
@@ -251,8 +267,8 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 限流按客户端 IP 计数，IP 取自 `X-Forwarded-For` / `X-Real-IP`。反向代理后部署时若未设置这些头，
   所有请求会共用一个桶。原实现读的是 socket 地址。
 * 限流状态在进程内存中，多副本部署时各自计数（与原实现一致）。
-* 访问 `/publish`、`/namespaces` 等需要登录的页面时，会话恢复是异步的，
-  首次渲染会先显示加载态再切到实际内容。
+* 访问 `/publish`、`/namespaces` 等仅管理员可见的页面时，会话恢复是异步的，
+  首次渲染会先显示加载态，再决定渲染内容还是把非管理员重定向到 `/skills`。
 * 详情 HTML 的消毒器是白名单式的，不是完整的 HTML5 解析器：它按标签流重建输出，
   不做完整的上下文嵌套纠错（例如 `<table>` 里直接放 `<div>` 不会被重排），
   也不支持 CSS（`style` 属性一律丢弃）。够用于正文排版，不等于 DOMPurify。

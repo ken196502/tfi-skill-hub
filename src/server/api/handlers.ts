@@ -256,8 +256,8 @@ curl -X POST '${base}/auth/device/token' -H 'Content-Type: application/json' -d 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const skillRead: Record<string, Handler> = {
-  listFeatures: () => {
-    try { return json({ data: manageSvc.listFeaturedSkills() }) }
+  listFeatures: (ctx) => {
+    try { return json({ data: manageSvc.listFeaturedSkills(viewerOf(ctx)) }) }
     catch { return internalError() }
   },
   search: (ctx) => {
@@ -1044,6 +1044,23 @@ function splitTags(raw: string): string[] {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const social: Record<string, Handler> = {
+  /** The signed-in user's collection, newest star first. */
+  listStars: (ctx) => {
+    const user = requireUser(ctx)
+    try {
+      return json(
+        skillSvc.listStarredSkills(
+          user.id,
+          viewerOf(ctx),
+          qInt(ctx.url, 'limit', 20, 100),
+          qStr(ctx.url, 'cursor'),
+        ),
+      )
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
   star: (ctx) => {
     const user = requireUser(ctx)
     try {
