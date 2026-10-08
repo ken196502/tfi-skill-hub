@@ -1724,6 +1724,41 @@ main { flex: 1; }
 .admin-lang-field:last-child { margin-bottom: 4px; }
 .admin-lang-field > .form-label { display: block; margin-bottom: 6px; }
 
+/* ── File picker (shared by the publish page and the console dialog) ─────── */
+
+.file-picker-list { margin-top: 14px; }
+.file-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.file-picker-head .form-hint { margin-top: 0; }
+.file-picker-list .version-item { gap: 12px; }
+.file-picker-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-picker-remove {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.file-picker-remove:hover { color: var(--danger); background: rgba(239, 68, 68, .12); }
+
 /* ── Rich-text field ────────────────────────────────────────────────────── */
 
 .rich-text-editor { position: relative; }

@@ -14,6 +14,7 @@ import {
 import { useSession } from '../lib/auth'
 import { useLang, useT, localizedName } from '../lib/i18n'
 import { AdminNav } from '../components/AdminShell'
+import { FileDropzone } from '../components/FileDropzone'
 import { RichTextEditor } from '../components/RichTextEditor'
 import { ErrorBox, Loading, PageHeader, formatDate, skillPath } from '../components/ui'
 import type { SkillWithOwner } from '../lib/types'
@@ -484,6 +485,7 @@ function SkillDialog({
   const [draft, setDraft] = useState<Draft>(() => (skill ? draftFromSkill(skill) : { ...EMPTY_DRAFT }))
   const [tagsText, setTagsText] = useState('')
   const [editLang, setEditLang] = useState<'zh' | 'en'>('zh')
+  const [files, setFiles] = useState<File[]>([])
   const [error, setError] = useState('')
 
   // The body is only on the detail path — a page of skills must not ship every
@@ -508,7 +510,8 @@ function SkillDialog({
   }, [detail.data])
 
   const save = useMutation({
-    mutationFn: (input: AdminSkillInput) => (isEdit ? adminUpdateSkill(ref, input) : adminCreateSkill(input)),
+    mutationFn: (input: AdminSkillInput) =>
+      isEdit ? adminUpdateSkill(ref, input, files) : adminCreateSkill(input, files),
     onSuccess: () => {
       onSaved()
       onClose()
@@ -523,7 +526,19 @@ function SkillDialog({
   const slug = draft.slug.trim()
   const slugInvalid = !isEdit && slug !== '' && !SLUG_PATTERN.test(slug)
   const missingSlug = !isEdit && slug === ''
-  const canSave = !missingSlug && !slugInvalid && !save.isPending && (!isEdit || detail.data !== undefined)
+  // A new skill needs a SKILL.md to be usable, so an upload without one cannot
+  // be saved. Editing does not: the skill already has one, and the point there
+  // is usually adding to it.
+  const uploadsWithoutSkillMd =
+    !isEdit &&
+    files.length > 0 &&
+    !files.some((file) => file.name === 'SKILL.md' || file.webkitRelativePath.endsWith('SKILL.md'))
+  const canSave =
+    !missingSlug &&
+    !slugInvalid &&
+    !uploadsWithoutSkillMd &&
+    !save.isPending &&
+    (!isEdit || detail.data !== undefined)
 
   const submit = () => {
     if (!canSave) return
@@ -694,6 +709,18 @@ function SkillDialog({
                     </div>
                   </>
                 )}
+              </div>
+
+              <div className="admin-lang-block">
+                <div className="admin-lang-tabs">
+                  <span className="form-label">{t('技能文件', 'Skill files')}</span>
+                </div>
+                <span className="form-hint admin-form-hint-inline">
+                  {isEdit
+                    ? t('上传的文件会作为新版本发布；不传则保持现有文件不变。', 'Uploaded files are published as a new version. Leave empty to keep the current files.')
+                    : t('可上传技能文件夹（需包含 SKILL.md）；不传则只创建条目，之后再补文件。', 'Upload a skill folder (it must include SKILL.md). Leave empty to create the entry first and add files later.')}
+                </span>
+                <FileDropzone files={files} onChange={setFiles} requireSkillMd={!isEdit} />
               </div>
 
               <div className="admin-modal-foot">

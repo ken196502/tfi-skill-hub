@@ -63,35 +63,6 @@ export function apiUrl(path: string): string {
   return BASE + path
 }
 
-/** Uploads with real progress reporting; `fetch` cannot report upload progress. */
-export function uploadWithProgress<T>(
-  path: string,
-  form: FormData,
-  onProgress: (pct: number) => void,
-): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('POST', BASE + path, true)
-    xhr.withCredentials = true
-    xhr.upload.addEventListener('progress', (e) => {
-      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
-    })
-    xhr.onload = () => {
-      let body: Record<string, unknown> = {}
-      try {
-        body = JSON.parse(xhr.responseText) as Record<string, unknown>
-      } catch {
-        /* non-JSON body */
-      }
-      if (xhr.status >= 200 && xhr.status < 300) resolve(body as T)
-      else reject(new ApiError(xhr.status, body))
-    }
-    xhr.onerror = () => reject(new Error('Network error'))
-    xhr.ontimeout = () => reject(new Error('Upload timed out'))
-    xhr.send(form)
-  })
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth
 // ─────────────────────────────────────────────────────────────────────────────
@@ -210,20 +181,6 @@ export function updateSkillDetailHtml(ref: string, html: string): Promise<SkillW
 
 export function requestPublic(ref: string): Promise<{ message: string }> {
   return request<{ message: string }>(`/skills/${encodeURI(ref)}/request-public`, { method: 'POST' })
-}
-
-export function publishSkill(form: FormData): Promise<{ skill: SkillWithOwner; version: SkillVersion }> {
-  return request<{ skill: SkillWithOwner; version: SkillVersion }>('/skills', {
-    method: 'POST',
-    body: form,
-  })
-}
-
-export function publishSkillWithProgress(
-  form: FormData,
-  onProgress: (pct: number) => void,
-): Promise<{ skill: SkillWithOwner; version: SkillVersion }> {
-  return uploadWithProgress('/skills', form, onProgress)
 }
 
 export function downloadUrl(ref: { slug: string; namespace?: string }, version = 'latest'): string {
@@ -483,22 +440,65 @@ export interface AdminSkillInput {
   htmlEn: string
 }
 
-/** Creates a catalogue entry; the server synthesises a stub `SKILL.md`. */
-export function adminCreateSkill(input: AdminSkillInput): Promise<{ skill: SkillWithOwner }> {
+/**
+ * Packs the console form for the wire.
+ *
+ * With files it has to be `multipart/form-data` so a package can be uploaded
+ * and described in one request; without them the plain JSON body is kept, which
+ * is what the existing admin API-key clients send.
+ */
+function skillFormBody(input: AdminSkillInput, files?: File[]): BodyInit {
+  if (!files || files.length === 0) return JSON.stringify(input)
+
+  const form = new FormData()
+  form.set('slug', input.slug ?? '')
+  form.set('displayName', input.displayName)
+  form.set('summary', input.summary)
+  form.set('displayNameEn', input.displayNameEn)
+  form.set('summaryEn', input.summaryEn)
+  form.set('category', input.category)
+  form.set('tags', input.tags.join(','))
+  form.set('visibility', input.visibility)
+  form.set('html', input.html)
+  form.set('htmlEn', input.htmlEn)
+  // The server reads every file part regardless of field name.
+  for (const file of files) {
+    form.append('files', file, file.webkitRelativePath || file.name)
+  }
+  return form
+}
+
+/**
+ * Creates a catalogue entry.
+ *
+ * Without files the server synthesises a stub `SKILL.md`, so the skill starts
+ * life as metadata only. With files, they become the skill's first version and
+ * must include `SKILL.md`.
+ */
+export function adminCreateSkill(
+  input: AdminSkillInput,
+  files?: File[],
+): Promise<{ skill: SkillWithOwner }> {
   return request<{ skill: SkillWithOwner }>('/admin/skills', {
     method: 'POST',
-    body: JSON.stringify(input),
+    body: skillFormBody(input, files),
   })
 }
 
-/** Replaces a skill's editable content. `ref` is `slug` or `@namespace/slug`. */
+/**
+ * Replaces a skill's editable content. `ref` is `slug` or `@namespace/slug`.
+ *
+ * Uploaded files ride along as a new patch version — same rule as the single
+ * file endpoint: file changes are never written in place.
+ */
 export function adminUpdateSkill(
   ref: string,
   input: AdminSkillInput,
+  files?: File[],
 ): Promise<{ skill: SkillWithOwner }> {
   return request<{ skill: SkillWithOwner }>(`/admin/skills/${encodeURI(ref)}`, {
     method: 'PUT',
-    body: JSON.stringify(input),
+    body: skillFormBody(input, files),
   })
 }
 

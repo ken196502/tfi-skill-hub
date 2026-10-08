@@ -1198,6 +1198,82 @@ try {
   r = await req('GET', '/api/v1/skills/smoke-managed')
   check('the purged skill is gone → 404', r.status === 404, `${r.status}`)
 
+  // ── 16b. content management, with files ─────────────────────────────────
+  section('Content management — uploads')
+
+  // Requests here go out on the admin's session cookie, the way the rest of
+  // this file authenticates.
+  cookie = adminCookie
+
+  // The console's create/edit pair takes the same request either way: JSON for
+  // metadata alone, multipart when a package comes along. Uploaded files win
+  // over the synthesised stub — that is the point of uploading.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-uploaded', displayName: '上传的技能', summary: '带文件', category: 'general', tags: 'a,b', visibility: 'public', html: '<p>正文</p>', htmlEn: '' },
+      { 'SKILL.md': skillMd('smoke-uploaded', '\nuploaded body'), 'run.py': 'print("v1")', 'docs/guide.md': '# guide' },
+    ),
+  })
+  check('creating with files → 201', r.status === 201, `${r.status} ${r.text.slice(0, 200)}`)
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/versions')
+  check(
+    'one version, carrying all three uploaded files',
+    (r.body?.versions ?? []).length === 1 &&
+      r.body.versions[0].version === '1.0.0' &&
+      r.body.versions[0].files.length === 3,
+    JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/file?path=SKILL.md')
+  check('the uploaded SKILL.md replaces the stub', r.text.includes('uploaded body'), r.text.slice(0, 160))
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/file?path=docs/guide.md')
+  check('a nested path is stored as given', r.status === 200 && r.text === '# guide', `${r.status} ${r.text.slice(0, 80)}`)
+
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart({ slug: 'smoke-no-skillmd', displayName: '缺文件' }, { 'run.py': 'print("x")' }),
+  })
+  check('an upload without SKILL.md → 400', r.status === 400 && /SKILL\.md is required/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  // Editing with files publishes a new patch version — the same rule the
+  // single-file endpoint follows, so the history never lies about what shipped.
+  r = await req('PUT', '/api/v1/admin/skills/smoke-uploaded', {
+    body: multipart(
+      { slug: '', displayName: '上传的技能', summary: '带文件', displayNameEn: '', summaryEn: '', category: 'general', tags: 'a,b', visibility: 'public', html: '<p>正文</p>', htmlEn: '' },
+      { 'run.py': 'print("v2")', 'scripts/helper.sh': '#!/bin/sh' },
+    ),
+  })
+  check('editing with files → 200', r.status === 200, `${r.status} ${r.text.slice(0, 200)}`)
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/versions')
+  check(
+    'the edit published 1.0.1',
+    (r.body?.versions ?? [])[0]?.version === '1.0.1' && r.body.versions.length === 2,
+    JSON.stringify(r.body?.versions?.map((v) => v.version)),
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/file?path=run.py')
+  check('the re-uploaded file replaced the old one', r.text === 'print("v2")', r.text.slice(0, 80))
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/file?path=docs/guide.md')
+  check('files not re-uploaded survive into the new version', r.status === 200 && r.text === '# guide', `${r.status} ${r.text.slice(0, 80)}`)
+
+  // Metadata-only save must not mint a version.
+  r = await req('PUT', '/api/v1/admin/skills/smoke-uploaded', {
+    body: { displayName: '改名后', summary: '', displayNameEn: '', summaryEn: '', category: 'general', tags: ['a'], visibility: 'private', html: '', htmlEn: '' },
+  })
+  check('a metadata-only save → 200', r.status === 200, `${r.status} ${r.text.slice(0, 160)}`)
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded/versions')
+  check('a metadata-only save publishes no version', r.body?.versions?.length === 2, JSON.stringify(r.body?.versions?.length))
+
+  r = await req('GET', '/api/v1/skills/smoke-uploaded')
+  check('and still clears the emptied fields', r.body?.summary === undefined && r.body?.displayName === '改名后', `${r.status} ${r.text.slice(0, 160)}`)
+
+  r = await req('DELETE', '/api/v1/skills/smoke-uploaded/purge')
+  check('cleaning up the uploaded skill → 200', r.status === 200, `${r.status} ${r.text}`)
+
   // ── 17. admin API keys ───────────────────────────────────────────────────
   section('Admin API keys')
 

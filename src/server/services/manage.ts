@@ -11,9 +11,10 @@ import { asNumber, nowIso, query, type Row } from '../db'
 import { VALID_ROLES } from '../../lib/types'
 import type { SkillWithOwner, UserRole, UserStatus, Visibility } from '../../lib/types'
 import { audit, users, type UserRecord } from '../repo/core'
-import { skills as skillRepo, stars as starRepo } from '../repo/skills'
+import { skills as skillRepo, stars as starRepo, versions as versionRepo, versionFiles } from '../repo/skills'
 import { plugins as pluginRepo } from '../repo/plugins'
 import type { FileMap } from '../content'
+import { nextPatch } from '../semver'
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../auth'
 import {
   auditLog,
@@ -313,8 +314,39 @@ function nullable(value: string): string | null {
 }
 
 /**
- * Creates a skill from the console form: a real version carrying a stub
- * `SKILL.md`, plus the rich body when one was written.
+ * The upload root must carry a `SKILL.md`, same rule the publish endpoint uses:
+ * it is the file the skill page and the download bundle fall back to.
+ */
+function assertSkillMd(files: FileMap): void {
+  if (!files.has('SKILL.md')) fail('SKILL.md is required')
+}
+
+/**
+ * The next patch version's file set: everything the latest version already
+ * carries, with the uploaded paths replacing what was there.
+ *
+ * Mirrors `updateFile` in `services/skills.ts` — file changes are never written
+ * in place, they become a new patch version, which is what the version history
+ * and the download bundle expect.
+ */
+function mergedVersionFiles(skill: SkillWithOwner, uploads: FileMap): FileMap {
+  const merged: FileMap = new Map()
+  const latestId = skill.latestVersionId
+  if (latestId) {
+    for (const file of versionFiles.listAll(latestId)) merged.set(file.path, file.content)
+  }
+  for (const [path, content] of uploads) merged.set(path, content)
+  return merged
+}
+
+function currentVersionOf(skill: SkillWithOwner): string {
+  if (!skill.latestVersionId) return '0.0.0'
+  return versionRepo.getById(skill.latestVersionId)?.version ?? '0.0.0'
+}
+
+/**
+ * Creates a skill from the console form: a real version carrying the uploaded
+ * files, or — when nothing was uploaded — a stub `SKILL.md`, plus the rich body.
  *
  * Publishing through `publishVersion` rather than inserting a row keeps every
  * downstream invariant — reserved slugs, namespace quota, fingerprint, search
@@ -326,7 +358,11 @@ function nullable(value: string): string | null {
  * would reject every create. Rather than change a guard the agent API depends
  * on, the console checks for itself and gets a precise message.
  */
-export function createSkillFromForm(actor: UserRecord, input: SkillFormInput): SkillWithOwner {
+export function createSkillFromForm(
+  actor: UserRecord,
+  input: SkillFormInput,
+  uploads?: FileMap,
+): SkillWithOwner {
   const slug = input.slug.trim()
   if (slug === '') fail('slug is required')
 
@@ -337,7 +373,16 @@ export function createSkillFromForm(actor: UserRecord, input: SkillFormInput): S
     conflict(`skill '${slug}' already exists`)
   }
 
-  const files: FileMap = new Map([['SKILL.md', new TextEncoder().encode(skillMdStub(input))]])
+  // Uploaded files win: a package brought its own SKILL.md, and replacing the
+  // stub with it is the whole point of uploading. With no upload the skill is
+  // still created — metadata-only is a legitimate first step.
+  const uploaded = uploads && uploads.size > 0
+  if (uploaded) assertSkillMd(uploads!)
+
+  const files: FileMap = uploaded
+    ? uploads!
+    : new Map([['SKILL.md', new TextEncoder().encode(skillMdStub(input))]])
+
   const { skill } = publishVersion(actor, {
     slug,
     version: FIRST_VERSION,
@@ -365,14 +410,40 @@ export function createSkillFromForm(actor: UserRecord, input: SkillFormInput): S
 /**
  * Replaces a skill's editable content. Every field the form owns is written,
  * so emptying an input clears the column (`updateMetadata` would skip it).
+ *
+ * Uploaded files, when present, ride along as a new patch version — see
+ * `mergedVersionFiles`. The metadata write happens afterwards and stays
+ * authoritative, because `publishVersion` only overwrites non-empty fields.
  */
 export function updateSkillFromForm(
   actor: UserRecord,
   ref: SkillRef,
   input: SkillFormInput,
+  uploads?: FileMap,
 ): SkillWithOwner {
   const skill = resolveSkillRef(ref, { id: actor.id, role: 'admin' })
   if (!skill) notFound('skill not found')
+
+  if (uploads && uploads.size > 0) {
+    const current = currentVersionOf(skill)
+    publishVersion(actor, {
+      slug: skill.slug,
+      version: nextPatch(current),
+      changelog: 'Files updated from the console',
+      displayName: input.displayName.trim(),
+      summary: input.summary.trim(),
+      displayNameEn: input.displayNameEn.trim(),
+      summaryEn: input.summaryEn.trim(),
+      category: checkedCategory(input.category),
+      visibility: checkedVisibility(input.visibility),
+      tags: input.tags,
+      files: mergedVersionFiles(skill, uploads),
+      tokenNamespaceId: null,
+      namespaceSlug: skill.namespaceSlug,
+      // The skill exists and this is a deliberate replacement of its files.
+      overwrite: true,
+    })
+  }
 
   skillRepo.updateForAdmin(skill.id, {
     displayName: nullable(input.displayName),
@@ -391,7 +462,7 @@ export function updateSkillFromForm(
     action: 'update_skill_content',
     resourceType: 'skill',
     resourceId: skill.id,
-    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},visibility=${input.visibility}`,
+    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},visibility=${input.visibility}${uploads && uploads.size > 0 ? `,files=${uploads.size}` : ''}`,
   })
 
   // Re-resolves through the caller's own ref, which is already known to be

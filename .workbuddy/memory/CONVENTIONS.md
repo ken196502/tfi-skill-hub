@@ -79,9 +79,16 @@
 - **API Key 不会被这次收窄误伤**：`auth: 'admin'` 先判身份，key 的身份是签发它的 admin（role=admin），
   随后才做 `apiKeyScope` 检查。所以 `skills:publish` key 仍能发布，`skills:read` key 仍是 403。
   **新增受保护路由时，记得同时决定要不要标 `apiKeyScope`**（不标 = 所有 key 一律 403）。
-- 前端：`/publish`、`/namespaces`、`/namespaces/$slug` 用 `<Navigate to="/skills" />` 把非管理员
-  重定向（守卫必须放在**所有 hook 调用之后**，否则 hook 顺序会变）。这三个是**孤儿路由**，
+- 前端：`/namespaces`、`/namespaces/$slug` 用 `<Navigate to="/skills" />` 把非管理员
+  重定向（守卫必须放在**所有 hook 调用之后**，否则 hook 顺序会变）。这两个是**孤儿路由**，
   导航里本来就没有入口。
+- **`/publish` 页面已删除**（2026-10-08）：技能的上传与维护统一收进 `/admin/content` 的弹窗
+  （可传文件夹、可改元数据与富文本）。后端 `POST /api/v1/skills` 的 multipart 发布接口
+  **仍然保留** —— 它是 CLI / Agent / API Key 的正式契约，与页面无关。
+  随之删掉的死代码：`api.ts` 的 `publishSkill` / `publishSkillWithProgress` / `uploadWithProgress`
+  （只被该页使用；XHR 进度上报随之上传一起没了，现在控制台上传只有「保存中…」）。
+  ⚠️ 能力差：`/publish` 表单曾有「归属命名空间」下拉，现在**没有 UI 能把技能发到指定命名空间**，
+  控制台一律落在管理员的个人命名空间。要发到别的命名空间只能走 API。
 - 遗留待决（本次**故意未动**，要改先问）：①`/auth/device/*` 仍可让普通用户拿到 CLI token
   （属登录机制）；②`/api/v1/agent/provision` 仍会建 `agent` 账号 + 90 天 `publish` token，
   但该 token 现在已发不出东西（`SKILLHUB_AGENT_SECRET` 未设时该接口 404，默认状态）。

@@ -36,7 +36,7 @@ import type { SkillFormInput } from '../services/manage'
 import * as apiKeySvc from '../services/apiKeys'
 import * as runtimeSvc from '../services/runtime'
 import * as agentSvc from '../services/agentSkills'
-import { readMultipart, formValue } from '../content'
+import { readMultipart, formValue, type FileMap } from '../content'
 import { sessions, users, members, type UserRecord } from '../repo/core'
 import { VALID_CATEGORIES } from '../../lib/types'
 import type { Handler } from '../http'
@@ -198,6 +198,51 @@ function readSkillForm(body: SkillFormBody): SkillFormInput | null {
     html: text('html'),
     htmlEn: text('htmlEn'),
   }
+}
+
+/**
+ * The console's create/edit body, in whichever encoding the client chose.
+ *
+ * JSON is the plain metadata form; `multipart/form-data` is the same form plus
+ * the skill's files, so a package can be uploaded and described in one request
+ * instead of two. Returns `null` when the body itself is unusable — a malformed
+ * multipart surfaces as `{ error }` from the caller instead.
+ */
+async function readSkillFormRequest(
+  request: Request,
+): Promise<{ input: SkillFormInput; files: FileMap } | { error: Response }> {
+  const contentType = request.headers.get('content-type') ?? ''
+
+  if (contentType.startsWith('multipart/')) {
+    let multipart
+    try {
+      // Same per-file cap the publish endpoint uses.
+      multipart = await readMultipart(request, 5 * 1024 * 1024)
+    } catch (e) {
+      return { error: errorJson((e as Error).message, 400) }
+    }
+    const { files, fields } = multipart
+    const input = readSkillForm({
+      slug: formValue(fields, 'slug'),
+      displayName: formValue(fields, 'displayName'),
+      summary: formValue(fields, 'summary'),
+      displayNameEn: formValue(fields, 'displayNameEn'),
+      summaryEn: formValue(fields, 'summaryEn'),
+      category: formValue(fields, 'category'),
+      tags: splitTags(formValue(fields, 'tags')),
+      visibility: formValue(fields, 'visibility'),
+      html: formValue(fields, 'html'),
+      htmlEn: formValue(fields, 'htmlEn'),
+    })
+    // Every value above came from a string field, so narrowing cannot fail.
+    return { input: input as SkillFormInput, files }
+  }
+
+  const body = await jsonBody<SkillFormBody>(request)
+  if (body === null) return { error: errorJson('invalid request body', 400) }
+  const input = readSkillForm(body)
+  if (input === null) return { error: errorJson('invalid request body', 400) }
+  return { input, files: new Map() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1445,11 +1490,10 @@ export const admin: Record<string, Handler> = {
    */
   createSkill: async (ctx) => {
     const user = requireUser(ctx)
-    const body = await jsonBody<SkillFormBody>(ctx.request)
-    const input = body === null ? null : readSkillForm(body)
-    if (input === null) return errorJson('invalid request body', 400)
+    const parsed = await readSkillFormRequest(ctx.request)
+    if ('error' in parsed) return parsed.error
     try {
-      return json({ skill: manageSvc.createSkillFromForm(user, input) }, 201)
+      return json({ skill: manageSvc.createSkillFromForm(user, parsed.input, parsed.files) }, 201)
     } catch (e) {
       return serviceError(e)
     }
@@ -1458,11 +1502,10 @@ export const admin: Record<string, Handler> = {
   /** Replaces a skill's editable content. The body is a full form submission. */
   updateSkill: async (ctx) => {
     const user = requireUser(ctx)
-    const body = await jsonBody<SkillFormBody>(ctx.request)
-    const input = body === null ? null : readSkillForm(body)
-    if (input === null) return errorJson('invalid request body', 400)
+    const parsed = await readSkillFormRequest(ctx.request)
+    if ('error' in parsed) return parsed.error
     try {
-      return json({ skill: manageSvc.updateSkillFromForm(user, refFromCtx(ctx), input) })
+      return json({ skill: manageSvc.updateSkillFromForm(user, refFromCtx(ctx), parsed.input, parsed.files) })
     } catch (e) {
       return serviceError(e)
     }

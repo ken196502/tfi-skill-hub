@@ -209,8 +209,8 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 下载技能 ZIP 与插件 ZIP（均需登录）。
 
 发布（技能、插件、Agent 发布接口）、命名空间、评分与评论的写接口，
-以及整个 `/api/v1/admin/*`，一律要求 `role = admin`。`/publish` 与 `/namespaces` 页面在客户端
-也会把非管理员重定向到 `/skills`。
+以及整个 `/api/v1/admin/*`，一律要求 `role = admin`。`/namespaces` 页面在客户端
+也会把非管理员重定向到 `/skills`；技能的上传与维护统一在 `/admin/content` 完成。
 
 ### 作用域与角色
 
@@ -268,7 +268,7 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 限流按客户端 IP 计数，IP 取自 `X-Forwarded-For` / `X-Real-IP`。反向代理后部署时若未设置这些头，
   所有请求会共用一个桶。原实现读的是 socket 地址。
 * 限流状态在进程内存中，多副本部署时各自计数（与原实现一致）。
-* 访问 `/publish`、`/namespaces` 等仅管理员可见的页面时，会话恢复是异步的，
+* 访问 `/namespaces` 等仅管理员可见的页面时，会话恢复是异步的，
   首次渲染会先显示加载态，再决定渲染内容还是把非管理员重定向到 `/skills`。
 * 详情 HTML 的消毒器是白名单式的，不是完整的 HTML5 解析器：它按标签流重建输出，
   不做完整的上下文嵌套纠错（例如 `<table>` 里直接放 `<div>` 不会被重排），
