@@ -98,17 +98,39 @@ export async function logout(): Promise<void> {
 /**
  * Registers an account, which then waits for an admin decision. No session is
  * issued: signing in only works once the account has been approved.
+ *
+ * Alongside the credentials it sends the applicant's profile — name, country,
+ * organisation, role, office, research needs and markets of interest — because
+ * that is what the review is based on. `markets` repeats the key once per
+ * choice, the standard way a checkbox group arrives in a urlencoded body.
  */
 export async function register(input: {
   handle: string
   password: string
-  displayName?: string
-  email?: string
+  email: string
+  emailCode: string
+  displayName: string
+  country: string
+  organization: string
+  jobTitle: string
+  officeLocation?: string
+  researchNeeds: string
+  markets: string[]
 }): Promise<{ ok: boolean; status: UserStatus }> {
-  const body = new URLSearchParams({ handle: input.handle, password: input.password })
-  if (input.displayName) body.set('displayName', input.displayName)
-  // Email is required on the server; always send it (empty string if absent).
-  body.set('email', input.email ?? '')
+  const body = new URLSearchParams({
+    handle: input.handle,
+    password: input.password,
+    displayName: input.displayName,
+    email: input.email,
+    emailCode: input.emailCode,
+    country: input.country,
+    organization: input.organization,
+    jobTitle: input.jobTitle,
+    researchNeeds: input.researchNeeds,
+  })
+  // The only optional field, so it is only appended when filled in.
+  if (input.officeLocation) body.set('officeLocation', input.officeLocation)
+  for (const slug of input.markets) body.append('markets', slug)
   const res = await fetch('/register', {
     method: 'POST',
     credentials: 'same-origin',

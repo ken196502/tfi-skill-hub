@@ -27,6 +27,13 @@ import {
 } from './shared'
 import { publishVersion, setDetailHtml } from './skills'
 import type { SkillRef } from '../../lib/types'
+import {
+  COUNTRIES,
+  PROFILE_FIELD_MAX,
+  RESEARCH_NEEDS_MAX,
+  isEmailVerificationCode,
+  knownMarketSlugs,
+} from '../../lib/registration'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Users
@@ -59,6 +66,19 @@ function isUserStatus(value: string | undefined): value is UserStatus {
  * Approve or reject a self-registered account. A decision is recorded rather
  * than the row being deleted: rejected accounts stay visible (and their handle
  * stays taken) so the outcome is auditable and not silently re-registerable.
+ *
+ * **`approved` is a terminal state.** Once an account has been let in, this
+ * endpoint will not take it back — the person is already using the platform, and
+ * withdrawing access is a different decision with its own reason field and its
+ * own audit action (`banUser`). Letting a review call silently revoke a live
+ * account would also mean the rejection reason shown to the user ("your
+ * registration was not approved") was untrue. Revoking access is what
+ * `banUser` is for.
+ *
+ * The one transition still allowed is `rejected → approved`: the applicant
+ * corrected their details and is being let in after a second look. Repeating a
+ * decision that is already recorded is a no-op rather than an error, so a
+ * double-clicked button or a retried request cannot fail or re-audit.
  */
 export function reviewUser(actorId: string, userId: string, action: string, note: string): void {
   if (action !== 'approve' && action !== 'reject') {
@@ -68,8 +88,15 @@ export function reviewUser(actorId: string, userId: string, action: string, note
   if (!target) notFound('user not found')
   if (target.id === actorId) fail('you cannot review your own account')
 
-  const reason = action === 'reject' && note.trim() !== '' ? note.trim() : null
-  users.review(userId, action === 'approve' ? 'approved' : 'rejected', reason, actorId)
+  const next: UserStatus = action === 'approve' ? 'approved' : 'rejected'
+  if (target.status === 'approved' && next === 'rejected') {
+    fail('this account has already been approved; use ban to revoke access')
+  }
+  // Already in the requested state — nothing to change and nothing to record.
+  if (target.status === next) return
+
+  const reason = next === 'rejected' && note.trim() !== '' ? note.trim() : null
+  users.review(userId, next, reason, actorId)
   auditLog({
     actorId,
     action: `review_user_${action}`,
@@ -137,12 +164,25 @@ function normalizeEmail(value: string): string {
  * Self-service registration. Unlike `createUser` this sets a password straight
  * away, but the account lands in `pending`: it cannot sign in until an admin
  * approves it (see `reviewUser`).
+ *
+ * Registration also collects who the person is and what they intend to research
+ * — organisation, role, country, office, focus areas and markets — so a reviewer
+ * decides on the applicant's actual context rather than a handle and an email.
+ * Everything except the office location is mandatory; a blank answer there is
+ * legitimate (many people work from the same city as their employer).
  */
 export function registerUser(input: {
   handle: string
   password: string
+  emailCode?: string
   displayName?: string
   email?: string
+  country?: string
+  organization?: string
+  jobTitle?: string
+  officeLocation?: string
+  researchNeeds?: string
+  markets?: string[]
 }): UserRecord {
   const handle = input.handle.trim()
   if (!HANDLE_PATTERN.test(handle)) {
@@ -155,25 +195,85 @@ export function registerUser(input: {
   const email = normalizeEmail(input.email ?? '')
   if (email === '') fail('email is required')
   if (!EMAIL_PATTERN.test(email)) fail('email is not a valid address')
+
+  // Confirms the address is reachable before the account is created. Checked
+  // after the address itself is known to be well-formed, so a typo produces
+  // "not a valid address" rather than a confusing code error.
+  if (!isEmailVerificationCode(input.emailCode ?? '')) {
+    fail('email verification code is incorrect')
+  }
+
+  // 姓名 — the person's real name, reused as the account's display name.
+  const displayName = (input.displayName ?? '').trim()
+  if (displayName === '') fail('name is required')
+
+  const country = (input.country ?? '').trim()
+  if (country === '') fail('country or region is required')
+  if (!VALID_COUNTRY_CODES.has(country)) fail('country or region is not a supported option')
+
+  const organization = requiredProfileField(input.organization, 'organization', PROFILE_FIELD_MAX)
+  const jobTitle = requiredProfileField(input.jobTitle, 'job title', PROFILE_FIELD_MAX)
+  const researchNeeds = requiredProfileField(input.researchNeeds, 'research needs', RESEARCH_NEEDS_MAX)
+
+  // Office location is the one optional field.
+  const officeLocation = clampField(input.officeLocation, PROFILE_FIELD_MAX)
+
+  // Markets are a fixed catalogue; anything unrecognised is discarded so the
+  // column only ever holds slugs the UI and the filters agree on.
+  const submittedMarkets = Array.isArray(input.markets) ? input.markets : []
+  const markets = [...new Set(submittedMarkets.filter((slug) => VALID_MARKET_SLUGS.has(slug)))]
+  if (markets.length === 0) fail('at least one market of interest is required')
+
   if (users.getByHandle(handle)) fail(`handle '${handle}' already exists`)
   if (users.getByEmail(email)) fail(`email '${email}' is already registered`)
 
   const created = users.create({
     handle,
-    displayName: input.displayName?.trim() || null,
+    displayName,
     email,
     passwordHash: hashPassword(input.password),
     role: 'user',
     status: 'pending',
+    country,
+    organization,
+    jobTitle,
+    officeLocation,
+    researchNeeds,
+    markets,
   })
   auditLog({
     action: 'register_user',
     resourceType: 'user',
     resourceId: created.id,
-    details: `handle=${created.handle}`,
+    details: `handle=${created.handle},country=${country},organization=${organization},markets=${markets.join('|')}`,
   })
   return created
 }
+
+/** Collapses a blank input to the "field is missing" error. */
+function requiredProfileField(value: string | undefined, label: string, max: number): string {
+  const cleaned = clampField(value, max)
+  if (cleaned === null) fail(`${label} is required`)
+  return cleaned
+}
+
+/**
+ * Trims, replaces control characters with a space and caps the length. Returns
+ * null for a blank value so callers store "not provided" as NULL rather than an
+ * empty string. Line breaks are normalised first so a pasted paragraph does not
+ * collapse into a single run-on line.
+ */
+function clampField(value: string | undefined, max: number): string | null {
+  const cleaned = (value ?? '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .trim()
+    .slice(0, max)
+  return cleaned === '' ? null : cleaned
+}
+
+const VALID_COUNTRY_CODES = new Set(COUNTRIES.map((item) => item.code))
+const VALID_MARKET_SLUGS = new Set(knownMarketSlugs())
 
 export function setRole(actorId: string, userId: string, role: string): void {
   if (!VALID_ROLES.includes(role as UserRole)) {

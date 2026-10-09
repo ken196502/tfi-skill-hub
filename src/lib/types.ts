@@ -80,6 +80,18 @@ export interface User {
   reviewNote?: string
   reviewedAt?: string
   reviewedBy?: string
+  /**
+   * Profile supplied at registration, so an application can be judged from the
+   * person's actual context. Absent on accounts that predate it or were created
+   * from the admin console.
+   */
+  country?: string
+  organization?: string
+  jobTitle?: string
+  officeLocation?: string
+  researchNeeds?: string
+  /** Market slugs from `lib/registration.ts`; absent when none were chosen. */
+  markets?: string[]
   createdAt: string
   updatedAt: string
 }

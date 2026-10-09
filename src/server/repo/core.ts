@@ -49,8 +49,30 @@ function mapUser(r: Row): UserRecord {
     ...(r.review_note != null ? { reviewNote: asString(r.review_note) } : {}),
     ...(r.reviewed_at != null ? { reviewedAt: asString(r.reviewed_at) } : {}),
     ...(r.reviewed_by != null ? { reviewedBy: asString(r.reviewed_by) } : {}),
+    ...(r.country != null ? { country: asString(r.country) } : {}),
+    ...(r.organization != null ? { organization: asString(r.organization) } : {}),
+    ...(r.job_title != null ? { jobTitle: asString(r.job_title) } : {}),
+    ...(r.office_location != null ? { officeLocation: asString(r.office_location) } : {}),
+    ...(r.research_needs != null ? { researchNeeds: asString(r.research_needs) } : {}),
+    // `markets` is NOT NULL with a '[]' default, so the key is only emitted
+    // when the person actually picked something.
+    ...marketSlugs(r.markets).length > 0 ? { markets: marketSlugs(r.markets) } : {},
     createdAt: asString(r.created_at),
     updatedAt: asString(r.updated_at),
+  }
+}
+
+/**
+ * `markets` is a JSON array column. A malformed value yields no markets rather
+ * than throwing — a bad row must not take down every user listing.
+ */
+function marketSlugs(raw: unknown): string[] {
+  if (raw == null) return []
+  try {
+    const parsed = JSON.parse(asString(raw))
+    return Array.isArray(parsed) ? parsed.filter((v): v is string => typeof v === 'string') : []
+  } catch {
+    return []
   }
 }
 
@@ -90,12 +112,21 @@ export const users = {
     passwordHash?: string | null
     /** Defaults to 'approved' — only self-registration passes 'pending'. */
     status?: UserStatus
+    /** Registration profile; omitted by admin-created accounts. */
+    country?: string | null
+    organization?: string | null
+    jobTitle?: string | null
+    officeLocation?: string | null
+    researchNeeds?: string | null
+    markets?: string[]
   }): UserRecord {
     const id = newId()
     const now = nowIso()
     query.run(
-      `INSERT INTO users (id, handle, display_name, avatar_url, email, password_hash, role, status, is_banned, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      `INSERT INTO users (id, handle, display_name, avatar_url, email, password_hash, role, status, is_banned,
+                          country, organization, job_title, office_location, research_needs, markets,
+                          created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       input.handle,
       input.displayName ?? null,
@@ -104,6 +135,12 @@ export const users = {
       input.passwordHash ?? null,
       input.role ?? 'user',
       input.status ?? 'approved',
+      input.country ?? null,
+      input.organization ?? null,
+      input.jobTitle ?? null,
+      input.officeLocation ?? null,
+      input.researchNeeds ?? null,
+      JSON.stringify(input.markets ?? []),
       now,
       now,
     )

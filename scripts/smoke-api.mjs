@@ -30,6 +30,8 @@ const RUN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'skillhub-smoke-'))
 const DB_FILE = path.join(RUN_DIR, 'skillhub.db')
 const ADMIN_USER = 'admin'
 const ADMIN_PASSWORD = 'admin12345'
+/** The sign-up verification code (see `EMAIL_VERIFICATION_CODE` in the app). */
+const EMAIL_CODE = '123456'
 
 let portCursor = 21000 + Math.floor(Math.random() * 5000)
 let passed = 0
@@ -207,13 +209,41 @@ async function loginCookie(handle, password = ADMIN_PASSWORD) {
 }
 
 /**
+ * A complete, valid registration payload. Every required field is filled so a
+ * test only has to override the one thing it is actually probing; `overrides`
+ * replaces a field outright, so passing `{ email: '' }` really does submit an
+ * empty email rather than falling back to the good value.
+ */
+function applicant(overrides = {}) {
+  return {
+    handle: 'smoke-newbie',
+    password: 'newbie-password',
+    displayName: 'Smoke Newbie',
+    email: 'newbie@example.com',
+    emailCode: EMAIL_CODE,
+    country: 'CN',
+    organization: 'Example Research',
+    jobTitle: 'Senior Analyst',
+    officeLocation: 'Shanghai',
+    researchNeeds: 'Extracting structured data from listed-company filings.',
+    markets: ['a-share', 'hk'],
+    ...overrides,
+  }
+}
+
+/**
  * Registers a handle through the public form and approves it as the signed-in
  * admin, returning the new account's id. Personal tokens no longer exist, so a
  * second account can only be brought up this way.
  */
 async function signUpAndApprove(handle) {
   const reg = await req('POST', '/register', {
-    body: { handle, password: ADMIN_PASSWORD, email: `${handle}@example.com` },
+    body: applicant({
+      handle,
+      password: ADMIN_PASSWORD,
+      email: `${handle}@example.com`,
+      displayName: `Smoke ${handle}`,
+    }),
   })
   if (reg.status !== 201 && reg.status !== 200) return ''
 
@@ -683,7 +713,8 @@ try {
   r = await req('GET', '/api/v1/namespaces/smoke-team/members')
   check(
     'member list includes both users with handles',
-    r.body?.data?.length === 2 && r.body.data.some((m) => m.handle === 'smokeuser' && m.displayName === undefined),
+    r.body?.data?.length === 2 &&
+      r.body.data.some((m) => m.handle === 'smokeuser' && m.displayName === 'Smoke smokeuser'),
     r.text.slice(0, 250),
   )
 
@@ -893,28 +924,127 @@ try {
   const NEWBIE = 'smoke-newbie'
   const NEWBIE_PASSWORD = 'newbie-password'
 
-  r = await req('POST', '/register', {
-    body: { handle: NEWBIE, password: NEWBIE_PASSWORD, displayName: 'Smoke Newbie', email: 'newbie@example.com' },
-  })
+  r = await req('POST', '/register', { body: applicant() })
   check('POST /register → 201 awaiting review', r.status === 201 && r.body?.status === 'pending', `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: NEWBIE, password: NEWBIE_PASSWORD, email: 'other-taken@example.com' } })
+  // The profile travels with the account, because that is what the reviewer
+  // reads before deciding.
+  const submitted = await req('GET', '/api/v1/admin/users?status=pending')
+  const submittedUser = (submitted.body?.data ?? []).find((u) => u.handle === NEWBIE)
+  check(
+    'registration stores the applicant profile',
+    submittedUser?.displayName === 'Smoke Newbie' &&
+      submittedUser?.country === 'CN' &&
+      submittedUser?.organization === 'Example Research' &&
+      submittedUser?.jobTitle === 'Senior Analyst' &&
+      submittedUser?.officeLocation === 'Shanghai' &&
+      submittedUser?.researchNeeds === 'Extracting structured data from listed-company filings.' &&
+      Array.isArray(submittedUser?.markets) &&
+      submittedUser.markets.join(',') === 'a-share,hk',
+    JSON.stringify(submittedUser ?? {}).slice(0, 300),
+  )
+
+  r = await req('POST', '/register', {
+    body: applicant({ handle: 'smoke-no-office', email: 'smoke-no-office@example.com', officeLocation: undefined }),
+  })
+  check(
+    'an omitted office location is allowed',
+    r.status === 201, `${r.status} ${r.text}`,
+  )
+  const noOffice = await req('GET', '/api/v1/admin/users?status=pending')
+  const noOfficeUser = (noOffice.body?.data ?? []).find((u) => u.handle === 'smoke-no-office')
+  check(
+    'a blank office location is absent rather than an empty string',
+    noOfficeUser?.officeLocation === undefined,
+    JSON.stringify(noOfficeUser?.officeLocation),
+  )
+
+  r = await req('POST', '/register', { body: applicant({ handle: NEWBIE, email: 'other-taken@example.com' }) })
   check('registering a taken handle → 400', r.status === 400 && /already exists/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: 'smoke-no-email', password: NEWBIE_PASSWORD } })
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-no-email', email: '' }) })
   check('registering without an email → 400 email required', r.status === 400 && /email is required/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: 'smoke-bad-email', password: NEWBIE_PASSWORD, email: 'not-an-email' } })
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-bad-email', email: 'not-an-email' }) })
   check('registering with an invalid email → 400', r.status === 400 && /email is not a valid address/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: 'smoke-dup-email', password: NEWBIE_PASSWORD, email: 'newbie@example.com' } })
+  // ── email verification code ────────────────────────────────────────────────
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-no-code', emailCode: '' }) })
+  check(
+    'registering without a verification code → 400',
+    r.status === 400 && /verification code is incorrect/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text}`,
+  )
+
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-wrong-code', emailCode: '654321' }) })
+  check(
+    'registering with a wrong verification code → 400',
+    r.status === 400 && /verification code is incorrect/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text}`,
+  )
+
+  // The address is checked before the code, so a typo'd address reports the
+  // address problem rather than a confusing code error.
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-code-and-bad-email', email: 'not-an-email', emailCode: '000000' }) })
+  check(
+    'a malformed email is reported before the code is checked',
+    r.status === 400 && /email is not a valid address/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text}`,
+  )
+
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-code-ok', email: 'smoke-code-ok@example.com', emailCode: EMAIL_CODE }) })
+  check(
+    `registering with the correct code (${EMAIL_CODE}) → 201`,
+    r.status === 201 && r.body?.status === 'pending',
+    `${r.status} ${r.text}`,
+  )
+
+  const codeQueue = await req('GET', '/api/v1/admin/users?status=pending')
+  const codeUser = (codeQueue.body?.data ?? []).find((u) => u.handle === 'smoke-code-ok')
+  check(
+    'the verified account lands with its address intact',
+    codeUser?.email === 'smoke-code-ok@example.com' && codeUser?.status === 'pending',
+    JSON.stringify(codeUser?.email ?? null),
+  )
+
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-dup-email', email: 'newbie@example.com' }) })
   check('registering with a duplicate email → 400', r.status === 400 && /already registered/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: 'smoke-short', password: 'short' } })
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-short', password: 'short' }) })
   check('registering with a too-short password → 400', r.status === 400 && /at least/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
-  r = await req('POST', '/register', { body: { handle: 'x', password: NEWBIE_PASSWORD } })
+  r = await req('POST', '/register', { body: applicant({ handle: 'x' }) })
   check('registering a one-character handle → 400', r.status === 400 && /invalid username/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  // ── every profile field is required ───────────────────────────────────────
+  const requiredProfile = [
+    ['displayName', /name is required/],
+    ['country', /country or region is required/],
+    ['organization', /organization is required/],
+    ['jobTitle', /job title is required/],
+    ['researchNeeds', /research needs is required/],
+    ['markets', /at least one market/],
+  ]
+  for (const [field, pattern] of requiredProfile) {
+    r = await req('POST', '/register', {
+      body: applicant({
+        handle: `smoke-missing-${field}`,
+        email: `smoke-missing-${field}@example.com`,
+        [field]: Array.isArray(applicant()[field]) ? [] : '   ',
+      }),
+    })
+    check(
+      `registering without ${field} → 400`,
+      r.status === 400 && pattern.test(r.body?.error ?? ''),
+      `${r.status} ${r.text}`,
+    )
+  }
+
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-bad-country', country: 'ZZ' }) })
+  check('registering with an unknown country code → 400', r.status === 400 && /not a supported option/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register', { body: applicant({ handle: 'smoke-bad-market', markets: ['not-a-market'] }) })
+  check('registering with only unknown markets → 400', r.status === 400 && /at least one market/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
   const signIn = async (password) => {
     const res = await fetch(`${base}/login`, {
@@ -968,6 +1098,48 @@ try {
     `${approved.res.status}`,
   )
 
+  // ── approval is final ─────────────────────────────────────────────────────
+  // Once an account is let in it must not be revocable through the review
+  // endpoint: the user is already active, and the rejection copy they would be
+  // shown ("your registration was not approved") would be untrue. Withdrawing
+  // access is what the ban endpoint is for.
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'reject', note: 'should not apply' } })
+  check(
+    'rejecting an already-approved account → 400 pointing at ban',
+    r.status === 400 && /already been approved/.test(r.body?.error ?? '') && /ban/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text}`,
+  )
+
+  const stillApproved = await signIn(NEWBIE_PASSWORD)
+  check(
+    'the refused rejection leaves the account able to sign in',
+    stillApproved.res.status === 200,
+    `${stillApproved.res.status} ${JSON.stringify(stillApproved.body)}`,
+  )
+
+  const afterRefusal = await req('GET', '/api/v1/admin/users?status=approved')
+  check(
+    'the account is still listed as approved',
+    (afterRefusal.body?.data ?? []).some((u) => u.handle === NEWBIE && u.status === 'approved'),
+    afterRefusal.text.slice(0, 200),
+  )
+
+  // Repeating a decision that is already on record changes nothing and writes
+  // no second audit row — a double-clicked button must not fail or re-audit.
+  r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'approve' } })
+  check('re-approving an approved account → 200 (no-op)', r.status === 200 && r.body?.message === 'user approved', `${r.status} ${r.text}`)
+
+  const auditsBefore = (await req('GET', '/api/v1/admin/audit-logs?limit=200')).body?.data ?? []
+  const approveCountBefore = auditsBefore.filter((l) => l.action === 'review_user_approve' && l.resourceId === pendingUser.id).length
+  await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'approve' } })
+  const auditsAfter = (await req('GET', '/api/v1/admin/audit-logs?limit=200')).body?.data ?? []
+  const approveCountAfter = auditsAfter.filter((l) => l.action === 'review_user_approve' && l.resourceId === pendingUser.id).length
+  check(
+    'a repeated approval writes no extra audit row',
+    approveCountAfter === approveCountBefore,
+    `${approveCountBefore} → ${approveCountAfter}`,
+  )
+
   r = await req('POST', '/api/v1/admin/users/review', { body: { userId: pendingUser.id, action: 'explode' } })
   check('an unknown review action → 400', r.status === 400 && /approve, reject/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
 
@@ -989,6 +1161,26 @@ try {
       && (r.body?.data ?? []).some((l) => l.action === 'review_user_approve')
       && (r.body?.data ?? []).some((l) => l.action === 'review_user_reject'),
     r.text.slice(0, 250),
+  )
+
+  // Withdrawing access from an approved account goes through ban, which is why
+  // the review endpoint refuses to do it. Banning keeps the approval on record
+  // and takes effect at sign-in.
+  r = await req('POST', '/api/v1/admin/users/ban', { body: { userId: pendingUser.id, reason: 'smoke ban' } })
+  check('banning an approved account → 200', r.status === 200, `${r.status} ${r.text}`)
+
+  const banned = await signIn(NEWBIE_PASSWORD)
+  check(
+    'a banned account cannot sign in even though it is approved',
+    banned.res.status === 401,
+    `${banned.res.status} ${JSON.stringify(banned.body)}`,
+  )
+
+  const approvedBanned = await req('GET', '/api/v1/admin/users?status=approved')
+  check(
+    'banning does not rewrite the approval decision',
+    (approvedBanned.body?.data ?? []).some((u) => u.handle === NEWBIE && u.status === 'approved' && u.isBanned === true),
+    approvedBanned.text.slice(0, 250),
   )
 
   // ── 15. admin ─────────────────────────────────────────────────────────────

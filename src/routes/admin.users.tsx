@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { createFileRoute, Navigate } from '@tanstack/react-router'
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
@@ -9,7 +9,8 @@ import {
   adminSetRole,
 } from '../lib/api'
 import { useSession } from '../lib/auth'
-import { useT } from '../lib/i18n'
+import { useLang, useT } from '../lib/i18n'
+import { countryLabel, marketLabel } from '../lib/registration'
 import { AdminNav, AdminStatus } from '../components/AdminShell'
 import { ErrorBox, Loading, PageHeader, formatDate } from '../components/ui'
 import type { User, UserRole, UserStatus } from '../lib/types'
@@ -25,9 +26,11 @@ function UsersPage() {
   const { user, booting } = useSession()
   const client = useQueryClient()
   const t = useT()
+  const { lang } = useLang()
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
   const [showCreate, setShowCreate] = useState(false)
+  const [expanded, setExpanded] = useState<string | null>(null)
   const [createForm, setCreateForm] = useState({ handle: '', displayName: '', email: '', role: 'user' })
 
   const users = useInfiniteQuery({
@@ -58,13 +61,23 @@ function UsersPage() {
       adminReviewUser(id, action, note),
     onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users-paged'] }),
   })
-
   const allUsers = useMemo(() => users.data?.pages.flatMap((page) => page.data) ?? [], [users.data])
   /** Same on every page of the response, so the first one is representative. */
   const pendingCount = users.data?.pages[0]?.pendingCount ?? 0
   const filteredUsers = allUsers.filter((item) => {
     const q = filter.trim().toLowerCase()
-    return q === '' || [item.handle, item.displayName, item.email].some((value) => value?.toLowerCase().includes(q))
+    if (q === '') return true
+    // The profile fields are searchable too: reviewers look people up by where
+    // they work, not only by the name on the account.
+    return [
+      item.handle,
+      item.displayName,
+      item.email,
+      item.organization,
+      item.jobTitle,
+      item.country ? countryLabel(item.country, lang) : '',
+      item.officeLocation,
+    ].some((value) => value?.toLowerCase().includes(q))
   })
 
   if (booting) return <Loading />
@@ -80,7 +93,15 @@ function UsersPage() {
     { value: 'rejected', label: t('已驳回', 'Rejected') },
   ]
 
-  const error = create.error ?? role.error ?? ban.error ?? review.error
+  // A rejected review means the admin clicked something the server refused —
+  // most often trying to reject an account that is already approved. The raw
+  // message is English prose, so it is matched here and restated in the UI's
+  // language rather than shown as-is.
+  const reviewError = review.error
+    ? friendlyReviewError(review.error instanceof Error ? review.error.message : '', t)
+    : null
+
+  const error = create.error ?? role.error ?? ban.error
   return <div className="container page-container">
     <AdminNav active="users" />
     <PageHeader
@@ -104,35 +125,120 @@ function UsersPage() {
       <div className="admin-form-actions"><button className="btn btn-primary" disabled={create.isPending} type="submit">{create.isPending ? t('创建中…', 'Creating…') : t('确认创建', 'Create')}</button></div>
     </form>}
 
-    {error && <ErrorBox message={error instanceof Error ? error.message : t('操作失败，请重试。', 'Action failed. Please try again.')} />}
+    {(reviewError ?? error) && <ErrorBox message={reviewError ?? (error instanceof Error ? error.message : t('操作失败，请重试。', 'Action failed. Please try again.'))} />}
     <div className="admin-toolbar">
       <div className="admin-filter-group">
         {statusTabs.map((tab) => <button key={tab.value} type="button" className={`admin-tab${statusFilter === tab.value ? ' active' : ''}`} onClick={() => setStatusFilter(tab.value)}>
           {tab.label}{tab.value === 'pending' && pendingCount > 0 ? ` (${pendingCount})` : ''}
         </button>)}
       </div>
-      <input className="form-input admin-search" placeholder={t('搜索 handle、名称或邮箱', 'Search handle, name, or email')} value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <input className="form-input admin-search" placeholder={t('搜索 handle、姓名、邮箱或机构', 'Search handle, name, email, or institution')} value={filter} onChange={(event) => setFilter(event.target.value)} />
       <span className="muted">{t('显示', 'Showing')} {filteredUsers.length} {t('位', '')}</span>
     </div>
 
     {users.isLoading ? <Loading /> : users.isError ? <ErrorBox message={t('加载用户失败，请稍后重试。', 'Failed to load users. Please try again later.')} /> : <div className="admin-table-wrap">
       <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('审核', 'Review')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
-        {filteredUsers.map((item) => <tr key={item.id}>
-          <td><strong>{item.displayName || item.handle}</strong><small className="admin-cell-sub">@{item.handle}{item.email ? ` · ${item.email}` : ''}</small></td>
-          <td><AdminStatus value={item.status} />{item.status === 'rejected' && item.reviewNote && <small className="admin-cell-sub">{item.reviewNote}</small>}</td>
-          <td><select className="admin-inline-select" value={item.role} disabled={role.isPending || item.id === user.id} title={item.id === user.id ? t('不能修改自己的角色', 'You cannot change your own role') : undefined} onChange={(event) => role.mutate({ id: item.id, nextRole: event.target.value })}>{ROLES.map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></td>
-          <td><div className="admin-status-row"><AdminStatus value={item.isBanned ? 'banned' : 'active'} />{item.isBanned && item.banReason && <small className="admin-cell-sub">{item.banReason}</small>}</div></td>
-          <td className="muted">{formatDate(item.createdAt)}</td>
-          <td><div className="admin-actions">
-            <button className="btn btn-primary btn-small" type="button" disabled={review.isPending || item.status === 'approved' || item.id === user.id} onClick={() => review.mutate({ id: item.id, action: 'approve', note: '' })}>{t('通过', 'Approve')}</button>
-            <button className="btn btn-danger btn-small" type="button" disabled={review.isPending || item.status === 'rejected' || item.id === user.id} onClick={() => handleReject(item, t, (note) => review.mutate({ id: item.id, action: 'reject', note }))}>{t('驳回', 'Reject')}</button>
-            <button className="btn btn-danger btn-small" disabled={item.isBanned || item.id === user.id || ban.isPending} type="button" onClick={() => handleBan(item, t, () => ban.mutate({ id: item.id, reason: window.prompt(t('请输入封禁原因（可选）', 'Enter a ban reason (optional)'), '') ?? '' }))}>{item.isBanned ? t('已封禁', 'Banned') : t('封禁', 'Ban')}</button>
-          </div></td>
-        </tr>)}
+        {filteredUsers.map((item) => <Fragment key={item.id}>
+          <tr>
+            <td>
+              <strong>{item.displayName || item.handle}</strong>
+              <small className="admin-cell-sub">
+                @{item.handle}
+                {item.email ? ` · ${item.email}` : ''}
+                {item.organization ? ` · ${item.organization}` : ''}
+              </small>
+            </td>
+            <td><AdminStatus value={item.status} />{item.status === 'rejected' && item.reviewNote && <small className="admin-cell-sub">{item.reviewNote}</small>}</td>
+            <td><select className="admin-inline-select" value={item.role} disabled={role.isPending || item.id === user.id} title={item.id === user.id ? t('不能修改自己的角色', 'You cannot change your own role') : undefined} onChange={(event) => role.mutate({ id: item.id, nextRole: event.target.value })}>{ROLES.map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></td>
+            <td><div className="admin-status-row"><AdminStatus value={item.isBanned ? 'banned' : 'active'} />{item.isBanned && item.banReason && <small className="admin-cell-sub">{item.banReason}</small>}</div></td>
+            <td className="muted">{formatDate(item.createdAt)}</td>
+            <td><div className="admin-actions">
+              <button className="btn btn-primary btn-small" type="button" disabled={review.isPending || item.status === 'approved' || item.id === user.id} title={item.id === user.id ? t('不能审核自己的账号', 'You cannot review your own account') : undefined} onClick={() => review.mutate({ id: item.id, action: 'approve', note: '' })}>{t('通过', 'Approve')}</button>
+              {/* Approval is final, so an approved account cannot be rejected
+                  here — access is withdrawn with Ban instead. The title says so,
+                  rather than leaving a greyed-out button unexplained. */}
+              <button className="btn btn-danger btn-small" type="button" disabled={review.isPending || item.status === 'rejected' || item.status === 'approved' || item.id === user.id} title={item.id === user.id ? t('不能审核自己的账号', 'You cannot review your own account') : item.status === 'approved' ? t('已通过的账号不能驳回，如需收回访问权请使用封禁', 'An approved account cannot be rejected — use Ban to revoke access') : undefined} onClick={() => handleReject(item, t, (note) => review.mutate({ id: item.id, action: 'reject', note }))}>{t('驳回', 'Reject')}</button>
+              <button className="btn btn-danger btn-small" disabled={item.isBanned || item.id === user.id || ban.isPending} title={item.id === user.id ? t('不能封禁自己的账号', 'You cannot ban your own account') : undefined} type="button" onClick={() => handleBan(item, t, () => ban.mutate({ id: item.id, reason: window.prompt(t('请输入封禁原因（可选）', 'Enter a ban reason (optional)'), '') ?? '' }))}>{item.isBanned ? t('已封禁', 'Banned') : t('封禁', 'Ban')}</button>
+            </div></td>
+          </tr>
+          {/* The applicant's own words are what the decision rests on, so they get
+              a full row rather than another cramped column. */}
+          <tr className="admin-detail-row">
+            <td colSpan={6}>
+              <button className="admin-detail-toggle" type="button" aria-expanded={expanded === item.id} onClick={() => setExpanded(expanded === item.id ? null : item.id)}>
+                {expanded === item.id ? t('收起资料', 'Hide details') : t('查看资料', 'View details')}
+              </button>
+              {expanded === item.id && <ProfileDetail item={item} lang={lang} t={t} />}
+            </td>
+          </tr>
+        </Fragment>)}
         {filteredUsers.length === 0 && <tr><td colSpan={6} className="admin-empty">{t('没有匹配的用户。', 'No matching users.')}</td></tr>}
       </tbody></table>
     </div>}
     {users.hasNextPage && <div className="load-more"><button className="btn btn-secondary" disabled={users.isFetchingNextPage} type="button" onClick={() => void users.fetchNextPage()}>{users.isFetchingNextPage ? t('加载中…', 'Loading…') : t('加载更多用户', 'Load more users')}</button></div>}
+  </div>
+}
+
+/**
+ * Restates a refused review in the console's own language. Returns null when
+ * the message is one we do not recognise, so the caller falls back to showing it
+ * verbatim rather than swallowing it.
+ */
+function friendlyReviewError(
+  message: string,
+  t: (zh: string, en: string) => string,
+): string | null {
+  if (message === '') return null
+  if (/already been approved/i.test(message)) {
+    return t('该账号已通过审核，不能驳回。如需收回访问权，请使用封禁。', 'This account is already approved and cannot be rejected. Use Ban to revoke access.')
+  }
+  return message
+}
+
+/**
+ * Everything the applicant told us about themselves, laid out as label/value
+ * pairs. Accounts created outside sign-up (the bootstrap admin, the admin
+ * console) have none of it, and say so rather than showing a wall of dashes.
+ */
+function ProfileDetail({
+  item,
+  lang,
+  t,
+}: {
+  item: User
+  lang: 'zh' | 'en'
+  t: (zh: string, en: string) => string
+}) {
+  const markets = item.markets ?? []
+  const rows: Array<{ label: string; value: string }> = [
+    { label: t('姓名', 'Name'), value: item.displayName ?? '' },
+    { label: t('邮箱', 'Email'), value: item.email ?? '' },
+    { label: t('所在国家或地区', 'Country or region'), value: item.country ? countryLabel(item.country, lang) : '' },
+    { label: t('机构名称', 'Institution'), value: item.organization ?? '' },
+    { label: t('岗位', 'Job title'), value: item.jobTitle ?? '' },
+    { label: t('办公地区', 'Office location'), value: item.officeLocation ?? '' },
+  ]
+  const hasProfile = rows.some((row) => row.value !== '') || markets.length > 0 || (item.researchNeeds ?? '') !== ''
+
+  if (!hasProfile) {
+    return <p className="admin-detail-empty">{t('该账号未填写注册资料。', 'No registration details were provided for this account.')}</p>
+  }
+
+  return <div className="admin-profile">
+    <dl className="admin-profile-grid">
+      {rows.filter((row) => row.value !== '').map((row) => <div key={row.label} className="admin-profile-item">
+        <dt>{row.label}</dt>
+        <dd>{row.value}</dd>
+      </div>)}
+      {markets.length > 0 && <div className="admin-profile-item">
+        <dt>{t('关注市场', 'Markets of interest')}</dt>
+        <dd className="admin-profile-chips">{markets.map((slug) => <span key={slug} className="admin-profile-chip">{marketLabel(slug, lang)}</span>)}</dd>
+      </div>}
+    </dl>
+    {item.researchNeeds && <div className="admin-profile-item admin-profile-wide">
+      <dt>{t('研究需求', 'Research needs')}</dt>
+      <dd className="admin-profile-text">{item.researchNeeds}</dd>
+    </div>}
   </div>
 }
 

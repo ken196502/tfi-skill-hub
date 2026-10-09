@@ -566,6 +566,31 @@ export const MIGRATIONS: Migration[] = [
       DROP TABLE api_tokens;
     `,
   },
+  {
+    // Who the account belongs to. Registration collects this so an admin can
+    // judge an application from the person's actual context — who they are,
+    // where they sit, and what they intend to research — instead of a handle
+    // and an email address.
+    //
+    // Every column is nullable and no existing row is touched: accounts created
+    // by the bootstrap admin, by the admin console, or before this migration
+    // simply carry no profile and render as "not provided". `display_name`
+    // already existed and is reused as the person's real name (姓名), so no
+    // second name column is added.
+    //
+    // `markets` holds a JSON array of slugs from the shared catalogue in
+    // `lib/registration.ts` — fixed values, so it can be filtered on later.
+    v: 12,
+    name: 'user profile',
+    sql: `
+      ALTER TABLE users ADD COLUMN country TEXT;
+      ALTER TABLE users ADD COLUMN organization TEXT;
+      ALTER TABLE users ADD COLUMN job_title TEXT;
+      ALTER TABLE users ADD COLUMN office_location TEXT;
+      ALTER TABLE users ADD COLUMN research_needs TEXT;
+      ALTER TABLE users ADD COLUMN markets TEXT NOT NULL DEFAULT '[]';
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */

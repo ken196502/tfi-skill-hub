@@ -107,10 +107,77 @@
   <section id="s3">
     <h2><span class="zh">3. 注册账号</span><span class="en">3. Register</span></h2>
     <p><span class="zh">注册页（<code>/register</code>）：</span><span class="en">On the register page (<code>/register</code>):</span></p>
+    <table>
+      <thead>
+          <tr>
+            <th><span class="zh">字段</span><span class="en">Field</span></th>
+            <th><span class="zh">必填</span><span class="en">Required</span></th>
+            <th><span class="zh">说明</span><span class="en">Notes</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="zh">用户名</span><span class="en">Username</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">2–32 位，字母 / 数字 / 点 / 短横线 / 下划线，且以字母或数字开头。用于登录</span><span class="en">2–32 chars: letters, digits, dot, dash or underscore, starting with a letter or digit. Used to sign in</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">姓名</span><span class="en">Full name</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">你的真实姓名</span><span class="en">Your real name</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">邮箱</span><span class="en">Email</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">常用邮箱地址</span><span class="en">The address you use</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">邮箱验证码</span><span class="en">Email verification code</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh"><strong>统一填 <code>123456</code></strong></span><span class="en"><strong>Always enter <code>123456</code></strong></span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">所在国家或地区</span><span class="en">Country or region</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">输入关键字搜索，或展开下拉选择</span><span class="en">Type to search, or open the list</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">机构名称</span><span class="en">Institution</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">你所在的公司或机构</span><span class="en">Your company or institution</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">岗位</span><span class="en">Job title</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">你的职位</span><span class="en">Your position</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">办公地区</span><span class="en">Office location</span></td>
+            <td><span class="zh">否</span><span class="en">No</span></td>
+            <td><span class="zh">例如「上海」，可留空</span><span class="en">e.g. Shanghai — may be left blank</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">希望获得的研究支持</span><span class="en">Research support needed</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">简述你的研究需求</span><span class="en">Describe your research needs</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">关注市场</span><span class="en">Markets of interest</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh"><strong>可多选</strong>，至少选一项：A股 / 港股 / 美股 / 海外市场 / 固定收益 / 大宗商品 / 外汇 / 基金与 ETF / 私募与另类投资</span><span class="en"><strong>Pick one or more</strong>: China A-shares / Hong Kong / US equities / Other overseas / Fixed income / Commodities / FX / Funds &amp; ETFs / Private &amp; alternatives</span></td>
+          </tr>
+          <tr>
+            <td><span class="zh">密码</span><span class="en">Password</span></td>
+            <td><span class="zh">是</span><span class="en">Yes</span></td>
+            <td><span class="zh">至少 8 位，需与「确认密码」一致</span><span class="en">At least 8 characters, and must match the confirmation</span></td>
+          </tr>
+        </tbody>
+      </table>
+    <p class="note"><span class="zh"><strong>关于邮箱验证码：</strong>系统尚未接入邮件服务，验证码是固定值 <code>123456</code>，不区分邮箱地址。</span><span class="en"><strong>About the verification code:</strong> no mail service is connected yet — the code is the fixed value <code>123456</code>, the same for every address.</span></p>
     <ul>
-      <li><span class="zh">字段：用户名、密码（≥ 8 位）、显示名称（可选）、邮箱（可选）。</span><span class="en">Fields: username, password (≥ 8 chars), display name (optional), email (optional).</span></li>
-      <li><span class="zh">用户名规则：2–32 位，可用字母、数字、点、短横线、下划线，且<strong>以字母或数字开头</strong>。</span><span class="en">Username rule: 2–32 chars, letters/digits/dot/dash/underscore, and <strong>must start with a letter or digit</strong>.</span></li>
       <li><span class="zh">提交注册后账号状态为<strong>待审核</strong>，<strong>需管理员审核通过后才能登录</strong>；登录时若提示「账号待审核」即表示尚未通过。</span><span class="en">After registering, the account is <strong>pending review</strong> and <strong>can sign in only after an admin approves it</strong>; a "account pending" message at sign-in means it is not approved yet.</span></li>
+      <li><span class="zh">提交成功后不会自动登录，需回到登录页用刚注册的账号登录。</span><span class="en">Submitting does not sign you in — go back to the login page and sign in with the account you just created.</span></li>
+      <li><span class="zh">任一必填项未填或填错时，页面会在该字段下方给出<strong>红色提示</strong>，且<strong>不会提交</strong>。</span><span class="en">If a required field is empty or wrong, a <strong>red hint</strong> appears under it and the form is <strong>not submitted</strong>.</span></li>
     </ul>
   </section>
 
@@ -137,7 +204,7 @@
       <thead><tr><th><span class="zh">模块</span><span class="en">Module</span></th><th><span class="zh">功能</span><span class="en">What it does</span></th></tr></thead>
       <tbody>
         <tr><td><span class="zh">总览</span><span class="en">Overview</span></td><td><span class="zh">展示用户 / 技能 / 插件 / 首页精选的数量统计。</span><span class="en">Counts of users / skills / plugins / featured skills.</span></td></tr>
-        <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色（普通用户 / 管理员）、封禁账号；按状态（待审核 / 已通过 / 已驳回）筛选，逐条通过或驳回注册申请（驳回可填理由）。</span><span class="en">Create users, change roles (user / admin), ban accounts; filter by status (pending / approved / rejected) and approve or reject each sign-up (rejection may include a reason).</span></td></tr>
+        <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色（普通用户 / 管理员）、封禁账号；按状态（待审核 / 已通过 / 已驳回）筛选，逐条通过或驳回注册申请（驳回可填理由）；点「查看资料」可看到申请人填写的姓名、地区、机构、岗位、研究需求与关注市场。<strong>已通过的账号不能再驳回</strong>——如需收回其访问权，请使用「封禁」。</span><span class="en">Create users, change roles (user / admin), ban accounts; filter by status (pending / approved / rejected) and approve or reject each sign-up (rejection may include a reason); "View details" shows the applicant's name, region, institution, job title, research needs and markets. <strong>An approved account cannot be rejected</strong> — use Ban to revoke its access.</span></td></tr>
         <tr><td><span class="zh">内容管理</span><span class="en">Content management</span></td><td><span class="zh">增删技能，维护展示信息（名称 / 简介 / 分类 / 标签）与详情正文（富文本）；名称、简介、正文都分中英文两份，用表单里的「编辑语言」开关切换填写；弹窗内可直接上传技能文件夹（新建时必须含 SKILL.md；编辑时上传的文件会发布为新版本，不传则文件保持不变）；可随时上架 / 下架，或删除（删除不可恢复）；列表按 全部 / 已上架 / 已下架 / 待上架 筛选并分页。</span><span class="en">Add and remove skills, maintain their details (name / summary / category / tags) and rich body (rich text). Name, summary and body each exist in Chinese and English — use the "editing language" switch in the form to fill them in. Skill folders can be uploaded straight from the dialog: a new skill must include SKILL.md, and files uploaded while editing are published as a new version (leave the picker empty to keep the current files). Take a skill online, offline, or delete it for good (deletion is irreversible). The list filters by all / online / offline / awaiting publication and is paged.</span></td></tr>
         <tr><td><span class="zh">首页精选</span><span class="en">Featured</span></td><td><span class="zh">选择首页展示的精选技能，最多 12 个，顺序按勾选保存。</span><span class="en">Pick up to 12 skills for the homepage; order follows your selection.</span></td></tr>
         <tr><td><span class="zh">API Keys</span><span class="en">API Keys</span></td><td><span class="zh">签发管理端专用密钥，按用途授权（读取 / 发布 / 删除 / 审核 / 用户审核）；可绑定命名空间、设有效期（长期 / 30 / 90 / 365 天）、撤销；完整密钥仅显示一次。</span><span class="en">Issue admin API keys scoped to uses (read / publish / delete / moderate / review sign-ups); bind to a namespace, set expiry (never / 30 / 90 / 365 days), revoke; the full key shows only once.</span></td></tr>

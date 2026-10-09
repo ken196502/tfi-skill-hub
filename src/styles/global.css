@@ -1399,6 +1399,213 @@ main { flex: 1; }
   color: var(--text-secondary);
 }
 
+/* ═══════════════════════════════════════
+   Sign-up form (wider than the sign-in card)
+   ═══════════════════════════════════════ */
+
+/* The sign-up form asks for more than the sign-in card holds, so it gets its
+   own width and lays its fields out two per row in labelled sections. */
+.login-container-wide { max-width: 720px; }
+.login-form-wide { padding: 28px 32px 32px; }
+
+/* Sections are real fieldsets so the browser groups the controls for us and
+   keyboard focus order follows the visual order. The border is removed — the
+   legend and the spacing carry the grouping. */
+.reg-section {
+  border: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.reg-section + .reg-section {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--card-border);
+}
+
+.reg-legend {
+  font-family: var(--font-heading), sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  padding: 0;
+  margin-bottom: 18px;
+  letter-spacing: -0.01em;
+}
+
+.reg-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 18px;
+}
+
+/* Selects and textareas carry no left icon, so they must not reserve the
+   padding `.login-input` adds for one. */
+.reg-select { padding-left: 12px; cursor: pointer; }
+
+/* The verification code is digits the user reads off an email and types back,
+   so it is monospaced and letter-spaced — a transposed digit is then visible. */
+.login-input-code {
+  font-family: var(--font-mono), monospace;
+  letter-spacing: 0.32em;
+}
+
+/* ═══════════════════════════════════════
+   Searchable dropdown (combobox)
+   ═══════════════════════════════════════ */
+
+.combo { position: relative; }
+
+.combo-control { position: relative; display: flex; align-items: center; }
+
+.combo-input {
+  padding-right: 56px;
+  cursor: pointer;
+}
+
+/* The two trailing affordances share the right edge: clear (only once a value
+   is chosen) then the caret that opens the list. */
+.combo-clear,
+.combo-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--sec-hint);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s;
+}
+.combo-clear:hover,
+.combo-toggle:hover { color: var(--text); }
+
+.combo-clear {
+  right: 32px;
+  font-size: 1.05rem;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+}
+.combo-toggle {
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  pointer-events: auto;
+}
+
+.combo-caret { transition: transform 0.18s ease; }
+.combo-caret.open { transform: rotate(180deg); }
+
+/* The list is a real layer above the fields below it, so the form does not have
+   to reserve space for it and nothing below is covered opaquely. */
+.combo-list {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 232px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border-hover);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.combo-option {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  cursor: pointer;
+  /* The active row is driven by the keyboard as well as the pointer, so colour
+     alone must not be the only cue — it also gets a background. */
+}
+.combo-option.active { background: var(--accent-bg); color: var(--text); }
+/* The chosen entry stays marked once the list is reopened. */
+.combo-option.selected { color: var(--accent); font-weight: 600; }
+.combo-option.disabled { opacity: 0.45; cursor: not-allowed; }
+
+.combo-empty {
+  padding: 12px 10px;
+  font-size: 0.82rem;
+  color: var(--sec-hint);
+  text-align: center;
+}
+
+.reg-textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
+/* "（选填）" beside a label — quieter than the label itself. */
+.form-optional {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--sec-hint);
+  font-weight: 400;
+}
+
+.reg-counter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.72rem;
+}
+
+/* Markets of interest: a checkbox group rendered as toggleable chips. A chip is
+   a real button with aria-pressed, so it is reachable by keyboard and announced
+   as a toggle rather than as an unlabelled click target. */
+.reg-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reg-chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.reg-chip:hover { border-color: var(--card-border-hover); color: var(--text); }
+.reg-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+/* Once a submit has been attempted with nothing picked, the unchosen chips
+   recede so the empty group reads as incomplete without shouting at every chip. */
+.reg-chip.chip-dim { opacity: 0.55; }
+.reg-chip.chip-dim:hover { opacity: 1; }
+
+/* Required field that is empty or invalid after a submit attempt. */
+.field-invalid { border-color: var(--danger); }
+.field-invalid:focus { border-color: var(--danger); }
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.75rem;
+  color: var(--danger);
+}
+
 /* Privileged-role chip beside the signed-in name in the header. */
 .nav-role-chip {
   display: inline-flex;
@@ -1440,6 +1647,11 @@ main { flex: 1; }
   .nav { gap: 16px; }
   .login-page { padding: 32px 16px; }
   .login-form { padding: 24px 20px; }
+  .login-form-wide { padding: 24px 20px 28px; }
+  /* One field per row on a phone — a two-column grid would squeeze the inputs
+     below a usable width. */
+  .reg-row { grid-template-columns: 1fr; gap: 0; }
+  .reg-textarea { min-height: 120px; }
   .skills-layout { flex-direction: column; gap: 16px; }
   .skills-sidebar { width: 100%; position: static; }
   .skills-sidebar-title { padding: 0; }
@@ -1528,6 +1740,54 @@ main { flex: 1; }
 .admin-status-danger { color: var(--danger); background: rgba(239, 68, 68, .12); }
 .btn-danger { border: 1px solid rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .12); color: var(--danger); }
 .btn-danger:hover { background: rgba(239, 68, 68, .2); }
+
+/* Registration profile, revealed under a user row in the review queue. It sits
+   in its own row rather than in another column so the free-text research needs
+   has room to be read in full. */
+.admin-detail-row > td { padding-top: 0; }
+.admin-detail-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-bottom: 10px;
+  font-family: inherit;
+  font-size: .72rem;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+.admin-detail-toggle:hover { text-decoration: underline; }
+
+.admin-detail-empty { margin: 0; color: var(--sec-hint); font-size: .8rem; }
+
+.admin-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px 24px;
+  margin: 0 0 14px;
+}
+.admin-profile-item { min-width: 0; }
+.admin-profile-item dt {
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--sec-hint);
+  margin-bottom: 3px;
+}
+.admin-profile-item dd { margin: 0; font-size: .85rem; color: var(--text); overflow-wrap: anywhere; }
+.admin-profile-wide { margin-bottom: 4px; }
+/* The applicant's own paragraph — preserved line breaks, so it reads as written. */
+.admin-profile-text { white-space: pre-wrap; line-height: 1.6; }
+.admin-profile-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.admin-profile-chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  font-size: .72rem;
+  color: var(--text-secondary);
+}
 
 /* Nudge above a table when something is waiting to be dealt with. */
 .admin-callout {

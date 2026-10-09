@@ -66,31 +66,56 @@ async function jsonBody<T>(request: Request): Promise<T | null> {
 }
 
 /**
+ * A parsed form body. `get` returns the first value for a key (what every
+ * single-valued field wants); `all` returns every value, which is how a
+ * repeated field such as a checkbox group arrives.
+ */
+interface FormFields {
+  get(key: string): string
+  all(key: string): string[]
+}
+
+/**
  * Reads a form-style body. Accepts urlencoded, multipart **and** JSON, so a
  * client can use whichever encoding it prefers — upstream only handled the two
  * form encodings, making this a superset of its contract.
+ *
+ * A JSON array is expanded into repeated entries, so `{"markets":["a","b"]}`
+ * and `markets=a&markets=b` mean the same thing to `all`.
  */
-async function formFields(request: Request): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
+async function formFields(request: Request): Promise<FormFields> {
+  const first = new Map<string, string>()
+  const every = new Map<string, string[]>()
+  const push = (k: string, v: string): void => {
+    if (!first.has(k)) first.set(k, v)
+    const list = every.get(k)
+    if (list) list.push(v)
+    else every.set(k, [v])
+  }
   const ct = request.headers.get('content-type') ?? ''
   const raw = await request.text().catch(() => '')
   try {
     if (ct.includes('application/json')) {
       const parsed = JSON.parse(raw) as Record<string, unknown>
       for (const [k, v] of Object.entries(parsed)) {
-        if (v !== undefined && v !== null) out.set(k, String(v))
+        if (v === undefined || v === null) continue
+        if (Array.isArray(v)) for (const item of v) push(k, String(item))
+        else push(k, String(v))
       }
     } else if (ct.includes('application/x-www-form-urlencoded')) {
-      for (const [k, v] of new URLSearchParams(raw).entries()) if (!out.has(k)) out.set(k, v)
+      for (const [k, v] of new URLSearchParams(raw).entries()) push(k, v)
     } else if (ct.includes('multipart/')) {
       // Re-parse from the raw body (it has already been consumed above).
       const form = await new Response(raw, { headers: { 'Content-Type': ct } }).formData()
-      for (const [k, v] of form.entries()) if (typeof v === 'string' && !out.has(k)) out.set(k, v)
+      for (const [k, v] of form.entries()) if (typeof v === 'string') push(k, v)
     }
   } catch {
     /* an empty or malformed body is fine for endpoints like logout */
   }
-  return out
+  return {
+    get: (key) => first.get(key) ?? '',
+    all: (key) => every.get(key) ?? [],
+  }
 }
 
 /** Maps a thrown service error onto the original's status/body rules. */
@@ -680,12 +705,18 @@ export const auth: Record<string, Handler> = {
   /**
    * Public self-service registration. Creates an account that must be approved
    * by an admin before it can sign in; the response never issues a session.
+   *
+   * Besides the credentials it records who the applicant is and what they
+   * intend to research, so the review decision is made on context rather than on
+   * an email address. Only the handle and password are checked for presence
+   * here; the profile rules live in `registerUser` alongside the rest of the
+   * validation.
    */
   register: async (ctx) => {
     if (!getConfig().allowRegistration) return errorJson('registration is closed', 403)
     const fields = await formFields(ctx.request)
-    const handle = (fields.get('handle') ?? '').trim()
-    const password = fields.get('password') ?? ''
+    const handle = fields.get('handle').trim()
+    const password = fields.get('password')
     if (handle === '' || password === '') {
       return errorJson('username and password are required', 400)
     }
@@ -693,8 +724,15 @@ export const auth: Record<string, Handler> = {
       const created = manageSvc.registerUser({
         handle,
         password,
-        displayName: fields.get('displayName') ?? '',
-        email: fields.get('email') ?? '',
+        emailCode: fields.get('emailCode'),
+        displayName: fields.get('displayName'),
+        email: fields.get('email'),
+        country: fields.get('country'),
+        organization: fields.get('organization'),
+        jobTitle: fields.get('jobTitle'),
+        officeLocation: fields.get('officeLocation'),
+        researchNeeds: fields.get('researchNeeds'),
+        markets: fields.all('markets'),
       })
       return json({ ok: true, status: created.status }, 201)
     } catch (e) {
