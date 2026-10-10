@@ -1449,6 +1449,27 @@ main { flex: 1; }
   letter-spacing: 0.32em;
 }
 
+/* Code box and its send button share a row; the button keeps a fixed width so
+   the countdown ticking from 60 down to 9 does not shift the layout. */
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.code-input-wrap { flex: 1; min-width: 0; }
+.code-send-btn {
+  flex-shrink: 0;
+  min-width: 106px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+.code-send-btn:disabled { cursor: not-allowed; opacity: 0.7; }
+
+/* The "code sent" confirmation is a statement, not a complaint — it sits where
+   the error hint does but keeps the accent colour. */
+.field-hint-ok { color: var(--accent); }
+
 /* ═══════════════════════════════════════
    Searchable dropdown (combobox)
    ═══════════════════════════════════════ */
@@ -1652,6 +1673,11 @@ main { flex: 1; }
      below a usable width. */
   .reg-row { grid-template-columns: 1fr; gap: 0; }
   .reg-textarea { min-height: 120px; }
+  /* The code box and the send button no longer share a row here: side by side
+     they would each be too narrow to read comfortably. */
+  .code-row { flex-wrap: wrap; }
+  .code-input-wrap { flex: 1 1 100%; }
+  .code-send-btn { flex: 1 1 100%; }
   .skills-layout { flex-direction: column; gap: 16px; }
   .skills-sidebar { width: 100%; position: static; }
   .skills-sidebar-title { padding: 0; }

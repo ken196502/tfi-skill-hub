@@ -743,6 +743,35 @@ export const auth: Record<string, Handler> = {
   /** Whether the registration form is open, so the UI can hide the entry point. */
   registrationStatus: () => json({ enabled: getConfig().allowRegistration }),
 
+  /**
+   * The sign-up form's "send code" action. Answers with how many seconds remain
+   * before another can be requested for the same address, so the client's
+   * countdown follows the server rather than a timer it owns.
+   */
+  requestEmailCode: async (ctx) => {
+    if (!getConfig().allowRegistration) return errorJson('registration is closed', 403)
+    const fields = await formFields(ctx.request)
+    try {
+      return json(manageSvc.requestEmailCode(fields.get('email')), 200)
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
+  /**
+   * The same wait, read without sending anything. The form calls this on load
+   * and while the address changes; POST above is only for the button.
+   */
+  emailCodeStatus: async (ctx) => {
+    if (!getConfig().allowRegistration) return errorJson('registration is closed', 403)
+    const address = new URL(ctx.request.url).searchParams.get('email') ?? ''
+    try {
+      return json(manageSvc.emailCodeStatus(address), 200)
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+
   whoami: (ctx) => {
     if (!ctx.user) return errorJson('not authenticated', 401)
     const { passwordHash: _drop, ...safe } = ctx.user

@@ -136,3 +136,14 @@ export const EMAIL_VERIFICATION_CODE = '123456'
 export function isEmailVerificationCode(value: string): boolean {
   return value.trim() === EMAIL_VERIFICATION_CODE
 }
+
+/**
+ * How long the "send code" action stays unavailable after it is used, in
+ * seconds.
+ *
+ * Requesting a code is what has to be throttled once a real mail provider is
+ * wired in — sending is billable, and an unthrottled form is a way to burn that
+ * quota — so this number has to live on the server. The client mirrors it to
+ * run the countdown, but never decides on its own.
+ */
+export const EMAIL_CODE_COOLDOWN_SECONDS = 60

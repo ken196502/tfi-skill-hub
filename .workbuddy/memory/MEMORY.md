@@ -57,6 +57,14 @@
   前后端共用。校验放在**邮箱格式校验之后**（地址写错先报地址，别报验证码）。
   界面**不写**「演示/固定验证码/未接入邮件服务」——那是给看代码的人看的；
   `123456` 只出现在两份产品文档（`docs/product-guide.md` + `static/product-guide.html`）。
+- **验证码有「发送」+ 60 秒倒计时，冷却由服务端裁决**（`src/routes/register.email-code.ts`
+  同挂 GET + POST，因为一个 page route 只能有一个 method per path，`/register` 已被占满）：
+  `POST` 发送并返回 `{cooldownSeconds, sent}`，`GET` **只读**剩余秒数。
+  ⚠️ 三个别再犯的坑：①查询和发送**必须分开**，否则用户只是在输入框敲邮箱就把发送机会用掉；
+  ②成功发送要返回**完整 60**（返回 0 会让前端 `start(0)` 走清零分支，倒计时不启动），
+  用 `sent` 布尔决定提示文案，别靠数字猜；③前端去重要跟**当前屏上地址**比，不是"上次查过的"。
+  前端 `useCooldown()` 用墙上时钟不用递减计数；刷新后靠 sessionStorage 里的
+  `skillhub.register.lastEmail` 找回地址再问服务端。
 - **改注册字段时两份文档都要改**，且 `static/product-guide.html` 才是部署后实际访问的那份。
   它是 `body.lang-zh .en{display:none}` 结构，每段要写 zh+en 两个 span；
   **只能用页面已有的 class（`table` / `note`），别自造**。
@@ -67,6 +75,8 @@
   Escape/mousedown 要置 `closingRef` 否则被 blur 逻辑覆盖；判外部点击用 `pointerdown` 不是 `click`。
 - 注册表单校验提示一律 `touched` 门控：首次进入不报警，提交后才逐字段标红。
 - 管理端审核在 `/admin/users` 用「查看资料」展开行展示，别再往表格里加列。
+  **待审核的行默认展开**（判据 `detailOverride[id] ?? status==='pending'`，只记例外不记默认值）。
+  ⚠️ review 的 `onSuccess` 必须补 `detailOverride[id]=true`，否则审核通过瞬间资料消失。
 
 ## 审核状态机：approved 是终态（2026-10-09）
 - **服务端才是防线**。前端按钮 disabled 只是提示，`reviewUser` 原本不看当前状态，

@@ -30,7 +30,12 @@ function UsersPage() {
   const [filter, setFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('')
   const [showCreate, setShowCreate] = useState(false)
-  const [expanded, setExpanded] = useState<string | null>(null)
+  /**
+   * Rows the reviewer has opened or closed by hand. Only the exceptions are
+   * stored: a pending account shows its details without being opened, so
+   * remembering every closed pending row would just be the default again.
+   */
+  const [detailOverride, setDetailOverride] = useState<Record<string, boolean>>({})
   const [createForm, setCreateForm] = useState({ handle: '', displayName: '', email: '', role: 'user' })
 
   const users = useInfiniteQuery({
@@ -59,7 +64,13 @@ function UsersPage() {
   const review = useMutation({
     mutationFn: ({ id, action, note }: { id: string; action: 'approve' | 'reject'; note: string }) =>
       adminReviewUser(id, action, note),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ['admin-users-paged'] }),
+    onSuccess: (_result, { id }) => {
+      // A row that was open stays open. A pending account's details open by
+      // default, so without this the row would snap shut the moment it is
+      // approved — the reviewer would lose what they were reading mid-decision.
+      setDetailOverride((current) => (current[id] === undefined ? { ...current, [id]: true } : current))
+      void client.invalidateQueries({ queryKey: ['admin-users-paged'] })
+    },
   })
   const allUsers = useMemo(() => users.data?.pages.flatMap((page) => page.data) ?? [], [users.data])
   /** Same on every page of the response, so the first one is representative. */
@@ -138,7 +149,12 @@ function UsersPage() {
 
     {users.isLoading ? <Loading /> : users.isError ? <ErrorBox message={t('加载用户失败，请稍后重试。', 'Failed to load users. Please try again later.')} /> : <div className="admin-table-wrap">
       <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('审核', 'Review')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
-        {filteredUsers.map((item) => <Fragment key={item.id}>
+        {filteredUsers.map((item) => {
+          // Pending applications show what the applicant wrote without being
+          // opened — that is what the decision is based on. Everything else
+          // stays collapsed until asked for, so an approved list stays readable.
+          const showDetail = detailOverride[item.id] ?? item.status === 'pending'
+          return <Fragment key={item.id}>
           <tr>
             <td>
               <strong>{item.displayName || item.handle}</strong>
@@ -165,13 +181,14 @@ function UsersPage() {
               a full row rather than another cramped column. */}
           <tr className="admin-detail-row">
             <td colSpan={6}>
-              <button className="admin-detail-toggle" type="button" aria-expanded={expanded === item.id} onClick={() => setExpanded(expanded === item.id ? null : item.id)}>
-                {expanded === item.id ? t('收起资料', 'Hide details') : t('查看资料', 'View details')}
+              <button className="admin-detail-toggle" type="button" aria-expanded={showDetail} onClick={() => setDetailOverride((current) => ({ ...current, [item.id]: !showDetail }))}>
+                {showDetail ? t('收起资料', 'Hide details') : t('查看资料', 'View details')}
               </button>
-              {expanded === item.id && <ProfileDetail item={item} lang={lang} t={t} />}
+              {showDetail && <ProfileDetail item={item} lang={lang} t={t} />}
             </td>
           </tr>
-        </Fragment>)}
+        </Fragment>
+        })}
         {filteredUsers.length === 0 && <tr><td colSpan={6} className="admin-empty">{t('没有匹配的用户。', 'No matching users.')}</td></tr>}
       </tbody></table>
     </div>}

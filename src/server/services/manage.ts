@@ -29,6 +29,7 @@ import { publishVersion, setDetailHtml } from './skills'
 import type { SkillRef } from '../../lib/types'
 import {
   COUNTRIES,
+  EMAIL_CODE_COOLDOWN_SECONDS,
   PROFILE_FIELD_MAX,
   RESEARCH_NEEDS_MAX,
   isEmailVerificationCode,
@@ -158,6 +159,81 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase()
+}
+
+/** When a code was last requested per address, so the cooldown survives a reload. */
+const codeRequests = new Map<string, number>()
+
+/**
+ * Handle the "send me a verification code" action on the sign-up form.
+ *
+ * `cooldownSeconds` is what the client counts down, and it is never 0 on this
+ * path: a successful send reports the full window it just opened, and a send
+ * suppressed by an existing wait reports what is left of it. So "0" means only
+ * one thing to a caller — the address is free — which keeps the client from
+ * having to know how the window came to be in order to decide whether to start
+ * a countdown.
+ *
+ * The window is keyed on the address and enforced here rather than in the
+ * browser: a countdown the client owns is one a refresh removes, and once a mail
+ * provider is connected this endpoint is what actually costs money.
+ *
+ * No message is sent. The code is fixed, so there is nothing to deliver — the
+ * action exists so the form's confirm step is real. Connecting a provider means
+ * sending inside this function and storing the issued code; the cooldown, the
+ * validation and the response shape stay as they are.
+ */
+export function requestEmailCode(rawEmail: string): { cooldownSeconds: number; sent: boolean } {
+  const email = checkedCodeEmail(rawEmail)
+  const remaining = emailCodeCooldownRemaining(email)
+  if (remaining > 0) return { cooldownSeconds: remaining, sent: false }
+  // Only a successful send opens the window. Looking at the clock never does —
+  // see `emailCodeStatus`, which is what the form calls while you are typing.
+  codeRequests.set(email, nowSeconds())
+  return { cooldownSeconds: EMAIL_CODE_COOLDOWN_SECONDS, sent: true }
+}
+
+/**
+ * Read the wait for an address without starting one.
+ *
+ * Separate from `requestEmailCode` because asking "how long is left?" and asking
+ * for a code are different acts: if a lookup opened the window, merely typing an
+ * address would consume the one send the user had available. The form uses this
+ * on mount and while the address changes, and `requestEmailCode` only when the
+ * button is actually pressed.
+ */
+export function emailCodeStatus(rawEmail: string): { cooldownSeconds: number } {
+  return { cooldownSeconds: emailCodeCooldownRemaining(checkedCodeEmail(rawEmail)) }
+}
+
+function checkedCodeEmail(rawEmail: string): string {
+  const email = normalizeEmail(rawEmail)
+  if (email === '') fail('email is required')
+  if (!EMAIL_PATTERN.test(email)) fail('email is not a valid address')
+  return email
+}
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000)
+}
+
+/**
+ * Seconds until another code may be requested for this address; 0 when free.
+ *
+ * Entries are only pruned when the map is far larger than any real traffic —
+ * one entry per address a code was sent to, which is small next to the request
+ * rate it is protecting.
+ */
+export function emailCodeCooldownRemaining(rawEmail: string): number {
+  const email = normalizeEmail(rawEmail)
+  if (email === '') return 0
+  if (codeRequests.size > 5000) {
+    const cutoff = nowSeconds() - EMAIL_CODE_COOLDOWN_SECONDS
+    for (const [key, at] of codeRequests) if (at <= cutoff) codeRequests.delete(key)
+  }
+  const last = codeRequests.get(email) ?? 0
+  const elapsed = Math.floor(Date.now() / 1000) - last
+  return elapsed < EMAIL_CODE_COOLDOWN_SECONDS ? EMAIL_CODE_COOLDOWN_SECONDS - elapsed : 0
 }
 
 /**

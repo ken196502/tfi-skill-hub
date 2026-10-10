@@ -147,6 +147,46 @@ export function registrationStatus(): Promise<{ enabled: boolean }> {
   return request<{ enabled: boolean }>('/registration')
 }
 
+/**
+ * Read how long the send action is still unavailable for an address.
+ *
+ * Pure lookup — it never starts a wait. Use this while the user is still typing
+ * an address or after a reload; use `requestEmailCode` for the button.
+ */
+export async function emailCodeStatus(email: string): Promise<{ cooldownSeconds: number }> {
+  const res = await fetch(`/register/email-code?email=${encodeURIComponent(email)}`, {
+    method: 'GET',
+    credentials: 'same-origin',
+  })
+  const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) throw new ApiError(res.status, parsed)
+  return parsed as { cooldownSeconds: number }
+}
+
+/**
+ * The sign-up form's "send code" action.
+ *
+ * `cooldownSeconds` is never 0 on this path: a successful send reports the full
+ * window it just opened, a suppressed one reports what is left of the existing
+ * wait. `sent` says which happened, so the caller does not have to infer it.
+ * The client counts the number down rather than running a timer of its own, so
+ * a reload cannot shorten the wait — it reads the remaining time and resumes.
+ */
+export async function requestEmailCode(
+  email: string,
+): Promise<{ cooldownSeconds: number; sent: boolean }> {
+  const body = new URLSearchParams({ email })
+  const res = await fetch('/register/email-code', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body,
+  })
+  const parsed = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) throw new ApiError(res.status, parsed)
+  return parsed as { cooldownSeconds: number; sent: boolean }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Skills
 // ─────────────────────────────────────────────────────────────────────────────

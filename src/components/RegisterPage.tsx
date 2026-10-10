@@ -10,11 +10,12 @@
  * location is optional.
  */
 
-import { useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { register } from '../lib/api'
+import { register, requestEmailCode, emailCodeStatus } from '../lib/api'
 import { useRegistrationOpen } from '../lib/auth'
 import { useLang, useT } from '../lib/i18n'
+import { useCooldown } from '../lib/useCooldown'
 import {
   PROFILE_FIELD_MAX,
   RESEARCH_NEEDS_MAX,
@@ -43,6 +44,29 @@ type FieldName =
   | 'researchNeeds'
   | 'markets'
 
+/**
+ * The address a code was last requested for, kept for this browser tab.
+ *
+ * The wait is enforced on the server, so a reload has to ask it what is left —
+ * but after a reload the email field is empty, so there is nothing to ask about.
+ * Remembering the address is what makes the resumed lookup possible. Session
+ * storage, not local: the wait is short, and a new tab is a new attempt.
+ */
+const LAST_CODE_ADDRESS_KEY = 'skillhub.register.lastEmail'
+
+function readLastCodeAddress(): string {
+  if (typeof window === 'undefined') return ''
+  return window.sessionStorage.getItem(LAST_CODE_ADDRESS_KEY) ?? ''
+}
+
+function rememberCodeAddress(address: string): void {
+  try {
+    window.sessionStorage.setItem(LAST_CODE_ADDRESS_KEY, address)
+  } catch {
+    /* private mode: the countdown still works within this page view */
+  }
+}
+
 export function RegisterPage() {
   const t = useT()
   const { lang } = useLang()
@@ -65,6 +89,14 @@ export function RegisterPage() {
   const [touched, setTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(false)
+  const [sending, setSending] = useState(false)
+  /** True once a code has been requested in this session, so the button reads "resend". */
+  const [codeSent, setCodeSent] = useState(false)
+  /** Short confirmation under the field; errors go through `codeNotice` being reset. */
+  const [codeNotice, setCodeNotice] = useState('')
+  const cooldown = useCooldown()
+  /** The address whose wait is currently on screen; null when none is known. */
+  const matchesRef = useRef<string | null>(null)
 
   // Stable across renders so the combobox's filter memo is not thrown away on
   // every keystroke elsewhere in the form.
@@ -75,6 +107,71 @@ export function RegisterPage() {
     setMarkets((current) =>
       current.includes(slug) ? current.filter((item) => item !== slug) : [...current, slug],
     )
+  }
+
+  /**
+   * Read the server's remaining wait for an address and mirror it.
+   *
+   * Called on load and while the address changes — a lookup, so it never starts
+   * a wait of its own. The button press is the only thing that does that. This
+   * is what makes a reload resume the countdown instead of handing back a usable
+   * button.
+   */
+  const syncCooldown = useCallback(
+    async (address: string) => {
+      if (!EMAIL_PATTERN.test(address.trim())) return
+      try {
+        const { cooldownSeconds } = await emailCodeStatus(address.trim())
+        cooldown.start(cooldownSeconds)
+      } catch {
+        /* the form still works; the send button is the thing being restored */
+      }
+    },
+    [cooldown.start],
+  )
+
+  // On mount: pick up a wait started before this page was loaded. The email
+  // field is empty after a reload, so the address is read from session storage.
+  useEffect(() => {
+    const address = readLastCodeAddress()
+    if (address !== '') {
+      matchesRef.current = address
+      void syncCooldown(address)
+    }
+    // Deliberately mount-only. Re-running on every keystroke would re-request a
+    // code for each character typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const onSendCode = async () => {
+    const address = email.trim()
+    if (!EMAIL_PATTERN.test(address)) {
+      setTouched(true)
+      setCodeNotice('')
+      return
+    }
+    rememberCodeAddress(address)
+    matchesRef.current = address
+    setSending(true)
+    try {
+      const { cooldownSeconds, sent } = await requestEmailCode(address)
+      // Either way a countdown starts: a successful send opens a fresh window,
+      // and a suppressed one continues. `sent` alone decides whether to tell
+      // the user a code is on its way.
+      cooldown.start(cooldownSeconds)
+      if (sent) {
+        setCodeSent(true)
+        setCodeNotice(t('验证码已发送，请查收邮件。', 'Code sent — check your inbox.'))
+      } else {
+        setCodeNotice('')
+      }
+    } catch (e2) {
+      setCodeNotice(
+        e2 instanceof Error ? e2.message : t('发送失败，请稍后重试。', 'Could not send. Please try again.'),
+      )
+    } finally {
+      setSending(false)
+    }
   }
 
   const missing = new Set<FieldName>()
@@ -263,7 +360,34 @@ export function RegisterPage() {
                       className={`form-input login-input${mark('email')}`}
                       type="email"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        // Editing the address invalidates the confirmation and
+                        // the entered code: both referred to the old one.
+                        setEmail(e.target.value)
+                        if (codeNotice !== '') setCodeNotice('')
+                        if (codeSent) {
+                          setCodeSent(false)
+                          setEmailCode('')
+                        }
+                        // The wait belongs to the address, so switching to a
+                        // different one asks the server about *that* address.
+                        // Compared against the address the screen currently
+                        // reflects, not against the last one looked up: typing
+                        // passes through partial values, and a value can end
+                        // up being an address that was looked up a keystroke
+                        // earlier — switching back to it must still re-ask.
+                        const next = e.target.value.trim()
+                        const shown = matchesRef.current
+                        if (EMAIL_PATTERN.test(next)) {
+                          if (shown !== next) {
+                            matchesRef.current = next
+                            void syncCooldown(next)
+                          }
+                        } else if (shown !== null) {
+                          matchesRef.current = null
+                          cooldown.clear()
+                        }
+                      }}
                       autoComplete="email"
                       placeholder={t('例如：name@example.com', 'e.g. name@example.com')}
                     />
@@ -277,30 +401,52 @@ export function RegisterPage() {
                   <label className="form-label" htmlFor="emailCode">
                     {t('邮箱验证码', 'Email verification code')} *
                   </label>
-                  <div className="login-input-wrap">
-                    <span className="login-input-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-                        <path d="M20 12v8H4v-8M2 7h20v5H2zM12 15v-3M12 7V4.5" />
-                      </svg>
-                    </span>
-                    <input
-                      id="emailCode"
-                      className={`form-input login-input login-input-code${mark('emailCode')}`}
-                      // Digits only, so the six-character code cannot carry a
-                      // typo the user then has to hunt for.
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      pattern="[0-9]*"
-                      maxLength={6}
-                      value={emailCode}
-                      onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ''))}
-                      placeholder={t('6 位数字', '6 digits')}
-                    />
+                  {/* The send action and the code box share one row: the button
+                      belongs to the field it fills. */}
+                  <div className="code-row">
+                    <div className="login-input-wrap code-input-wrap">
+                      <span className="login-input-icon">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                          <path d="M20 12v8H4v-8M2 7h20v5H2zM12 15v-3M12 7V4.5" />
+                        </svg>
+                      </span>
+                      <input
+                        id="emailCode"
+                        className={`form-input login-input login-input-code${mark('emailCode')}`}
+                        // Digits only, so the six-character code cannot carry a
+                        // typo the user then has to hunt for.
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        value={emailCode}
+                        onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ''))}
+                        placeholder={t('6 位数字', '6 digits')}
+                      />
+                    </div>
+                    <button
+                      className="btn btn-secondary code-send-btn"
+                      type="button"
+                      disabled={cooldown.active || sending}
+                      onClick={onSendCode}
+                      title={cooldown.active
+                        ? t(`请在 ${cooldown.remaining} 秒后重试`, `Try again in ${cooldown.remaining}s`)
+                        : undefined}
+                    >
+                      {sending
+                        ? t('发送中…', 'Sending…')
+                        : cooldown.active
+                          ? t(`${cooldown.remaining} 秒后重发`, `Resend in ${cooldown.remaining}s`)
+                          : codeSent
+                            ? t('重新发送', 'Resend')
+                            : t('发送验证码', 'Send code')}
+                    </button>
                   </div>
+                  {codeNotice && <span className="field-hint field-hint-ok">{codeNotice}</span>}
                   {touched && (missing.has('emailCode') || invalid.has('emailCode')) && (
                     <span className="field-hint">
                       {missing.has('emailCode')
-                        ? t('请输入邮箱收到的验证码。', 'Please enter the code sent to your email.')
+                        ? t('请先点击「发送验证码」，再填写收到的验证码。', 'Send the code first, then enter what you received.')
                         : t('验证码不正确，请重新输入。', 'That code is not correct. Please try again.')}
                     </span>
                   )}

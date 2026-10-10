@@ -32,6 +32,8 @@ const ADMIN_USER = 'admin'
 const ADMIN_PASSWORD = 'admin12345'
 /** The sign-up verification code (see `EMAIL_VERIFICATION_CODE` in the app). */
 const EMAIL_CODE = '123456'
+/** How long the send action stays unavailable (see `EMAIL_CODE_COOLDOWN_SECONDS`). */
+const COOLDOWN = 60
 
 let portCursor = 21000 + Math.floor(Math.random() * 5000)
 let passed = 0
@@ -1006,6 +1008,82 @@ try {
     codeUser?.email === 'smoke-code-ok@example.com' && codeUser?.status === 'pending',
     JSON.stringify(codeUser?.email ?? null),
   )
+
+  // ── requesting a code ─────────────────────────────────────────────────────
+  r = await req('POST', '/register/email-code', { body: { email: '' } })
+  check('requesting a code without an address → 400', r.status === 400 && /email is required/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  r = await req('POST', '/register/email-code', { body: { email: 'not-an-email' } })
+  check(
+    'requesting a code for a malformed address → 400',
+    r.status === 400 && /not a valid address/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text}`,
+  )
+
+  const SEND_ADDRESS = 'smoke-send@example.com'
+  r = await req('POST', '/register/email-code', { body: { email: SEND_ADDRESS } })
+  check(
+    `the first send reports the full ${COOLDOWN}s window it opened`,
+    r.status === 200 && r.body?.sent === true && r.body?.cooldownSeconds === COOLDOWN,
+    `${r.status} ${r.text}`,
+  )
+
+  // The cooldown is the whole point: the wait is decided by the server, so a
+  // page reload cannot hand back a usable button. Asking again inside the
+  // window reports the time still to wait and says nothing was sent.
+  r = await req('POST', '/register/email-code', { body: { email: SEND_ADDRESS } })
+  check(
+    `an immediate second send is suppressed and reports the ${COOLDOWN}s wait`,
+    r.status === 200 &&
+      r.body?.sent === false &&
+      r.body?.cooldownSeconds > 0 &&
+      r.body.cooldownSeconds <= COOLDOWN,
+    `${r.status} ${r.text}`,
+  )
+
+  r = await req('POST', '/register/email-code', { body: { email: 'smoke-send-other@example.com' } })
+  check(
+    'a different address is unaffected by the first one’s wait',
+    r.status === 200 && r.body?.sent === true && r.body?.cooldownSeconds === COOLDOWN,
+    `${r.status} ${r.text}`,
+  )
+
+  // Case-insensitive, matching how the address itself is stored.
+  r = await req('POST', '/register/email-code', { body: { email: SEND_ADDRESS.toUpperCase() } })
+  check(
+    'the same address in a different case is still cooling down',
+    r.status === 200 && r.body?.cooldownSeconds > 0,
+    `${r.status} ${r.text}`,
+  )
+
+  cookie = ''
+  r = await req('POST', '/register/email-code', { body: { email: 'smoke-anon@example.com' } })
+  check('requesting a code works signed out (the form is public) → 200', r.status === 200, `${r.status} ${r.text}`)
+  cookie = adminCookie
+
+  // Looking must not send: if a lookup started the wait, simply typing an
+  // address would use up the one send the user had available.
+  r = await req('GET', `/register/email-code?email=${encodeURIComponent('smoke-lookup@example.com')}`)
+  check(
+    'looking up an unknown address reports no wait',
+    r.status === 200 && r.body?.cooldownSeconds === 0,
+    `${r.status} ${r.text}`,
+  )
+
+  r = await req('GET', `/register/email-code?email=${encodeURIComponent(SEND_ADDRESS)}`)
+  check(
+    'looking up an address mid-wait reports the time left',
+    r.status === 200 && r.body?.cooldownSeconds > 0 && r.body.cooldownSeconds <= COOLDOWN,
+    `${r.status} ${r.text}`,
+  )
+
+  r = await req('GET', `/register/email-code?email=${encodeURIComponent('not-an-email')}`)
+  check('looking up a malformed address → 400', r.status === 400 && /not a valid address/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
+
+  cookie = ''
+  r = await req('GET', '/register/email-code?email=smoke-lookup@example.com')
+  check('looking up a wait works signed out → 200', r.status === 200, `${r.status} ${r.text}`)
+  cookie = adminCookie
 
   r = await req('POST', '/register', { body: applicant({ handle: 'smoke-dup-email', email: 'newbie@example.com' }) })
   check('registering with a duplicate email → 400', r.status === 400 && /already registered/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)

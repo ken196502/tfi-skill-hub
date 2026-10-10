@@ -134,7 +134,7 @@
           <tr>
             <td><span class="zh">邮箱验证码</span><span class="en">Email verification code</span></td>
             <td><span class="zh">是</span><span class="en">Yes</span></td>
-            <td><span class="zh"><strong>统一填 <code>123456</code></strong></span><span class="en"><strong>Always enter <code>123456</code></strong></span></td>
+            <td><span class="zh">点「发送验证码」后<strong>统一填 <code>123456</code></strong></span><span class="en">Click <strong>Send code</strong>, then <strong>always enter <code>123456</code></strong></span></td>
           </tr>
           <tr>
             <td><span class="zh">所在国家或地区</span><span class="en">Country or region</span></td>
@@ -174,6 +174,20 @@
         </tbody>
       </table>
     <p class="note"><span class="zh"><strong>关于邮箱验证码：</strong>系统尚未接入邮件服务，验证码是固定值 <code>123456</code>，不区分邮箱地址。</span><span class="en"><strong>About the verification code:</strong> no mail service is connected yet — the code is the fixed value <code>123456</code>, the same for every address.</span></p>
+    <p><span class="zh"><strong>获取验证码的步骤</strong></span><span class="en"><strong>Getting the code</strong></span></p>
+    <ol>
+      <li><span class="zh">先填写<strong>邮箱</strong>（未填写时点发送不会有反应）。</span><span class="en">Fill in <strong>Email</strong> first (the button does nothing without one).</span></li>
+      <li><span class="zh">点验证码框右侧的<strong>「发送验证码」</strong>按钮。</span><span class="en">Click <strong>Send code</strong>, to the right of the code box.</span></li>
+      <li><span class="zh">按钮变为<strong>「N 秒后重发」</strong>并置灰 <strong>60 秒</strong>，期间不可再次点击。</span><span class="en">The button turns into <strong>"Resend in Ns"</strong> and is disabled for <strong>60 seconds</strong>.</span></li>
+      <li><span class="zh">在验证码框填入 <code>123456</code>，继续填写其余字段并提交。</span><span class="en">Enter <code>123456</code> in the code box, finish the form and submit.</span></li>
+    </ol>
+    <p><span class="zh"><strong>关于倒计时</strong></span><span class="en"><strong>About the countdown</strong></span></p>
+    <ul>
+      <li><span class="zh">倒计时<strong>按邮箱计算</strong>：换一个邮箱地址，按钮立即恢复可用（每个地址各有 60 秒）。</span><span class="en">The wait is <strong>per address</strong>: change the email and the button is available again (each address has its own 60 seconds).</span></li>
+      <li><span class="zh">倒计时<strong>刷新页面不会重置</strong>：等待由服务端记录，刷新后仍显示剩余秒数。</span><span class="en">Reloading does <strong>not</strong> reset it — the wait is kept on the server, so the remaining seconds are still shown.</span></li>
+      <li><span class="zh">60 秒结束后按钮变回<strong>「重新发送」</strong>，可再次发送。</span><span class="en">When it runs out the button reads <strong>"Resend"</strong> and can be used again.</span></li>
+      <li><span class="zh">修改邮箱地址后，之前填写的验证码会被清空，需要对新地址重新获取。</span><span class="en">Changing the email clears the code you entered — request a new one for the new address.</span></li>
+    </ul>
     <ul>
       <li><span class="zh">提交注册后账号状态为<strong>待审核</strong>，<strong>需管理员审核通过后才能登录</strong>；登录时若提示「账号待审核」即表示尚未通过。</span><span class="en">After registering, the account is <strong>pending review</strong> and <strong>can sign in only after an admin approves it</strong>; a "account pending" message at sign-in means it is not approved yet.</span></li>
       <li><span class="zh">提交成功后不会自动登录，需回到登录页用刚注册的账号登录。</span><span class="en">Submitting does not sign you in — go back to the login page and sign in with the account you just created.</span></li>
@@ -204,7 +218,7 @@
       <thead><tr><th><span class="zh">模块</span><span class="en">Module</span></th><th><span class="zh">功能</span><span class="en">What it does</span></th></tr></thead>
       <tbody>
         <tr><td><span class="zh">总览</span><span class="en">Overview</span></td><td><span class="zh">展示用户 / 技能 / 插件 / 首页精选的数量统计。</span><span class="en">Counts of users / skills / plugins / featured skills.</span></td></tr>
-        <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色（普通用户 / 管理员）、封禁账号；按状态（待审核 / 已通过 / 已驳回）筛选，逐条通过或驳回注册申请（驳回可填理由）；点「查看资料」可看到申请人填写的姓名、地区、机构、岗位、研究需求与关注市场。<strong>已通过的账号不能再驳回</strong>——如需收回其访问权，请使用「封禁」。</span><span class="en">Create users, change roles (user / admin), ban accounts; filter by status (pending / approved / rejected) and approve or reject each sign-up (rejection may include a reason); "View details" shows the applicant's name, region, institution, job title, research needs and markets. <strong>An approved account cannot be rejected</strong> — use Ban to revoke its access.</span></td></tr>
+        <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色（普通用户 / 管理员）、封禁账号；按状态（待审核 / 已通过 / 已驳回）筛选，逐条通过或驳回注册申请（驳回可填理由）；<strong>待审核</strong>的账号会<strong>自动展开</strong>注册资料（姓名、邮箱、所在国家或地区、机构名称、岗位、办公地区、关注市场、研究需求），其余账号点「查看资料」展开。<strong>已通过的账号不能再驳回</strong>——如需收回其访问权，请使用「封禁」。</span><span class="en">Create users, change roles (user / admin), ban accounts; filter by status (pending / approved / rejected) and approve or reject each sign-up (rejection may include a reason); accounts <strong>awaiting review</strong> <strong>open their details automatically</strong> (name, email, country or region, institution, job title, office location, markets, research needs) — for any other account, click "View details". <strong>An approved account cannot be rejected</strong> — use Ban to revoke its access.</span></td></tr>
         <tr><td><span class="zh">内容管理</span><span class="en">Content management</span></td><td><span class="zh">增删技能，维护展示信息（名称 / 简介 / 分类 / 标签）与详情正文（富文本）；名称、简介、正文都分中英文两份，用表单里的「编辑语言」开关切换填写；弹窗内可直接上传技能文件夹（新建时必须含 SKILL.md；编辑时上传的文件会发布为新版本，不传则文件保持不变）；可随时上架 / 下架，或删除（删除不可恢复）；列表按 全部 / 已上架 / 已下架 / 待上架 筛选并分页。</span><span class="en">Add and remove skills, maintain their details (name / summary / category / tags) and rich body (rich text). Name, summary and body each exist in Chinese and English — use the "editing language" switch in the form to fill them in. Skill folders can be uploaded straight from the dialog: a new skill must include SKILL.md, and files uploaded while editing are published as a new version (leave the picker empty to keep the current files). Take a skill online, offline, or delete it for good (deletion is irreversible). The list filters by all / online / offline / awaiting publication and is paged.</span></td></tr>
         <tr><td><span class="zh">首页精选</span><span class="en">Featured</span></td><td><span class="zh">选择首页展示的精选技能，最多 12 个，顺序按勾选保存。</span><span class="en">Pick up to 12 skills for the homepage; order follows your selection.</span></td></tr>
         <tr><td><span class="zh">API Keys</span><span class="en">API Keys</span></td><td><span class="zh">签发管理端专用密钥，按用途授权（读取 / 发布 / 删除 / 审核 / 用户审核）；可绑定命名空间、设有效期（长期 / 30 / 90 / 365 天）、撤销；完整密钥仅显示一次。</span><span class="en">Issue admin API keys scoped to uses (read / publish / delete / moderate / review sign-ups); bind to a namespace, set expiry (never / 30 / 90 / 365 days), revoke; the full key shows only once.</span></td></tr>
