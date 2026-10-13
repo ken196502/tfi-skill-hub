@@ -15,7 +15,7 @@ import type {
   Namespace,
   NamespaceRole,
   NamespaceType,
-  Visibility,
+  ListingStatus,
 } from '../../lib/types'
 import {
   invitations,
@@ -56,7 +56,7 @@ export function createNamespace(
     displayName?: string
     description?: string
     type?: string
-    defaultVisibility?: string
+    defaultListing?: string
     maxSkills?: number
   },
 ): Namespace {
@@ -72,9 +72,9 @@ export function createNamespace(
     fail("type must be 'personal' or 'team'")
   }
 
-  // `defaultVisibility` is only honoured for the two literal values.
-  const defaultVisibility: Visibility =
-    input.defaultVisibility === 'public' ? 'public' : 'private'
+  // `defaultListing` is only honoured for the two literal values.
+  const defaultListing: ListingStatus =
+    input.defaultListing === 'listed' ? 'listed' : 'unlisted'
 
   const ns = namespaces.create({
     slug: input.slug,
@@ -82,7 +82,7 @@ export function createNamespace(
     description: input.description || null,
     ownerId: user.id,
     type: type as NamespaceType,
-    defaultVisibility,
+    defaultListing,
     // `maxSkills` only takes effect when positive.
     maxSkills: input.maxSkills && input.maxSkills > 0 ? input.maxSkills : 0,
   })
@@ -114,7 +114,7 @@ export function updateNamespace(
   fields: {
     displayName?: string
     description?: string
-    defaultVisibility?: string
+    defaultListing?: string
     maxSkills?: number
   },
 ): Namespace {
@@ -125,11 +125,11 @@ export function updateNamespace(
   return namespaces.update(ns.id, {
     displayName: fields.displayName !== undefined ? fields.displayName : undefined,
     description: fields.description !== undefined ? fields.description : undefined,
-    defaultVisibility:
-      fields.defaultVisibility === 'public'
-        ? 'public'
-        : fields.defaultVisibility === 'private'
-          ? 'private'
+    defaultListing:
+      fields.defaultListing === 'listed'
+        ? 'listed'
+        : fields.defaultListing === 'unlisted'
+          ? 'unlisted'
           : undefined,
     maxSkills:
       fields.maxSkills !== undefined && fields.maxSkills > 0 ? fields.maxSkills : undefined,
@@ -142,7 +142,7 @@ export function deleteNamespace(slug: string, viewer: ViewerInfo): void {
   if (!isSystemAdmin(viewer) && ns.ownerId !== viewer.id) {
     forbidden('only the owner can delete a namespace')
   }
-  // Membership, skills, plugins and invitations cascade via FK.
+  // Membership, skills and invitations cascade via FK.
   namespaces.delete(ns.id)
   auditLog({
     actorId: viewer.id,

@@ -3,53 +3,43 @@ import { createFileRoute, Navigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   adminCreateSkill,
+  adminListCategories,
   adminListSkills,
   adminRemoveSkill,
-  adminSetSkillVisibility,
+  adminSetSkillListing,
   adminUpdateSkill,
-  categories,
+  downloadUrl,
   getSkill,
   type AdminSkillInput,
 } from '../lib/api'
 import { useSession } from '../lib/auth'
 import { useLang, useT, localizedName } from '../lib/i18n'
 import { AdminNav } from '../components/AdminShell'
+import { Combobox, type ComboboxOption } from '../components/Combobox'
 import { FileDropzone } from '../components/FileDropzone'
 import { RichTextEditor } from '../components/RichTextEditor'
 import { ErrorBox, Loading, PageHeader, formatDate, skillPath } from '../components/ui'
-import type { SkillWithOwner } from '../lib/types'
+import type { ListingStatus, SkillWithOwner } from '../lib/types'
 
 export const Route = createFileRoute('/admin/content')({ component: ContentPage })
 
 const PAGE_SIZE = 20
 
-/** `''` shows everything; `pending` means offline but not yet decided on. */
-type StatusFilter = '' | 'public' | 'private' | 'pending'
+type StatusFilter = '' | ListingStatus
 
-type RowStatus = 'public' | 'private' | 'pending'
-
-/**
- * What the row's chip says. A skill that was submitted for public listing but
- * never acted on reads as its own state, so it is obvious which rows still want
- * a decision — that is the whole job the old review queue used to do.
- */
-function rowStatus(skill: SkillWithOwner): RowStatus {
-  if (skill.visibility === 'public') return 'public'
-  return skill.moderationStatus === 'pending_review' ? 'pending' : 'private'
+function rowStatus(skill: SkillWithOwner): ListingStatus {
+  return skill.listing
 }
 
-const STATUS_LABEL: Record<RowStatus, [string, string]> = {
-  public: ['已上架', 'Online'],
-  private: ['已下架', 'Offline'],
-  pending: ['待上架', 'Awaiting publication'],
+const STATUS_LABEL: Record<ListingStatus, [string, string]> = {
+  listed: ['已上架', 'Listed'],
+  unlisted: ['已下架', 'Unlisted'],
 }
 
-const STATUS_TONE: Record<RowStatus, string> = {
-  public: 'success',
-  // Offline is a resting state, not a problem; waiting on a decision is the one
-  // that wants the eye.
-  private: 'neutral',
-  pending: 'warning',
+const STATUS_TONE: Record<ListingStatus, string> = {
+  listed: 'success',
+  // Unlisted is a resting state, not a problem.
+  unlisted: 'neutral',
 }
 
 /** The form's own shape: tags are edited as text, so they stay out of it. */
@@ -61,8 +51,8 @@ const EMPTY_DRAFT: Draft = {
   summary: '',
   displayNameEn: '',
   summaryEn: '',
-  category: 'general',
-  visibility: 'private',
+  category: '',
+  listing: 'unlisted',
   html: '',
   htmlEn: '',
 }
@@ -76,8 +66,10 @@ function draftFromSkill(skill: SkillWithOwner, withBody = false): Draft {
     summary: skill.summary ?? '',
     displayNameEn: skill.displayNameEn ?? '',
     summaryEn: skill.summaryEn ?? '',
-    category: skill.category || 'general',
-    visibility: skill.visibility,
+    // Left exactly as stored: an unusual value must survive an unrelated edit
+    // rather than being snapped back to the default.
+    category: skill.category ?? '',
+    listing: skill.listing,
     // The list never carries the body; only the detail fetch does.
     html: withBody ? (skill.detailHtml ?? '') : '',
     htmlEn: withBody ? (skill.detailHtmlEn ?? '') : '',
@@ -89,24 +81,25 @@ function parseTags(text: string): string[] {
 }
 
 /**
- * Options for the category select.
+ * Suggestions for the category field, in the order they are offered.
  *
- * `/categories` advertises a short taxonomy, but the loaded records are the
- * truth about what this catalogue actually uses (the seeded skills are filed
- * under design, research, documentation and writing). Offering only the
- * advertised four would leave the select showing a category the record does not
- * have — and then write that wrong value on save.
+ * The field takes free text, so this list is only a shortcut: it holds the
+ * categories the catalogue already uses, plus whatever the record currently
+ * carries (which may predate this list) so the saved value is always among the
+ * choices. Sorting is case-insensitive alphabetical, which puts both `Design`
+ * and `design` next to each other and keeps the list stable as it grows.
  */
-function categoryOptions(declared: string[], inUse: string[], current: string): string[] {
+function categoryOptions(inUse: string[], current: string): ComboboxOption[] {
   const seen = new Set<string>()
-  const options: string[] = []
-  for (const value of [...declared, ...[...inUse].sort(), current]) {
+  const values: string[] = []
+  for (const value of [...inUse, current]) {
     const label = value.trim()
     if (label === '' || seen.has(label)) continue
     seen.add(label)
-    options.push(label)
+    values.push(label)
   }
-  return options
+  values.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  return values.map((value) => ({ value, label: value }))
 }
 
 function ContentPage() {
@@ -124,20 +117,24 @@ function ContentPage() {
 
   const list = useQuery({
     queryKey: ['admin-content-skills', filter, page],
-    queryFn: () => adminListSkills({ visibility: filter, page, pageSize: PAGE_SIZE }),
+    queryFn: () => adminListSkills({ listing: filter, page, pageSize: PAGE_SIZE }),
     enabled: isAdmin,
   })
 
   function refreshCatalogue() {
     void client.invalidateQueries({ queryKey: ['admin-content-skills'] })
+    void client.invalidateQueries({ queryKey: ['admin-categories'] })
+    void client.invalidateQueries({ queryKey: ['categories'] })
+    // The browse page's filter is derived from the same records.
+    void client.invalidateQueries({ queryKey: ['categories-in-use'] })
     void client.invalidateQueries({ queryKey: ['skills'] })
     void client.invalidateQueries({ queryKey: ['skill'] })
     void client.invalidateQueries({ queryKey: ['features'] })
   }
 
   const toggle = useMutation({
-    mutationFn: (input: { ref: string; visibility: 'public' | 'private' }) =>
-      adminSetSkillVisibility(input.ref, input.visibility),
+    mutationFn: (input: { ref: string; listing: ListingStatus }) =>
+      adminSetSkillListing(input.ref, input.listing),
     onSuccess: refreshCatalogue,
   })
   const remove = useMutation({
@@ -153,10 +150,21 @@ function ContentPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const mutationError = toggle.error ?? remove.error
 
-  /** Every category the loaded page actually uses, for the dialog's select. */
+  /**
+   * Every category the catalogue already uses, for the dialog's field to
+   * suggest. Read once per mount rather than per page, so paging through the
+   * list does not change what the suggestions are.
+   */
+  const categoriesQuery = useQuery({
+    queryKey: ['admin-categories'],
+    queryFn: adminListCategories,
+    enabled: isAdmin,
+    staleTime: 30_000,
+  })
+
   const categoriesInUse = useMemo(
-    () => [...new Set(rows.map((row) => row.category).filter((value) => value !== ''))],
-    [rows],
+    () => [...new Set(categoriesQuery.data?.categories ?? [])],
+    [categoriesQuery.data],
   )
 
   // Filtering down, or deleting the last row of a page, can leave the cursor
@@ -173,16 +181,15 @@ function ContentPage() {
       <AdminNav active="content" />
       <PageHeader
         title={t('内容管理', 'Content management')}
-        subtitle={t('维护技能的展示信息与详情内容，可随时上架、下架或删除。', 'Maintain skill details and rich content; take skills online, offline, or remove them.')}
+        subtitle={t('维护技能的展示信息与详情内容，可随时上架、下架或删除。', 'Maintain skill details and rich content; list, unlist or remove a skill at any time.')}
       />
 
       <div className="admin-toolbar admin-toolbar-spaced">
         <div className="admin-filter-group">
           {([
             ['', t('全部', 'All')],
-            ['public', t('已上架', 'Online')],
-            ['private', t('已下架', 'Offline')],
-            ['pending', t('待上架', 'Awaiting publication')],
+            ['listed', t('已上架', 'Listed')],
+            ['unlisted', t('已下架', 'Unlisted')],
           ] as Array<[StatusFilter, string]>).map(([value, label]) => (
             <button
               key={value || 'all'}
@@ -221,7 +228,7 @@ function ContentPage() {
               onEdit={(skill) => setEditing({ skill })}
               onToggle={(skill) => toggle.mutate({
                 ref: skillPath(skill),
-                visibility: rowStatus(skill) === 'public' ? 'private' : 'public',
+                listing: rowStatus(skill) === 'listed' ? 'unlisted' : 'listed',
               })}
               onRemove={setRemoving}
             />
@@ -319,7 +326,7 @@ function SkillTable({
                       disabled={busy}
                       onClick={() => onToggle(skill)}
                     >
-                      {status === 'public' ? t('下架', 'Take offline') : t('上架', 'Take online')}
+                      {status === 'listed' ? t('下架', 'Unlist') : t('上架', 'List')}
                     </button>
                     <button className="btn btn-danger btn-small" type="button" onClick={() => onRemove(skill)}>
                       {t('删除', 'Delete')}
@@ -488,6 +495,11 @@ function SkillDialog({
   const [files, setFiles] = useState<File[]>([])
   const [error, setError] = useState('')
 
+  // Editing an existing skill: its current files are already published, so offer
+  // a direct download of that package from the upload module.
+  const existingDownloadHref =
+    isEdit && skill ? downloadUrl({ slug: skill.slug, namespace: skill.namespaceSlug }) : ''
+
   // The body is only on the detail path — a page of skills must not ship every
   // body in full — so editing starts by fetching the one record.
   const detail = useQuery({
@@ -495,12 +507,6 @@ function SkillDialog({
     queryFn: () => getSkill(ref),
     enabled: isEdit,
     staleTime: 0,
-  })
-
-  const categoriesQuery = useQuery({
-    queryKey: ['categories'],
-    queryFn: categories,
-    staleTime: Infinity,
   })
 
   useEffect(() => {
@@ -581,19 +587,24 @@ function SkillDialog({
                       : t('仅限小写字母、数字和连字符，如 code-review', 'Lowercase letters, digits and hyphens, e.g. code-review')}
                   </span>
                 </label>
-                <label>
-                  <span className="form-label">{t('分类', 'Category')}</span>
-                  <select
-                    className="form-input"
+                <div className="admin-field">
+                  <label className="form-label" htmlFor="admin-skill-category">
+                    {t('分类', 'Category')}
+                  </label>
+                  <Combobox
+                    id="admin-skill-category"
                     value={draft.category}
-                    onChange={(event) => set('category', event.target.value)}
-                  >
-                    {categoryOptions(categoriesQuery.data?.categories ?? [], categoriesInUse, draft.category).map((category) => (
-                      <option key={category} value={category}>{category}</option>
-                    ))}
-                  </select>
-                  <span className="form-hint">{t('决定技能在目录中的归类。', 'Where the skill is filed in the catalogue.')}</span>
-                </label>
+                    options={categoryOptions(categoriesInUse, draft.category)}
+                    onChange={(value) => set('category', value)}
+                    placeholder={t('输入或选择分类', 'Type or pick a category')}
+                    listLabel={t('已有分类', 'Existing categories')}
+                    emptyLabel={t('还没有分类，直接输入即可新建', 'No categories yet — type one to create it')}
+                    allowCustom
+                  />
+                  <span className="form-hint">
+                    {t('可自行输入新分类，点击输入框可从已有分类中选择。', 'Type a new category, or click the field to pick one already in use.')}
+                  </span>
+                </div>
               </div>
 
               <div className="admin-form-grid admin-form-grid-2">
@@ -608,14 +619,14 @@ function SkillDialog({
                   <span className="form-hint">{t('用逗号分隔。', 'Separate with commas.')}</span>
                 </label>
                 <label>
-                  <span className="form-label">{t('可见性', 'Visibility')}</span>
+                  <span className="form-label">{t('上下架', 'Listing')}</span>
                   <select
                     className="form-input"
-                    value={draft.visibility}
-                    onChange={(event) => set('visibility', event.target.value)}
+                    value={draft.listing}
+                    onChange={(event) => set('listing', event.target.value)}
                   >
-                    <option value="private">{t('下架（不在目录中展示）', 'Offline (hidden from the catalogue)')}</option>
-                    <option value="public">{t('上架（所有人可见）', 'Online (visible to everyone)')}</option>
+                    <option value="unlisted">{t('下架（不在目录中展示）', 'Unlisted (hidden from the catalogue)')}</option>
+                    <option value="listed">{t('上架（在目录中展示）', 'Listed (shown in the catalogue)')}</option>
                   </select>
                 </label>
               </div>
@@ -720,6 +731,11 @@ function SkillDialog({
                     ? t('上传的文件会作为新版本发布；不传则保持现有文件不变。', 'Uploaded files are published as a new version. Leave empty to keep the current files.')
                     : t('可上传技能文件夹（需包含 SKILL.md）；不传则只创建条目，之后再补文件。', 'Upload a skill folder (it must include SKILL.md). Leave empty to create the entry first and add files later.')}
                 </span>
+                {isEdit && existingDownloadHref && (
+                  <a className="admin-download-link" href={existingDownloadHref} download>
+                    {t('点击下载已上传附件', 'Download uploaded files')}
+                  </a>
+                )}
                 <FileDropzone files={files} onChange={setFiles} requireSkillMd={!isEdit} />
               </div>
 

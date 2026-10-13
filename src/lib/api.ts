@@ -241,18 +241,25 @@ export function updateSkillDetailHtml(ref: string, html: string): Promise<SkillW
   })
 }
 
-export function requestPublic(ref: string): Promise<{ message: string }> {
-  return request<{ message: string }>(`/skills/${encodeURI(ref)}/request-public`, { method: 'POST' })
-}
-
 export function downloadUrl(ref: { slug: string; namespace?: string }, version = 'latest'): string {
   const qs = new URLSearchParams({ slug: ref.slug, version })
   if (ref.namespace) qs.set('namespace', ref.namespace)
   return apiUrl(`/download?${qs}`)
 }
 
+/** The advertised taxonomy. The console does not use this for its category field. */
 export function categories(): Promise<{ categories: string[] }> {
   return request<{ categories: string[] }>('/categories')
+}
+
+/**
+ * The categories the catalogue actually holds, for the browse filter.
+ *
+ * Scoped to what the signed-in viewer can see, so the filter never offers a
+ * category whose skills are all offline.
+ */
+export function categoriesInUse(): Promise<{ categories: string[] }> {
+  return request<{ categories: string[] }>('/categories/in-use')
 }
 
 export function listFeatures(): Promise<{ data: SkillWithOwner[] }> {
@@ -308,7 +315,7 @@ export function createNamespace(input: {
   displayName?: string
   description?: string
   type?: string
-  defaultVisibility?: string
+  defaultListing?: string
 }): Promise<Namespace> {
   return request<Namespace>('/namespaces', { method: 'POST', body: JSON.stringify(input) })
 }
@@ -478,12 +485,12 @@ export function adminBanUser(userId: string, reason: string): Promise<{ message:
  * possible.
  */
 export function adminListSkills(options: {
-  visibility?: string
+  listing?: string
   page?: number
   pageSize?: number
 } = {}): Promise<{ data: SkillWithOwner[]; nextCursor: string; total: number }> {
   const qs = new URLSearchParams({ page: String(options.page ?? 1) })
-  if (options.visibility) qs.set('visibility', options.visibility)
+  if (options.listing) qs.set('listing', options.listing)
   qs.set('limit', String(options.pageSize ?? 20))
   return request(`/admin/skills?${qs}`)
 }
@@ -497,7 +504,7 @@ export interface AdminSkillInput {
   summaryEn: string
   category: string
   tags: string[]
-  visibility: string
+  listing: string
   html: string
   htmlEn: string
 }
@@ -520,7 +527,7 @@ function skillFormBody(input: AdminSkillInput, files?: File[]): BodyInit {
   form.set('summaryEn', input.summaryEn)
   form.set('category', input.category)
   form.set('tags', input.tags.join(','))
-  form.set('visibility', input.visibility)
+  form.set('listing', input.listing)
   form.set('html', input.html)
   form.set('htmlEn', input.htmlEn)
   // The server reads every file part regardless of field name.
@@ -569,6 +576,16 @@ export function adminRemoveSkill(ref: string): Promise<{ message: string }> {
   return request<{ message: string }>(`/skills/${encodeURI(ref)}/purge`, { method: 'DELETE' })
 }
 
+/**
+ * Categories the catalogue already uses.
+ *
+ * Unlike `/categories`, which names a fixed taxonomy, this reads what is
+ * actually on disk — so it is what the console offers when picking a category.
+ */
+export function adminListCategories(): Promise<{ categories: string[] }> {
+  return request<{ categories: string[] }>('/admin/categories')
+}
+
 export function adminListFeatures(): Promise<{ data: SkillWithOwner[] }> {
   return request('/admin/features')
 }
@@ -577,11 +594,11 @@ export function adminReplaceFeatures(skillIds: string[]): Promise<{ message: str
   return request('/admin/features', { method: 'PUT', body: JSON.stringify({ skillIds }) })
 }
 
-/** Takes a skill online (`public`) or offline (`private`). */
-export function adminSetSkillVisibility(ref: string, visibility: string): Promise<{ message: string }> {
-  return request<{ message: string }>(`/admin/skills/${encodeURI(ref)}/visibility`, {
+/** Takes a skill on (`listed`) or off (`unlisted`) the shelf. */
+export function adminSetSkillListing(ref: string, listing: string): Promise<{ message: string }> {
+  return request<{ message: string }>(`/admin/skills/${encodeURI(ref)}/listing`, {
     method: 'POST',
-    body: JSON.stringify({ visibility }),
+    body: JSON.stringify({ listing }),
   })
 }
 

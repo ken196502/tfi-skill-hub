@@ -10,6 +10,7 @@
 import { asBool, asNumber, asString, nowIso, newId, query, tx, type Row } from '../db'
 import type {
   AuditLog,
+  ListingStatus,
   Namespace,
   NamespaceInvitation,
   NamespaceMemberWithUser,
@@ -19,7 +20,6 @@ import type {
   User,
   UserRole,
   UserStatus,
-  Visibility,
 } from '../../lib/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -294,7 +294,7 @@ function mapNamespace(r: Row): Namespace {
     ownerId: asString(r.owner_id),
     type: asString(r.type) as NamespaceType,
     status: asString(r.status) as 'active' | 'suspended',
-    defaultVisibility: asString(r.default_visibility) as Visibility,
+    defaultListing: asString(r.default_listing) as ListingStatus,
     maxSkills: asNumber(r.max_skills),
     createdAt: asString(r.created_at),
     updatedAt: asString(r.updated_at),
@@ -308,13 +308,13 @@ export const namespaces = {
     description?: string | null
     ownerId: string
     type: NamespaceType
-    defaultVisibility?: Visibility
+    defaultListing?: ListingStatus
     maxSkills?: number
   }): Namespace {
     const id = newId()
     const now = nowIso()
     query.run(
-      `INSERT INTO namespaces (id, slug, display_name, description, owner_id, type, status, default_visibility, max_skills, created_at, updated_at)
+      `INSERT INTO namespaces (id, slug, display_name, description, owner_id, type, status, default_listing, max_skills, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?)`,
       id,
       input.slug,
@@ -322,7 +322,7 @@ export const namespaces = {
       input.description ?? null,
       input.ownerId,
       input.type,
-      input.defaultVisibility ?? 'private',
+      input.defaultListing ?? 'unlisted',
       input.maxSkills && input.maxSkills > 0 ? input.maxSkills : 0,
       now,
       now,
@@ -366,7 +366,7 @@ export const namespaces = {
     fields: {
       displayName?: string | null
       description?: string | null
-      defaultVisibility?: Visibility
+      defaultListing?: ListingStatus
       maxSkills?: number
     },
   ): Namespace {
@@ -380,9 +380,9 @@ export const namespaces = {
       sets.push('description = ?')
       params.push(fields.description)
     }
-    if (fields.defaultVisibility !== undefined) {
-      sets.push('default_visibility = ?')
-      params.push(fields.defaultVisibility)
+    if (fields.defaultListing !== undefined) {
+      sets.push('default_listing = ?')
+      params.push(fields.defaultListing)
     }
     if (fields.maxSkills !== undefined) {
       sets.push('max_skills = ?')
@@ -401,7 +401,7 @@ export const namespaces = {
   },
 
   delete(id: string): void {
-    // Child rows (members, skills, plugins, invitations, tokens) cascade via FK.
+    // Child rows (members, skills, invitations, sessions) cascade via FK.
     query.run('DELETE FROM namespaces WHERE id = ?', id)
   },
 

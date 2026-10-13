@@ -8,10 +8,9 @@
 
 import { asNumber, nowIso, query, type Row } from '../db'
 import { ambiguousSlug, forbidden, notFound, ServiceError } from '../errors'
-import type { SkillRef, SkillWithOwner, Skill, Plugin, Visibility } from '../../lib/types'
+import type { SkillRef, SkillWithOwner, Skill, ListingStatus } from '../../lib/types'
 import { members, namespaces, users, type UserRecord } from '../repo/core'
 import { skills as skillRepo, versions as versionRepo } from '../repo/skills'
-import { plugins as pluginRepo } from '../repo/plugins'
 import { searchIndex, type SearchDoc } from '../repo/search'
 import { audit } from '../repo/core'
 import { notifications } from '../repo/core'
@@ -44,25 +43,15 @@ export interface Viewer {
 }
 
 /**
- * `canViewSkillWith` — public+approved, or admin, or owner, or a member of the
- * owning namespace.
+ * `canViewSkillWith` — listed, or admin, or owner, or a member of the owning
+ * namespace.
  */
 export function canViewSkill(skill: Skill, viewer: Viewer | null): boolean {
-  if (skill.visibility === 'public' && skill.moderationStatus === 'approved') return true
+  if (skill.listing === 'listed') return true
   if (!viewer) return false
   if (viewer.role === 'admin') return true
   if (skill.ownerId === viewer.id) return true
   if (skill.namespaceId && members.isMember(skill.namespaceId, viewer.id)) return true
-  return false
-}
-
-/** `canReadPlugin` — same shape as `canViewSkill`, also admin-only. */
-export function canViewPlugin(plugin: Plugin, viewer: Viewer | null): boolean {
-  if (plugin.visibility === 'public' && plugin.moderationStatus === 'approved') return true
-  if (!viewer) return false
-  if (viewer.role === 'admin') return true
-  if (plugin.ownerId === viewer.id) return true
-  if (plugin.namespaceId && members.isMember(plugin.namespaceId, viewer.id)) return true
   return false
 }
 
@@ -119,34 +108,6 @@ export function resolveSkillRefIncludeDeleted(
   return resolveSkillRef(ref, viewer, { includeDeleted: true })
 }
 
-/** Resolves a plugin reference; returns `null` when not visible. */
-export function resolvePluginRef(ref: SkillRef, viewer: Viewer | null): Plugin | null {
-  const candidates: Plugin[] = []
-
-  if (ref.namespace !== '') {
-    const ns = namespaces.getBySlug(ref.namespace)
-    if (!ns) return null
-    const hit = pluginRepo.getByNsAndSlug(ns.id, ref.slug)
-    if (!hit) return null
-    return canViewPlugin(hit, viewer) ? hit : null
-  }
-
-  for (const candidate of pluginRepo.findBySlugAcrossNamespaces(ref.slug)) {
-    if (canViewPlugin(candidate, viewer)) candidates.push(candidate)
-  }
-  if (candidates.length === 0) return null
-  if (candidates.length === 1) return candidates[0]
-  ambiguousSlug(
-    ref.slug,
-    candidates.map((c) => ({
-      namespace: pluginRepo.getJoined(c.id)?.namespaceSlug ?? '',
-      slug: c.slug,
-      ownerHandle: '',
-      skillId: c.id,
-    })),
-  )
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Authorization
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,24 +136,6 @@ export function authorizeSkillWrite(
   forbidden('only the skill owner, namespace member, or system admin can perform this action')
 }
 
-/** Same rule set for plugins. */
-export function authorizePluginWrite(
-  plugin: Plugin,
-  user: UserRecord,
-  tokenNamespaceId: string | null,
-): void {
-  if (tokenNamespaceId !== null) {
-    if (plugin.namespaceId !== tokenNamespaceId) {
-      forbidden('team token cannot operate on skills outside its namespace')
-    }
-    return
-  }
-  if (user.role === 'admin') return
-  if (plugin.ownerId === user.id) return
-  if (plugin.namespaceId && members.isMember(plugin.namespaceId, user.id)) return
-  forbidden('not the plugin owner')
-}
-
 /**
  * Personal namespace bootstrap. Every user gets exactly one `personal`
  * namespace (slug = handle) created on first use, and owns it.
@@ -215,7 +158,7 @@ export function ensurePersonalNamespace(user: UserRecord) {
     displayName: user.displayName ?? user.handle,
     ownerId: user.id,
     type: 'personal',
-    defaultVisibility: 'private',
+    defaultListing: 'unlisted',
   })
   members.add(ns.id, user.id, 'owner')
   return ns
@@ -289,7 +232,6 @@ export function reindexSkill(skill: SkillWithOwner | Skill): void {
     const ns = skill.namespaceId ? namespaces.getById(skill.namespaceId) : null
     const doc: SearchDoc = {
       docId: skill.id,
-      docType: 'skill',
       targetId: skill.id,
       slug: skill.slug,
       displayName: skill.displayName ?? skill.slug,
@@ -299,8 +241,7 @@ export function reindexSkill(skill: SkillWithOwner | Skill): void {
       ownerHandle: owner?.handle ?? '',
       category: skill.category,
       namespaceSlug: ns?.slug ?? '',
-      visibility: skill.visibility,
-      moderationStatus: skill.moderationStatus,
+      listing: skill.listing,
       isSuspicious: skill.isSuspicious,
       isDeleted: skill.softDeletedAt !== undefined,
       downloads: skill.downloads,
@@ -322,37 +263,6 @@ export function unindexTarget(targetId: string): void {
   }
 }
 
-export function reindexPlugin(plugin: Plugin): void {
-  try {
-    const owner = users.getById(plugin.ownerId)
-    const ns = plugin.namespaceId ? namespaces.getById(plugin.namespaceId) : null
-    const doc: SearchDoc = {
-      docId: `plugin_${plugin.id}`,
-      docType: 'plugin',
-      targetId: plugin.id,
-      slug: plugin.slug,
-      displayName: plugin.displayName ?? plugin.slug,
-      summary: plugin.summary ?? '',
-      skillMdContent: '',
-      tags: plugin.tags.join(' '),
-      ownerHandle: owner?.handle ?? '',
-      category: plugin.category,
-      namespaceSlug: ns?.slug ?? '',
-      visibility: plugin.visibility,
-      moderationStatus: plugin.moderationStatus,
-      isSuspicious: false,
-      isDeleted: plugin.softDeletedAt !== undefined,
-      downloads: plugin.downloads,
-      stars: plugin.starsCount,
-      updatedAt: Date.parse(plugin.updatedAt) || 0,
-      createdAt: Date.parse(plugin.createdAt) || 0,
-    }
-    searchIndex.upsert(doc)
-  } catch {
-    /* best-effort */
-  }
-}
-
 /** Rebuilds the whole index from source tables. Used on first boot / repair. */
 export function reindexAll(): number {
   searchIndex.empty()
@@ -365,14 +275,6 @@ export function reindexAll(): number {
       n += 1
     }
   }
-  const pluginRows = query.all<Row>('SELECT id FROM plugins WHERE soft_deleted_at IS NULL')
-  for (const row of pluginRows) {
-    const p = pluginRepo.getById(String(row.id))
-    if (p) {
-      reindexPlugin(p)
-      n += 1
-    }
-  }
   return n
 }
 
@@ -381,11 +283,11 @@ export function reindexAll(): number {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Visibility parsing for publish. `''` means "inherit the namespace default".
+ * Listing parsing for publish. `''` means "inherit the namespace default".
  */
-export function parseVisibility(raw: string, fallback: Visibility): Visibility {
-  if (raw === 'public') return 'public'
-  if (raw === 'private') return 'private'
+export function parseListing(raw: string, fallback: ListingStatus): ListingStatus {
+  if (raw === 'listed') return 'listed'
+  if (raw === 'unlisted') return 'unlisted'
   return fallback
 }
 
@@ -393,7 +295,7 @@ export function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim())
 }
 
-/** Resolves a skill by exact id, honouring visibility. */
+/** Resolves a skill by exact id, honouring who may see it. */
 export function getVisibleSkillById(id: string, viewer: Viewer | null): SkillWithOwner | null {
   const skill = skillRepo.getWithOwnerById(id)
   if (!skill) return null

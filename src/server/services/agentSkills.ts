@@ -77,18 +77,18 @@ const AGENT_SELECT = /* sql */ `
   LEFT JOIN namespaces n ON n.id = s.namespace_id
 `
 
-/** Visibility predicate shared by the list and detail paths. */
-function visibilitySql(viewer: Viewer | null): { sql: string; params: unknown[] } {
+/** Listing predicate shared by the list and detail paths. */
+function listingSql(viewer: Viewer | null): { sql: string; params: unknown[] } {
   if (viewer && viewer.role === 'admin') {
     return { sql: '', params: [] }
   }
   if (viewer) {
     return {
-      sql: ` AND ((s.visibility = 'public' AND s.moderation_status = 'approved') OR s.owner_id = ?)`,
+      sql: ` AND (s.listing = 'listed' OR s.owner_id = ?)`,
       params: [viewer.id],
     }
   }
-  return { sql: ` AND s.visibility = 'public' AND s.moderation_status = 'approved'`, params: [] }
+  return { sql: ` AND s.listing = 'listed'`, params: [] }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -105,7 +105,7 @@ export function listAgentSkills(ctx: RequestContext, page: number, pageSize: num
     const effectivePage = page <= 0 ? 1 : page
     const effectiveSize = pageSize <= 0 || pageSize > 100 ? 20 : pageSize
     const viewer = viewerOf(ctx)
-    const vis = visibilitySql(viewer)
+    const vis = listingSql(viewer)
 
     const where = `WHERE s.soft_deleted_at IS NULL${vis.sql}`
     const rows = query.all<Row>(

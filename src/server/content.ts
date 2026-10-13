@@ -21,22 +21,6 @@ const sha256Hex = (data: Uint8Array | string): string =>
 export const sha256Of = sha256Hex
 
 /**
- * Hashes file **names and contents**. Used for plugins, where a rename must
- * produce a different fingerprint.
- */
-export function computeFingerprint(files: FileMap): string {
-  const keys = [...files.keys()].sort()
-  const h = crypto.createHash('sha256')
-  for (const k of keys) {
-    h.update(k)
-    h.update(Buffer.from([0]))
-    h.update(files.get(k)!)
-    h.update(Buffer.from([0]))
-  }
-  return h.digest('hex')
-}
-
-/**
  * Hashes only file **contents**, with the sorted per-file digests joined by
  * `:` before a final pass. Used for skills so that fingerprints stay
  * backward-compatible with existing published versions.

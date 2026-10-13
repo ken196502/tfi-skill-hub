@@ -28,7 +28,6 @@ import {
 import { asNumber, nowIso, query, type Row } from '../db'
 import { parseSkillRef, isUuidLike, formatSkillRef } from '../services/shared'
 import * as skillSvc from '../services/skills'
-import * as pluginSvc from '../services/plugins'
 import * as nsSvc from '../services/namespaces'
 import * as socialSvc from '../services/social'
 import * as manageSvc from '../services/manage'
@@ -172,7 +171,7 @@ interface SkillFormBody {
   summaryEn?: unknown
   category?: unknown
   tags?: unknown
-  visibility?: unknown
+  listing?: unknown
   html?: unknown
   htmlEn?: unknown
 }
@@ -190,7 +189,7 @@ function readSkillForm(body: SkillFormBody): SkillFormInput | null {
     'displayNameEn',
     'summaryEn',
     'category',
-    'visibility',
+    'listing',
     'html',
     'htmlEn',
   ] as const
@@ -218,8 +217,8 @@ function readSkillForm(body: SkillFormBody): SkillFormInput | null {
     summaryEn: text('summaryEn'),
     category: text('category'),
     tags,
-    // The console's create form defaults to private when it sends nothing.
-    visibility: text('visibility') === '' ? 'private' : text('visibility'),
+    // The console's create form defaults to off the shelf when it sends nothing.
+    listing: text('listing') === '' ? 'unlisted' : text('listing'),
     html: text('html'),
     htmlEn: text('htmlEn'),
   }
@@ -255,7 +254,7 @@ async function readSkillFormRequest(
       summaryEn: formValue(fields, 'summaryEn'),
       category: formValue(fields, 'category'),
       tags: splitTags(formValue(fields, 'tags')),
-      visibility: formValue(fields, 'visibility'),
+      listing: formValue(fields, 'listing'),
       html: formValue(fields, 'html'),
       htmlEn: formValue(fields, 'htmlEn'),
     })
@@ -327,11 +326,6 @@ export const discovery: Record<string, Handler> = {
       rows.push(`${name} ${value}`)
     }
     gauge('skillhub_skills_total', 'Live skills', skillSvc.totalSkills())
-    gauge(
-      'skillhub_plugins_total',
-      'Live plugins',
-      asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM plugins WHERE soft_deleted_at IS NULL')?.c),
-    )
     gauge('skillhub_users_total', 'Users', asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM users')?.c))
     gauge(
       'skillhub_downloads_total',
@@ -418,6 +412,21 @@ export const skillRead: Record<string, Handler> = {
   },
 
   categories: () => json({ categories: [...VALID_CATEGORIES] }),
+
+  /**
+   * The categories the catalogue actually holds, for the browse filter.
+   *
+   * A separate route from `/categories` on purpose: that one advertises the
+   * fixed taxonomy and is part of the published contract, while this one
+   * answers "what can I filter by right now".
+   */
+  categoriesInUse: (ctx) => {
+    try {
+      return json({ categories: skillSvc.listCategoriesInUse(viewerOf(ctx)) })
+    } catch {
+      return internalError()
+    }
+  },
 
   listSkills: (ctx) => {
     try {
@@ -558,101 +567,6 @@ export const skillRead: Record<string, Handler> = {
       })
     } catch (e) {
       return errorJson(e instanceof Error ? e.message : 'download failed', 404)
-    }
-  },
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Plugin reads
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const pluginRead: Record<string, Handler> = {
-  listPlugins: (ctx) => {
-    try {
-      return json(
-        pluginSvc.listPlugins({
-          category: qStr(ctx.url, 'category'),
-          sort: qStr(ctx.url, 'sort', 'created'),
-          cursor: qStr(ctx.url, 'cursor'),
-          limit: qInt(ctx.url, 'limit', 20, 100),
-        }),
-      )
-    } catch {
-      return internalError()
-    }
-  },
-
-  getPlugin: (ctx) => {
-    try {
-      return json(pluginSvc.getPlugin(refFromCtx(ctx), viewerOf(ctx)))
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  getPluginById: (ctx) => {
-    const id = (ctx.params.id ?? '').trim()
-    if (!isUuidLike(id)) return errorJson('invalid plugin id', 400)
-    try {
-      return json(pluginSvc.getPluginById(id, viewerOf(ctx)))
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  pluginVersions: (ctx) => {
-    try {
-      return json({ versions: pluginSvc.getPluginVersions(refFromCtx(ctx), viewerOf(ctx)) })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  pluginFile: (ctx) => {
-    const slug = qStr(ctx.url, 'slug')
-    const path = qStr(ctx.url, 'path')
-    if (slug === '' || path === '') return errorJson('slug and path are required', 400)
-    const namespace = qStr(ctx.url, 'namespace')
-    try {
-      const content = pluginSvc.getPluginFile(
-        { namespace, slug },
-        qStr(ctx.url, 'version'),
-        path,
-        viewerOf(ctx),
-      )
-      return new Response(content as unknown as BodyInit, {
-        status: 200,
-        headers: { 'Content-Type': 'application/octet-stream' },
-      })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  pluginDownload: (ctx) => {
-    const slug = qStr(ctx.url, 'slug')
-    if (slug === '') return errorJson('slug is required', 400)
-    try {
-      const result = pluginSvc.downloadPlugin(
-        { namespace: qStr(ctx.url, 'namespace'), slug },
-        qStr(ctx.url, 'version'),
-        viewerOf(ctx),
-      )
-      // Exact string compare against an unquoted ETag — deliberately simpler
-      // than the skill download's matching rules.
-      if (ctx.request.headers.get('if-none-match') === result.fingerprint) {
-        return empty(304, { ETag: result.fingerprint })
-      }
-      return new Response(result.zip as unknown as BodyInit, {
-        status: 200,
-        headers: {
-          ETag: result.fingerprint,
-          'Content-Type': 'application/zip',
-          'Content-Disposition': `attachment; filename=${JSON.stringify(`${slug}.zip`)}`,
-        },
-      })
-    } catch (e) {
-      return serviceError(e)
     }
   },
 }
@@ -822,7 +736,7 @@ export const skillWrite: Record<string, Handler> = {
         summaryEn: fields.get('summaryEn') ?? '',
         category: fields.get('category') ?? '',
         kind: fields.get('kind') ?? '',
-        visibility: fields.get('visibility') ?? '',
+        listing: fields.get('listing') ?? '',
         namespaceSlug: fields.get('namespace') ?? '',
         tags: fields.get('tags') ? splitTags(fields.get('tags')!) : undefined,
         dependencies,
@@ -879,16 +793,6 @@ export const skillWrite: Record<string, Handler> = {
     try {
       skillSvc.undelete(user, refFromCtx(ctx), ctx.tokenNamespaceId)
       return json({ message: 'skill restored' })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  requestPublic: (ctx) => {
-    const user = requireUser(ctx)
-    try {
-      skillSvc.requestPublic(user, refFromCtx(ctx))
-      return json({ message: 'public review requested' })
     } catch (e) {
       return serviceError(e)
     }
@@ -1226,7 +1130,7 @@ export const namespaceHandlers: Record<string, Handler> = {
       displayName?: string
       description?: string
       type?: string
-      defaultVisibility?: string
+      defaultListing?: string
       maxSkills?: number
     }>(ctx.request)
     if (!body?.slug) return errorJson('slug is required', 400)
@@ -1237,7 +1141,7 @@ export const namespaceHandlers: Record<string, Handler> = {
           displayName: body.displayName,
           description: body.description,
           type: body.type,
-          defaultVisibility: body.defaultVisibility,
+          defaultListing: body.defaultListing,
           maxSkills: body.maxSkills,
         }),
         201,
@@ -1266,7 +1170,7 @@ export const namespaceHandlers: Record<string, Handler> = {
     const body = await jsonBody<{
       displayName?: string
       description?: string
-      defaultVisibility?: string
+      defaultListing?: string
       maxSkills?: number
     }>(ctx.request)
     if (body === null) return errorJson('invalid request', 400)
@@ -1513,7 +1417,7 @@ export const admin: Record<string, Handler> = {
     try {
       return json(
         manageSvc.listAllSkills({
-          visibility: qStr(ctx.url, 'visibility'),
+          listing: qStr(ctx.url, 'listing'),
           cursor: qStr(ctx.url, 'cursor'),
           limit: qInt(ctx.url, 'limit', 20, 100),
           // `page` selects numbered paging; omitted (0) keeps the cursor walk
@@ -1526,23 +1430,26 @@ export const admin: Record<string, Handler> = {
     }
   },
 
-  reviewSkill: async (ctx) => {
-    const body = await jsonBody<{ action?: string }>(ctx.request)
-    if (!body?.action) return errorJson('invalid request, action is required', 400)
+  /**
+   * Categories the catalogue actually uses, so the console's category field can
+   * suggest them. Distinct from the public `/categories`, which advertises the
+   * fixed taxonomy rather than what is on disk.
+   */
+  listCategories: () => {
     try {
-      const state = manageSvc.reviewSkill(refFromCtx(ctx), body.action, ctx.user!.id)
-      return json({ message: `skill ${state === 'approved' ? 'approved' : 'rejected'}` })
-    } catch (e) {
-      return serviceError(e)
+      return json({ categories: manageSvc.listCategoriesInUse() })
+    } catch {
+      return errorJson('failed to list categories', 500)
     }
   },
 
-  setSkillVisibility: async (ctx) => {
-    const body = await jsonBody<{ visibility?: string }>(ctx.request)
-    if (!body?.visibility) return errorJson('invalid request, visibility is required', 400)
+  /** Takes a skill on or off the shelf. */
+  setSkillListing: async (ctx) => {
+    const body = await jsonBody<{ listing?: string }>(ctx.request)
+    if (!body?.listing) return errorJson('invalid request, listing is required', 400)
     try {
-      manageSvc.setSkillVisibility(refFromCtx(ctx), body.visibility, ctx.user!.id)
-      return json({ message: `visibility updated to ${body.visibility}` })
+      manageSvc.setSkillListing(refFromCtx(ctx), body.listing, ctx.user!.id)
+      return json({ message: `skill ${body.listing === 'listed' ? 'listed' : 'unlisted'}` })
     } catch (e) {
       return serviceError(e)
     }
@@ -1573,42 +1480,6 @@ export const admin: Record<string, Handler> = {
     if ('error' in parsed) return parsed.error
     try {
       return json({ skill: manageSvc.updateSkillFromForm(user, refFromCtx(ctx), parsed.input, parsed.files) })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  listPlugins: (ctx) => {
-    try {
-      return json(
-        manageSvc.listAllPlugins({
-          limit: qInt(ctx.url, 'limit', 20, 100),
-          cursor: qStr(ctx.url, 'cursor'),
-          visibility: qStr(ctx.url, 'visibility'),
-        }),
-      )
-    } catch {
-      return internalError()
-    }
-  },
-
-  reviewPlugin: async (ctx) => {
-    const body = await jsonBody<{ action?: string }>(ctx.request)
-    if (!body?.action) return errorJson("action must be 'approve' or 'reject'", 400)
-    try {
-      const state = manageSvc.reviewPluginByRef(refFromCtx(ctx), body.action, ctx.user!.id)
-      return json({ message: `plugin ${state === 'approved' ? 'approved' : 'rejected'}` })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  setPluginVisibility: async (ctx) => {
-    const body = await jsonBody<{ visibility?: string }>(ctx.request)
-    if (!body?.visibility) return errorJson('visibility is required', 400)
-    try {
-      manageSvc.setPluginVisibility(refFromCtx(ctx), body.visibility, ctx.user!.id)
-      return json({ message: 'visibility updated' })
     } catch (e) {
       return serviceError(e)
     }
@@ -1711,7 +1582,7 @@ export const agent: Record<string, Handler> = {
         slug: formValue(fields, 'slug'),
         version: formValue(fields, 'version'),
         displayName: formValue(fields, 'displayName'),
-        visibility: formValue(fields, 'visibility'),
+        listing: formValue(fields, 'listing'),
         files,
         tokenNamespaceId: ctx.tokenNamespaceId,
         overwrite: parseAgentOverwrite(formValue(fields, 'overwrite')),
@@ -1813,104 +1684,3 @@ export const runtime: Record<string, Handler> = {
 }
 
 export { hashPassword, MIN_PASSWORD_LENGTH, nowIso, formatSkillRef, parseSkillRef, members }
-
-
-// -----------------------------------------------------------------------------
-// Plugin writes
-// -----------------------------------------------------------------------------
-
-export const pluginWrite: Record<string, Handler> = {
-  publish: async (ctx) => {
-    const user = requireUser(ctx)
-    let multipart
-    try {
-      // Plugin packages are larger than skills: 64 MiB per file, 512 MiB total.
-      multipart = await readMultipart(ctx.request, 64 * 1024 * 1024)
-    } catch (e) {
-      return errorJson(`invalid multipart form: ${(e as Error).message}`, 400)
-    }
-    const { files, fields } = multipart
-
-    try {
-      return json(
-        pluginSvc.publishPlugin(user, {
-          slug: formValue(fields, 'slug'),
-          version: formValue(fields, 'version'),
-          category: formValue(fields, 'category'),
-          displayName: formValue(fields, 'displayName'),
-          summary: formValue(fields, 'summary'),
-          displayNameEn: formValue(fields, 'displayNameEn'),
-          summaryEn: formValue(fields, 'summaryEn'),
-          changelog: formValue(fields, 'changelog'),
-          tags: fields.get('tags'),
-          namespaceSlug: formValue(fields, 'namespace'),
-          visibility: formValue(fields, 'visibility'),
-          files,
-          tokenNamespaceId: ctx.tokenNamespaceId,
-        }),
-        201,
-      )
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  remove: (ctx) => {
-    const user = requireUser(ctx)
-    try {
-      pluginSvc.deletePlugin(user, refFromCtx(ctx), ctx.tokenNamespaceId)
-      return json({ message: 'plugin deleted' })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  undelete: (ctx) => {
-    const user = requireUser(ctx)
-    try {
-      pluginSvc.undeletePlugin(user, refFromCtx(ctx), ctx.tokenNamespaceId)
-      return json({ message: 'plugin restored' })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  yank: async (ctx) => {
-    const user = requireUser(ctx)
-    // Unlike the skill variant, a malformed body here is silently ignored.
-    let reason = ''
-    try {
-      const raw = await ctx.request.text()
-      if (raw.trim() !== '') reason = (JSON.parse(raw) as { reason?: string }).reason ?? ''
-    } catch {
-      reason = ''
-    }
-    try {
-      pluginSvc.yankPluginVersion(
-        user,
-        refFromCtx(ctx),
-        ctx.params.version ?? '',
-        reason,
-        ctx.tokenNamespaceId,
-      )
-      return json({ message: 'version yanked' })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-
-  unyank: (ctx) => {
-    const user = requireUser(ctx)
-    try {
-      pluginSvc.unyankPluginVersion(
-        user,
-        refFromCtx(ctx),
-        ctx.params.version ?? '',
-        ctx.tokenNamespaceId,
-      )
-      return json({ message: 'version unyanked' })
-    } catch (e) {
-      return serviceError(e)
-    }
-  },
-}

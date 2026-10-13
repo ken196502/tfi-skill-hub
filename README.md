@@ -74,7 +74,6 @@ src/
 │   ├── skills.index.tsx        # 技能列表
 │   ├── skills/$.tsx            # 技能详情（splat：同时支持 slug 与 @namespace/slug）
 │   ├── search.tsx  publish.tsx  login.tsx  logout.ts
-│   ├── plugins.index.tsx  plugins/$.tsx
 │   ├── namespaces.index.tsx  namespaces.$slug.tsx
 │   ├── api/$.ts                # 全部 /api/** 的入口，按路由表分发
 │   └── $.ts                    # 根级服务端点（/healthz、/readyz、/metrics、/.well-known/*、/skills.md）
@@ -89,8 +88,8 @@ src/
     ├── http.ts                 # 路由编译与匹配、身份解析、限流、安全响应头
     ├── errors.ts               # 错误 → HTTP 状态映射
     ├── content.ts zip.ts semver.ts markdown 相关工具
-    ├── repo/                   # 唯一写 SQL 的地方：core / skills / plugins / search
-    ├── services/               # 业务逻辑：skills / plugins / namespaces / social / manage / runtime / agentSkills
+    ├── repo/                   # 唯一写 SQL 的地方：core / skills / search
+    ├── services/               # 业务逻辑：skills / namespaces / social / manage / runtime / agentSkills
     └── api/                    # HTTP 处理器与路由表
 scripts/
 ├── serve.mjs                   # 生产启动器（Node ↔ Web 标准请求/响应 桥接 + 静态资源）
@@ -103,7 +102,7 @@ scripts/
 | 原 Go | 本实现 | 说明 |
 |---|---|---|
 | `pkg/model/*.go` | `src/lib/types.ts` + `src/server/repo/*.ts` | 领域类型与行映射（保留 `omitempty` 语义） |
-| `pkg/repository/*.go` | `src/server/repo/{core,skills,plugins,search}.ts` | SQL 只出现在这一层 |
+| `pkg/repository/*.go` | `src/server/repo/{core,skills,search}.ts` | SQL 只出现在这一层 |
 | `pkg/service/*.go` | `src/server/services/*.ts` | 业务规则与权限 |
 | `pkg/handler/*.go` + `pkg/server/routes.go` | `src/server/api/{routes,handlers}.ts` | 路由表与处理器 |
 | `pkg/middleware/*.go` | `src/server/http.ts` | 身份解析、限流、安全头、请求 ID |
@@ -119,7 +118,7 @@ scripts/
 这些都是刻意为之，不是遗漏：
 
 1. **版本内容存进 SQLite**，不再用 git 仓库。原实现每个版本对应一个 git commit；
-   本实现把文件字节存进 `skill_version_files` / `plugin_version_files`，下载时现场打包 ZIP
+   本实现把文件字节存进 `skill_version_files`，下载时现场打包 ZIP
    （自研 ZIP 写入器，`node:zlib` + CRC32，零依赖）。`gitCommitHash` 字段保留但不再写入。
 2. **搜索用 SQLite FTS5**，替代内嵌 Bleve。分词器选 `trigram`（而非默认 `unicode61`），
    因为原实现用了 CJK 感知的分析器，而 `unicode61` 对中文只能整词匹配。
@@ -132,9 +131,12 @@ scripts/
    原实现输出 Go 的 RFC3339 本地时区带纳秒格式。两者都是合法 RFC3339，但字符串不逐字相同。
 5. **`POST /login` 兼容 JSON 请求体**（原实现只读表单编码）。这是严格超集：
    传表单编码仍与原实现完全一致。
-6. **插件发布支持可选的 `visibility` 字段**（原实现没有）。原实现下插件只能继承命名空间默认可见性，
-   用户无法自行把插件设为公开、必须找管理员改；这里补上了这个字段，不传时行为与原实现一致。
-7. **`/metrics` 是精简版**。原实现用 Prometheus 客户端库暴露一整套 collector；
+6. **插件类别已整体移除**。原实现把插件当作与技能并列的第二种内容类型（独立的表、仓库、服务与 20 条路由）。
+   本实现只保留技能一类内容，插件的表与接口由迁移 13 删除。
+7. **技能的公开/私有与审核已合并为上下架**。原实现的 `visibility`（public/private）兼表「谁能看见」与
+   「是否在架上」，并另有一层 `moderation_status` 审核队列。现在统一为 `listing`（listed/unlisted）：
+   上架即在目录中可见，下架即只有作者与管理员可见，没有审核队列。字段名、取值与接口路径都随之改变。
+8. **`/metrics` 是精简版**。原实现用 Prometheus 客户端库暴露一整套 collector；
    这里只输出能从 SQL 廉价得到的几个 gauge，保持相同的 exposition 文本格式，抓取端无需改动。
 8. **接口文档端点未实现**（`/openapi.json`、`/docs`、`/schemas`）。原实现由 Huma 生成，
    而仓库里手写的 `web/openapi.yaml` 与真实运行时有多处不符（字段名、必填性）。
@@ -181,8 +183,8 @@ scripts/
 | 分组 | 前缀 | 鉴权 |
 |---|---|---|
 | 发现 | `/healthz`、`/readyz`、`/metrics`、`/.well-known/clawhub.json`、`/skills.md` | 公开 |
-| 浏览与搜索 | `/api/v1/{search,categories,skills,resolve,plugins}`、单文件读取 `.../file` | 公开（可选身份用于可见性过滤） |
-| **打包下载** | `/api/v1/download`、`/api/v1/plugins/download`、`/api/runtime/skills/bundle` | **需登录** |
+| 浏览与搜索 | `/api/v1/{search,categories,skills,resolve}`、单文件读取 `.../file` | 公开（可选身份用于上下架过滤） |
+| **打包下载** | `/api/v1/download`、`/api/runtime/skills/bundle` | **需登录** |
 | 会话 | `POST /login`、`POST /logout`、`POST /register`、`GET /api/v1/registration` | 公开 / 需登录 |
 | 身份 | `GET /api/v1/whoami` | 需登录 |
 | 技能写入 | `POST /api/v1/skills`、版本 yank/deprecate、软删除/恢复、转移、改单文件、`PUT .../detail-html` | 仅 `admin` |
@@ -218,7 +220,7 @@ Agent/Runtime 接口用 `{"error":{"code","message"}}`。
 * 命名空间角色：`owner` / `admin` / `member` / `reader` —— 只在管理员之间生效（命名空间接口已收为 admin-only）。
 * 管理端 API Key（`shk_` 前缀，在 `/admin/api-keys` 页面签发）按用途授权，与签发者的角色无关：
   `skills:read`（搜索、列表、详情、文件、下载）、`skills:publish`（发布新版本、改单文件）、
-  `skills:delete`（删除、恢复、彻底清除）、`skills:moderate`（yank/deprecate、审核、可见性）、
+  `skills:delete`（删除、恢复、彻底清除）、`skills:moderate`（上下架、yank/deprecate、转移归属）、
   `users:moderate`（查看待审核注册用户、通过或驳回）。
   路由表未标注能力的端点一律拒绝 API Key 调用，因此一把钥匙只能做它被授权的那件事；
   `users:moderate` 只覆盖审核队列与 `.../users/review`，**封禁与改角色仍只认登录会话**。

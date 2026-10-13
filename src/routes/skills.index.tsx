@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { listSkills } from '../lib/api'
+import { categoriesInUse, listSkills } from '../lib/api'
 import { SkillCard, Loading, ErrorBox, PageHeader } from '../components/ui'
 import { useT } from '../lib/i18n'
 
@@ -19,13 +19,6 @@ export const Route = createFileRoute('/skills/')({
   }),
   component: SkillsPage,
 })
-
-const CATEGORIES: Array<[string, string, string]> = [
-  ['finance', '金融', 'Finance'],
-  ['personal', '个人', 'Personal'],
-  ['workspace', '工作区', 'Workspace'],
-  ['general', '通用', 'General'],
-]
 
 function SkillsPage() {
   const { sort = 'created', category = '', q = '' } = Route.useSearch()
@@ -46,6 +39,26 @@ function SkillsPage() {
     queryKey: ['skills', { sort, category, q, limit: 20 * pages }],
     queryFn: () => listSkills({ limit: 20 * pages, sort, category, q }),
   })
+
+  /**
+   * The filters come from the catalogue rather than a fixed list — a curated
+   * taxonomy would send every visitor to an empty page, since the catalogue is
+   * filed under design / research / documentation / writing. Server-side
+   * scoped to what this viewer can see, so an all-unlisted category never shows.
+   */
+  const categoryQuery = useQuery({
+    queryKey: ['categories-in-use'],
+    queryFn: categoriesInUse,
+    staleTime: 30_000,
+  })
+
+  const filters = useMemo(
+    () =>
+      [...(categoryQuery.data?.categories ?? [])].sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: 'base' }),
+      ),
+    [categoryQuery.data],
+  )
 
   const setSort = (next: string) =>
     navigate({ to: '/skills', search: { sort: next, category: category || undefined, q: q || undefined } })
@@ -87,16 +100,29 @@ function SkillsPage() {
               >
                 {t('全部分类', 'All categories')}
               </button>
-              {CATEGORIES.map(([slug, zh, en]) => (
+              {filters.map((slug) => (
                 <button
                   key={slug}
                   type="button"
                   className={`skills-cat-btn${category === slug ? ' active' : ''}`}
                   onClick={() => setCategory(slug)}
                 >
-                  {t(zh, en)}
+                  {slug}
                 </button>
               ))}
+              {/* A category can reach the URL without being in the list — an old
+                  link, or a skill that has since been unlisted. Keep it on screen
+                  so the active filter stays visible instead of silently
+                  resetting the "all" button while results are still filtered. */}
+              {category !== '' && !filters.includes(category) && (
+                <button
+                  type="button"
+                  className="skills-cat-btn active"
+                  onClick={() => setCategory(category)}
+                >
+                  {category}
+                </button>
+              )}
             </nav>
           </aside>
 
@@ -133,7 +159,10 @@ function SkillsPage() {
               <ErrorBox message={t('加载技能列表失败，请稍后重试。', 'Failed to load skills. Please try again later.')} />
             ) : (query.data?.data.length ?? 0) === 0 ? (
               <p className="detail-summary">
-                {q
+                {/* "Publish the first one" only makes sense with nothing to
+                    filter. With a filter or a search in play, the catalogue is
+                    simply not holding a match. */}
+                {q || category
                   ? t('未找到匹配的技能。', 'No skills match your search.')
                   : t('还没有技能，快来发布第一个吧。', 'No skills yet. Publish the first one!')}
               </p>

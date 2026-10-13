@@ -1,20 +1,26 @@
 /**
- * A searchable dropdown.
+ * A searchable dropdown that can also take free text.
  *
  * Renders as a text box that filters its own options as you type, with the
  * option list dropping below on focus. Typing and browsing are both available
  * at once, which a native `<select>` cannot do — with thirty-odd countries on
  * the sign-up form, scrolling a picker to find one is the slow path.
  *
+ * With `allowCustom` the field stops being a closed set: anything typed can be
+ * committed as a new value. The typed text is offered as its own highlighted row
+ * at the top of the list ("use this"), so picking something new is a deliberate
+ * choice rather than a side effect of tabbing away. Without the flag only listed
+ * options can be picked, which is what a country or region field needs.
+ *
  * Keyboard behaviour follows the ARIA combobox pattern: arrows move the active
- * option, Enter and Tab commit it, Escape closes the list and keeps whatever was
- * typed, and blur commits a matching entry. The listbox is referenced through
+ * row, Enter and Tab commit it, Escape closes the list and puts the current
+ * value back, and blur commits what was typed. The listbox is referenced through
  * `aria-controls`/`aria-activedescendant` rather than moving DOM focus into the
  * options, so the text box keeps the caret and typing still filters.
  */
 
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { useT } from '../lib/i18n'
+import { useLang, useT } from '../lib/i18n'
 
 export interface ComboboxOption {
   value: string
@@ -22,6 +28,17 @@ export interface ComboboxOption {
   label: string
   /** Extra terms that should also match — an English name while in Chinese, etc. */
   keywords?: string
+}
+
+/**
+ * A line in the dropdown. Either an existing option (`option`) or, when the
+ * field accepts free text, the text the user just typed (`custom`).
+ */
+interface Row {
+  key: string
+  label: string
+  option?: ComboboxOption
+  custom?: string
 }
 
 export function Combobox({
@@ -32,8 +49,9 @@ export function Combobox({
   invalid = false,
   id,
   emptyLabel,
-  /** Disabled options are shown but cannot be committed. */
+  listLabel,
   isDisabled,
+  allowCustom = false,
 }: {
   value: string
   options: ComboboxOption[]
@@ -42,15 +60,21 @@ export function Combobox({
   invalid?: boolean
   id?: string
   emptyLabel?: string
+  /** Accessible name for the listbox; describes what the options are. */
+  listLabel?: string
+  /** Disabled options are shown but cannot be committed. */
   isDisabled?: (value: string) => boolean
+  /** Let the user commit text that is not in `options`. */
+  allowCustom?: boolean
 }) {
   const t = useT()
+  const { lang } = useLang()
   const generatedId = useId()
   const inputId = id ?? generatedId
   const listId = `${inputId}-list`
 
   const [open, setOpen] = useState(false)
-  /** What the user typed. Null while the box shows the selected label. */
+  /** What the user typed. Null while the box shows the current value. */
   const [query, setQuery] = useState<string | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -59,7 +83,9 @@ export function Combobox({
   const closingRef = useRef(false)
 
   const selected = options.find((option) => option.value === value) ?? null
-  const shown = query === null ? selected?.label ?? '' : query
+  // With a free-text field the value need not be one of the options, so fall
+  // back to showing it verbatim rather than blanking the box.
+  const shown = query === null ? (selected?.label ?? (allowCustom ? value : '')) : query
 
   const matches = useMemo(() => {
     const needle = (query ?? '').trim().toLowerCase()
@@ -68,6 +94,28 @@ export function Combobox({
       `${option.label} ${option.keywords ?? ''} ${option.value}`.toLowerCase().includes(needle),
     )
   }, [options, query])
+
+  /**
+   * The dropdown as displayed: the typed text first when it is a new value,
+   * then the matching options in the order they were given.
+   */
+  const rows = useMemo<Row[]>(() => {
+    const typed = (query ?? '').trim()
+    const exact = matches.some(
+      (option) => option.label.toLowerCase() === typed.toLowerCase(),
+    )
+    const custom: Row[] =
+      allowCustom && typed !== '' && !exact
+        ? [{ key: '__custom__', label: t(`使用「${typed}」`, `Use "${typed}"`), custom: typed }]
+        : []
+    return [...custom, ...matches.map((option) => ({
+      key: option.value,
+      label: option.label,
+      option,
+    }))]
+    // `t` is a stable per-language function; `matches` already tracks the query.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowCustom, matches, query, lang])
 
   // Close when the click lands anywhere else. `pointerdown` rather than `click`
   // so it fires before a click on another option can open its own list.
@@ -80,20 +128,59 @@ export function Combobox({
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
 
+  /*
+   * Escape has to be taken in the capture phase, and stopped there.
+   *
+   * While the list is open, Escape means "put the list away" — but a dialog
+   * wrapping this field listens for the same key on `document`, and a listener
+   * registered earlier (the dialog mounts first) runs before React's own
+   * handler, so stopping propagation inside `onKeyDown` arrives too late and the
+   * whole dialog closes. Capturing on `document` runs before any bubble-phase
+   * listener regardless of registration order.
+   */
+  useEffect(() => {
+    if (!open) return
+    const onKeyDownCapture = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || !rootRef.current?.contains(event.target as Node)) return
+      event.preventDefault()
+      event.stopPropagation()
+      closingRef.current = true
+      setQuery(null)
+      setOpen(false)
+    }
+    document.addEventListener('keydown', onKeyDownCapture, true)
+    return () => document.removeEventListener('keydown', onKeyDownCapture, true)
+  }, [open])
+
   /** Reducer that stays out of the render path. */
-  const commit = (option: ComboboxOption | undefined) => {
-    if (!option || (isDisabled && isDisabled(option.value))) return
-    onChange(option.value)
+  const close = () => {
     setQuery(null)
     setOpen(false)
     inputRef.current?.blur()
   }
 
+  const commit = (row: Row | undefined) => {
+    if (!row) return
+    if (row.custom !== undefined) {
+      onChange(row.custom)
+      close()
+      return
+    }
+    const option = row.option
+    if (!option || (isDisabled && isDisabled(option.value))) return
+    onChange(option.value)
+    close()
+  }
+
   const openList = () => {
     closingRef.current = false
     setOpen(true)
+    // Select the current value: opening the list usually means "I want to
+    // change this", so the next character should replace it rather than be
+    // appended to it.
+    inputRef.current?.select()
     // Start the highlight on the current selection so Enter re-picks it.
-    const index = matches.findIndex((option) => option.value === value)
+    const index = rows.findIndex((row) => row.option?.value === value)
     setActiveIndex(index >= 0 ? index : 0)
   }
 
@@ -107,7 +194,7 @@ export function Combobox({
       const step = event.key === 'ArrowDown' ? 1 : -1
       // Wrap around, and stay put on an empty list rather than cycling.
       const next = activeIndex + step
-      setActiveIndex(matches.length === 0 ? 0 : (next + matches.length) % matches.length)
+      setActiveIndex(rows.length === 0 ? 0 : (next + rows.length) % rows.length)
       return
     }
     if (event.key === 'Enter') {
@@ -116,23 +203,13 @@ export function Combobox({
         return
       }
       event.preventDefault()
-      commit(matches[activeIndex])
-      return
-    }
-    if (event.key === 'Escape') {
-      if (!open) return
-      // Escape abandons the filter and puts the selected label back.
-      event.preventDefault()
-      event.stopPropagation()
-      closingRef.current = true
-      setQuery(null)
-      setOpen(false)
+      commit(rows[activeIndex])
       return
     }
     if (event.key === 'Tab') {
       // Tab moves on to the next field: commit what is highlighted rather than
       // leaving a typed-but-uncommitted filter behind.
-      if (open) commit(matches[activeIndex])
+      if (open) commit(rows[activeIndex])
     }
   }
 
@@ -142,17 +219,20 @@ export function Combobox({
       return
     }
     setOpen(false)
-    if (query !== null) {
-      const trimmed = query.trim()
-      const exact = matches.find(
-        (option) => option.label.toLowerCase() === trimmed.toLowerCase(),
-      )
-      if (exact) commit(exact)
-      else setQuery(null)
-    }
+    if (query === null) return
+    const trimmed = query.trim()
+    const exact = rows.find(
+      (row) => row.option !== undefined && row.option.label.toLowerCase() === trimmed.toLowerCase(),
+    )
+    if (exact) commit(exact)
+    // Free text commits whatever was typed; a closed field drops the filter and
+    // keeps the value it already had.
+    else if (allowCustom && trimmed !== '') onChange(trimmed)
+    setQuery(null)
   }
 
-  const activeId = open && matches[activeIndex] ? `${listId}-${matches[activeIndex].value}` : undefined
+  const activeId = open && rows[activeIndex] ? `${listId}-${rows[activeIndex].key}` : undefined
+  const canClear = allowCustom ? value !== '' : selected !== null
 
   return (
     <div className="combo" ref={rootRef}>
@@ -160,7 +240,7 @@ export function Combobox({
         <input
           id={inputId}
           ref={inputRef}
-          className={`form-input combo-input${invalid ? ' field-invalid' : ''}`}
+          className={`form-input combo-input${allowCustom ? ' combo-input-free' : ''}${invalid ? ' field-invalid' : ''}`}
           type="text"
           role="combobox"
           aria-expanded={open}
@@ -181,7 +261,7 @@ export function Combobox({
         />
         {/* A clear affordance only once something is chosen — otherwise it sits
             there inviting a click on an empty form. */}
-        {selected && (
+        {canClear && (
           <button
             className="combo-clear"
             type="button"
@@ -224,31 +304,45 @@ export function Combobox({
       </div>
 
       {open && (
-        <ul className="combo-list" id={listId} role="listbox" aria-label={t('国家或地区', 'Country or region')}>
-          {matches.length === 0 && (
+        <ul
+          className="combo-list"
+          id={listId}
+          role="listbox"
+          aria-label={listLabel ?? t('可选项', 'Options')}
+        >
+          {rows.length === 0 && (
             <li className="combo-empty">{emptyLabel ?? t('没有匹配的地区', 'No matching entries')}</li>
           )}
-          {matches.map((option, index) => {
-            const disabled = isDisabled ? isDisabled(option.value) : false
+          {rows.map((row, index) => {
+            const disabled =
+              !row.custom && row.option !== undefined && isDisabled
+                ? isDisabled(row.option.value)
+                : false
             return (
               <li
-                key={option.value}
-                id={`${listId}-${option.value}`}
+                key={row.key}
+                id={`${listId}-${row.key}`}
                 role="option"
-                aria-selected={option.value === value}
+                aria-selected={row.option?.value === value}
                 aria-disabled={disabled || undefined}
-                className={`combo-option${index === activeIndex ? ' active' : ''}${option.value === value ? ' selected' : ''}${disabled ? ' disabled' : ''}`}
+                className={[
+                  'combo-option',
+                  index === activeIndex ? 'active' : '',
+                  row.option?.value === value ? 'selected' : '',
+                  row.custom !== undefined ? 'combo-option-new' : '',
+                  disabled ? 'disabled' : '',
+                ].filter(Boolean).join(' ')}
                 // pointerdown, not click: it fires before the input's blur, so
                 // the commit is not undone by the blur handler reverting the
                 // filter to the old selection.
                 onMouseDown={(event) => {
                   event.preventDefault()
                   closingRef.current = true
-                  commit(option)
+                  commit(row)
                 }}
                 onMouseEnter={() => setActiveIndex(index)}
               >
-                {option.label}
+                {row.label}
               </li>
             )
           })}

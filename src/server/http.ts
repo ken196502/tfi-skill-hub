@@ -126,7 +126,7 @@ function compile(route: RouteDef): CompiledRoute {
 
 /**
  * Routes are tried most-specific first so that, for example,
- * `/api/v1/plugins/by-id/:id` wins over `/api/v1/plugins/:slug`.
+ * `/api/v1/runtime/skills/by-slug/:id` wins over `/api/v1/runtime/skills/:slug`.
  * This mirrors httprouter's static-before-param priority.
  */
 export function compileRoutes(defs: RouteDef[]): CompiledRoute[] {

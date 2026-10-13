@@ -9,10 +9,9 @@
 import { conflict, fail, notFound } from '../errors'
 import { asNumber, nowIso, query, type Row } from '../db'
 import { VALID_ROLES } from '../../lib/types'
-import type { SkillWithOwner, UserRole, UserStatus, Visibility } from '../../lib/types'
+import type { SkillWithOwner, UserRole, UserStatus, ListingStatus } from '../../lib/types'
 import { audit, users, type UserRecord } from '../repo/core'
 import { skills as skillRepo, stars as starRepo, versions as versionRepo, versionFiles } from '../repo/skills'
-import { plugins as pluginRepo } from '../repo/plugins'
 import type { FileMap } from '../content'
 import { nextPatch } from '../semver'
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../auth'
@@ -20,8 +19,6 @@ import {
   auditLog,
   ensurePersonalNamespace,
   reindexSkill,
-  reindexPlugin,
-  resolvePluginRef,
   resolveSkillRef,
   type Viewer,
 } from './shared'
@@ -396,7 +393,7 @@ export function banUser(actorId: string, userId: string, reason: string): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function listAllSkills(opts: {
-  visibility: string
+  listing: string
   cursor: string
   limit: number
   page: number
@@ -405,13 +402,24 @@ export function listAllSkills(opts: {
   return skillRepo.listForAdmin({ ...opts, limit })
 }
 
+/**
+ * Categories already present in the catalogue, for the console's category
+ * field to suggest. Unlike `/api/v1/categories` this reflects what the records
+ * actually use, which is what an editor needs to see when picking one.
+ *
+ * An administrator sees every category, offline ones included — that is the
+ * point of the console being where you file a skill before it goes live.
+ */
+export function listCategoriesInUse(): string[] {
+  return skillRepo.listCategoriesInUse({ id: '', role: 'admin' })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Skill content management (admin console)
 //
-// The console edits the catalogue directly: create a skill from a form, change
-// its metadata and rich body, take it on or offline, remove it for good. This
-// replaces the former review queue, so none of it consults a moderation state —
-// an administrative save *is* the decision.
+// Three operations, and nothing else: publish a skill, edit it, and take it on
+// or off the shelf. There is no review queue behind them and no separate
+// public/private setting to configure.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** The fields the console's create/edit form owns. */
@@ -423,7 +431,7 @@ export interface SkillFormInput {
   summaryEn: string
   category: string
   tags: string[]
-  visibility: string
+  listing: string
   /**
    * Rich detail markup. An empty string clears the stored body and sends the
    * page back to rendering `SKILL.md`.
@@ -462,8 +470,8 @@ function skillMdStub(input: SkillFormInput): string {
   ].join('\n')
 }
 
-function checkedVisibility(raw: string): Visibility {
-  if (raw !== 'public' && raw !== 'private') fail("visibility must be 'public' or 'private'")
+function checkedListing(raw: string): ListingStatus {
+  if (raw !== 'listed' && raw !== 'unlisted') fail("listing must be 'listed' or 'unlisted'")
   return raw
 }
 
@@ -568,11 +576,23 @@ export function createSkillFromForm(
     displayNameEn: input.displayNameEn.trim(),
     summaryEn: input.summaryEn.trim(),
     category: checkedCategory(input.category),
-    visibility: checkedVisibility(input.visibility),
+    listing: checkedListing(input.listing),
     tags: input.tags,
     files,
     tokenNamespaceId: null,
   })
+
+  /*
+   * `publishVersion` gates new skills against the fixed `/categories` taxonomy
+   * and files anything outside it as `general` — correct for the publishing API,
+   * wrong here, because the console's category field takes free text. Writing the
+   * category again through the repo restores what the operator typed; nothing
+   * else needs it, since the other fields pass through unfiltered.
+   */
+  const category = checkedCategory(input.category)
+  if (category !== skill.category) {
+    skillRepo.updateMetadata(skill.id, { category })
+  }
 
   return setDetailHtml(
     actor,
@@ -611,7 +631,7 @@ export function updateSkillFromForm(
       displayNameEn: input.displayNameEn.trim(),
       summaryEn: input.summaryEn.trim(),
       category: checkedCategory(input.category),
-      visibility: checkedVisibility(input.visibility),
+      listing: checkedListing(input.listing),
       tags: input.tags,
       files: mergedVersionFiles(skill, uploads),
       tokenNamespaceId: null,
@@ -628,9 +648,7 @@ export function updateSkillFromForm(
     summaryEn: nullable(input.summaryEn),
     category: checkedCategory(input.category),
     tags: input.tags,
-    visibility: checkedVisibility(input.visibility),
-    // An administrative save is a decision, so the row leaves the review queue.
-    moderationStatus: 'approved',
+    listing: checkedListing(input.listing),
   })
   reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
   auditLog({
@@ -638,7 +656,7 @@ export function updateSkillFromForm(
     action: 'update_skill_content',
     resourceType: 'skill',
     resourceId: skill.id,
-    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},visibility=${input.visibility}${uploads && uploads.size > 0 ? `,files=${uploads.size}` : ''}`,
+    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},listing=${input.listing}${uploads && uploads.size > 0 ? `,files=${uploads.size}` : ''}`,
   })
 
   // Re-resolves through the caller's own ref, which is already known to be
@@ -681,67 +699,25 @@ export function replaceFeaturedSkills(actorId: string, skillIds: string[]): void
   auditLog({ actorId, action: 'replace_featured_skills', resourceType: 'featured_skills', resourceId: 'homepage', details: `count=${ids.length}` })
 }
 
-export function reviewSkill(ref: SkillRef, action: string, actorId = ''): 'approved' | 'rejected' {
-  if (action !== 'approve' && action !== 'reject') {
-    fail("action must be 'approve' or 'reject'")
+/**
+ * Takes a skill on or off the shelf. The only visibility-shaped write a skill
+ * has — the same edit an operator would make by hand in the catalogue.
+ */
+export function setSkillListing(ref: SkillRef, listing: string, actorId = ''): void {
+  if (listing !== 'listed' && listing !== 'unlisted') {
+    fail("listing must be 'listed' or 'unlisted'")
   }
   const skill = resolveSkillRef(ref, { id: '', role: 'admin' }, { includeDeleted: true })
   if (!skill) fail('skill not found')
-
-  const approved = action === 'approve'
-  skillRepo.setVisibility(
-    skill.id,
-    approved ? 'public' : 'private',
-    approved ? 'approved' : 'rejected',
-  )
+  skillRepo.setListing(skill.id, listing)
   reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
-  auditLog({ actorId: actorId || null, action: `review_skill_${action}`, resourceType: 'skill', resourceId: skill.id, details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug}` })
-  return approved ? 'approved' : 'rejected'
-}
-
-export function setSkillVisibility(ref: SkillRef, visibility: string, actorId = ''): void {
-  if (visibility !== 'public' && visibility !== 'private') {
-    fail("visibility must be 'public' or 'private'")
-  }
-  const skill = resolveSkillRef(ref, { id: '', role: 'admin' }, { includeDeleted: true })
-  if (!skill) fail('skill not found')
-  // An explicit admin decision also clears the review state.
-  skillRepo.setVisibility(skill.id, visibility as Visibility, 'approved')
-  reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
-  auditLog({ actorId: actorId || null, action: 'set_skill_visibility', resourceType: 'skill', resourceId: skill.id, details: `visibility=${visibility}` })
-}
-
-export function listAllPlugins(opts: { limit: number; cursor: string; visibility: string }) {
-  const limit = opts.limit <= 0 || opts.limit > 100 ? 20 : opts.limit
-  return pluginRepo.listForAdmin({ ...opts, limit })
-}
-
-export function reviewPluginByRef(ref: SkillRef, action: string, actorId = ''): 'approved' | 'rejected' {
-  if (action !== 'approve' && action !== 'reject') {
-    fail("action must be 'approve' or 'reject'")
-  }
-  const plugin = resolvePluginRef(ref, { id: '', role: 'admin' })
-  if (!plugin) fail('plugin not found')
-  const approved = action === 'approve'
-  pluginRepo.setVisibility(
-    plugin.id,
-    approved ? 'public' : 'private',
-    approved ? 'approved' : 'rejected',
-  )
-  reindexPlugin(pluginRepo.getById(plugin.id)!)
-  auditLog({ actorId: actorId || null, action: `review_plugin_${action}`, resourceType: 'plugin', resourceId: plugin.id, details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug}` })
-  return approved ? 'approved' : 'rejected'
-}
-
-export function setPluginVisibility(ref: SkillRef, visibility: string, actorId = ''): void {
-  if (visibility !== 'public' && visibility !== 'private') {
-    fail("visibility must be 'public' or 'private'")
-  }
-  const plugin = resolvePluginRef(ref, { id: '', role: 'admin' })
-  if (!plugin) notFound('plugin not found')
-  pluginRepo.setVisibility(plugin.id, visibility as Visibility, 'approved')
-  reindexPlugin(pluginRepo.getById(plugin.id)!)
-  auditLog({ actorId: actorId || null, action: 'set_plugin_visibility', resourceType: 'plugin', resourceId: plugin.id, details: `visibility=${visibility}` })
+  auditLog({
+    actorId: actorId || null,
+    action: listing === 'listed' ? 'list_skill' : 'unlist_skill',
+    resourceType: 'skill',
+    resourceId: skill.id,
+    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug}`,
+  })
 }
 
 export function auditLogs(opts: {
@@ -772,16 +748,12 @@ function auditRows(opts: {
 /** Helper used by the home page. */
 export function platformStats(): {
   skills: number
-  plugins: number
   users: number
   downloads: number
 } {
   return {
     skills: asNumber(
       query.get<Row>('SELECT COUNT(*) AS c FROM skills WHERE soft_deleted_at IS NULL')?.c,
-    ),
-    plugins: asNumber(
-      query.get<Row>('SELECT COUNT(*) AS c FROM plugins WHERE soft_deleted_at IS NULL')?.c,
     ),
     users: asNumber(query.get<Row>('SELECT COUNT(*) AS c FROM users')?.c),
     downloads: asNumber(query.get<Row>('SELECT COALESCE(SUM(downloads),0) AS c FROM skills')?.c),

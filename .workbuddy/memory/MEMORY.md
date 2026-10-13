@@ -30,8 +30,30 @@
 
 ## 契约要点
 - JSON 字段名以原 Go 的 `json:"..."` tag 为准；`omitempty` 为空时**整个键不出现**，不是 `null`
+- ⚠️ **2026-10-13 起有例外**：技能的 `visibility`/`moderationStatus` **不再照抄 Go**，
+  已按用户要求改成 `listing`（listed/unlisted）。见下方「技能只有三个操作」。
 - 错误→状态码照抄原实现：只有带 sentinel 的错误才有 404/403/409，其余一律 400，不要"顺手修正"
 - 路由表用 gin 的 `@:namespace` 语法，直接加在 `src/server/api/routes.ts`
+
+## 技能只有三个操作：发布 / 编辑 / 上下架（2026-10-13）
+用户明确要求删掉「设置公开或私有」和「审核技能」，**插件类别整体删除**。三条硬约束：
+- 字段是 **`listing`**（`listed` / `unlisted`），**没有** `visibility`、**没有** `moderationStatus`，
+  **没有** review 队列。类型 `ListingStatus`（`src/lib/types.ts`）。
+- 上下架端点是 **`POST /api/v1/admin/skills/:slug/listing`**，body `{listing}`；
+  筛选是 `GET /api/v1/admin/skills?listing=`。发布表单的字段名也是 `listing`（multipart 同名）。
+- 已删除且**不要恢复**：`.../review`、`.../visibility`、`.../request-public`、全部 `/api/v1/plugins*`。
+  smoke 里有 5 条反向断言钉住这些 404，别删。
+- `skills:moderate` scope **保留**（还管 yank/deprecate/transfer/features），只是语义变成「上下架与版本标记」。
+- 审计动作名是 **`list_skill` / `unlist_skill`**（不再是 `review_skill_*` / `set_skill_visibility`）。
+- ⚠️ 迁移是 **append-only**：v1 里的 plugins 建表语句**原样保留**（只加注释说 v13 会删）。
+  改历史迁移会破坏老库升级。改 CHECK 约束的正确姿势见下方「SQLite 迁移」。
+
+## SQLite 迁移（本机 3.51.2 实测结论）
+- **改列的 CHECK 约束不需要重建表**：`ALTER TABLE ADD COLUMN 新列(带新 CHECK NOT NULL DEFAULT)`
+  → `UPDATE ... CASE 平移` → `ALTER TABLE DROP COLUMN 旧列`。FK 与子表数据全保留。
+  只 ADD 不 DROP 的话旧 CHECK 还在，新值会被拒。
+- **FTS5 虚表不能 ALTER**，只能 `DROP` + 按新列 `CREATE` + `INSERT...SELECT` 从源表重灌。
+- 每条迁移包在 `BEGIN/COMMIT`（`db.ts:migrate`），失败 ROLLBACK 并抛错；版本查 `PRAGMA user_version`。
 
 ## 交付前必跑
 `npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（全绿）
@@ -40,12 +62,33 @@
 
 ## 管理端内容管理（2026-10-08，取代原「内容审核」）
 - 页面 `/admin/content`：技能 CRUD（新建 / 编辑 / 上架下架 / 永久删除）+ 页码分页。
+  **上架下架走 `listing` 字段**（见上节），不再是复用 visibility。
 - 新增 `POST /admin/skills`（表单直建，服务端合成 SKILL.md + v1.0.0）、
-  `PUT /admin/skills/:slug`（**全量替换**，空串=清空）；上架下架复用 visibility，永久删除复用 purge。
+  `PUT /admin/skills/:slug`（**全量替换**，空串=清空）；永久删除复用 purge。
 - `GET /admin/skills` 加可选 `page` + `total`（不传 page 仍是游标，契约不变）。
 - 两个高危坑（详见 CONVENTIONS）：①`overwrite:false` 在「不存在」分支也抛冲突，不能用来防重；
   ②分类**不能**按 `VALID_CATEGORIES` 校验，否则一点保存就把全部内置技能改档成 general。
 - 富文本入库前必须过 `lib/richText.ts` 归一化，否则 Quill 的无序列表在详情页退化成编号列表。
+
+## 分类字段：自由输入 + 已有分类下拉（2026-10-13）
+- `/admin/content` 分类不是固定下拉，是 `Combobox allowCustom`：可自己敲，点开弹**库中实际已有**的分类，按首字母排。
+- 「已有分类」走 **`GET /api/v1/admin/categories`**（`SELECT DISTINCT category`），**不是**公开的 `/api/v1/categories`
+  ——后者是契约，仍返回 `VALID_CATEGORIES` 四项，两者不可混用。
+- ⚠️ **`createSkillFromForm` 里 create 路径会经 `publishVersion` 把非白名单分类静默改成 `general`**，
+  所以 create 之后要再用 `updateMetadata` 把分类写回去（update 路径走 `updateForAdmin`，本来就没事）。
+  这条已加 smoke 断言，别删。
+- 写 `Combobox` 这类浮层组件记住两条：**Escape 必须在 document 捕获阶段拦**
+  （弹窗的 document keydown 监听器挂得更早，React onKeyDown 里 stopPropagation 拦不住）；
+  **`openList()` 要 `select()`**，否则聚焦后打字是追加不是替换。
+- `/skills` 浏览页左侧分类筛选**也已改成读实际分类**（`GET /api/v1/categories/in-use`，`opt`+`K_READ`）。
+  同一个 repo 方法 `skills.listCategoriesInUse(viewer)` 服务两端，差别只在 viewer：
+  **admin 传 `{role:'admin'}` ⇒ 含下架分类**（控制台要在上架前先归类），
+  **公开侧传 `viewerOf(ctx)` ⇒ 只含该访客看得见的**（避免给出一点就空的筛选项）。
+  ⚠️ 公开那条**必须带 `visibilityClause`**，否则会暴露下架分类的存在。
+  `/skills` 侧栏里当前筛选项若不在列表中（旧链接），要**单独补一个 active 按钮**显示它，
+  否则「全部分类」高亮了但结果仍被过滤，看起来像 bug。
+  空状态文案判据是 `q || category`，不是只有 `q`——有筛选时说「还没有技能」是错的。
+
 
 ## 注册资料字段（迁移 v12，2026-10-09）
 - `users` 加 6 列：country / organization / job_title / office_location / research_needs / markets

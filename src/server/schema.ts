@@ -8,7 +8,7 @@
  *
  * 1. **Version content lives in SQLite.** Upstream stores each version as a git
  *    commit and keeps only metadata in the DB (`git_commit_hash`). We store file
- *    bytes in `skill_version_files` / `plugin_version_files`. The `gitCommitHash`
+ *    bytes in `skill_version_files`. The `gitCommitHash`
  *    field is retained for wire compatibility but is left unset.
  * 2. **Search is SQLite FTS5**, not Bleve. See `search_docs` below.
  *
@@ -178,6 +178,9 @@ CREATE TABLE skill_slug_aliases (
 CREATE INDEX idx_ssa_skill ON skill_slug_aliases (skill_id);
 
 -- ── plugins ──────────────────────────────────────────────────────────────────
+-- Kept here verbatim for historical fidelity: plugins were a separate content
+-- type in the Go original and this is migration v1. They are dropped entirely by
+-- migration 13 — see that entry for why.
 CREATE TABLE plugins (
   id                TEXT PRIMARY KEY,
   slug              TEXT NOT NULL,
@@ -367,7 +370,7 @@ CREATE INDEX idx_oauth_user ON oauth_identities (user_id);
 -- ── search index (FTS5) ──────────────────────────────────────────────────────
 -- Replaces Bleve. The six leading columns are the analysed/full-text fields;
 -- everything after them is UNINDEXED — stored and filterable, but not tokenised,
--- so filters like visibility / moderation_status / doc_type stay cheap.
+-- so filters like listing / doc_type stay cheap.
 --
 -- tokenize='trigram' is chosen over the default 'unicode61' because it makes
 -- CJK substring matching work (upstream Bleve used a CJK-aware analyser).
@@ -591,9 +594,127 @@ export const MIGRATIONS: Migration[] = [
       ALTER TABLE users ADD COLUMN markets TEXT NOT NULL DEFAULT '[]';
     `,
   },
+{
+    // A skill now has exactly three operations: publish, edit, and take it
+    // on/off the shelf. Two concepts that stood on their own are gone:
+    //
+    //   * **Public vs private.** `visibility` existed to say who may see a
+    //     skill, but the admin console had long been reading that same column
+    //     as on-shelf/off-shelf — one column doing two jobs. It is now purely
+    //     the latter: `listing` is `listed` or `unlisted`, and "everyone can
+    //     see a listed skill" is a property of the catalogue, not a per-skill
+    //     setting anyone chooses.
+    //   * **Skill review.** `moderation_status` was a three-state queue fed by
+    //     an author's "request public" call and drained by an admin. With no
+    //     public/private distinction there is nothing left to review, so the
+    //     column and both endpoints go away.
+    //
+    // `namespaces.default_visibility` moves with it: it existed only to decide
+    // what a newly published skill inherited, and now says whether the
+    // namespace's skills start on or off the shelf.
+    //
+    // SQLite cannot alter a CHECK constraint in place, so each column is added
+    // with its new constraint, backfilled, and the old one dropped. The FTS5
+    // table cannot be altered at all, so it is rebuilt and repopulated — the
+    // document set is derived state and is rebuilt from the source tables
+    // rather than translated row by row.
+    v: 13,
+    name: 'skills are listed or unlisted; no review queue',
+    sql: `
+      -- Dropping the plugin tables is irreversible, so refuse to do it blind.
+      -- The CHECK (must_be_zero = 0) trick is the only way to abort a migration
+      -- from pure SQL: inserting a non-zero count violates the constraint, which
+      -- rolls the whole migration back and leaves the database at v12 untouched.
+      -- An operator who really wants the rows gone can drop the three tables by
+      -- hand and re-run — a destructive decision deserves to be deliberate.
+      CREATE TEMP TABLE _skillhub_migrate_guard (
+        must_be_zero INTEGER NOT NULL CHECK (must_be_zero = 0)
+      );
+      INSERT INTO _skillhub_migrate_guard (must_be_zero)
+        SELECT (SELECT COUNT(*) FROM plugins)
+             + (SELECT COUNT(*) FROM plugin_versions)
+             + (SELECT COUNT(*) FROM plugin_version_files);
+      DROP TABLE _skillhub_migrate_guard;
+
+      DROP TABLE IF EXISTS plugin_version_files;
+      DROP TABLE IF EXISTS plugin_versions;
+      DROP TABLE IF EXISTS plugins;
+
+      ALTER TABLE namespaces ADD COLUMN default_listing TEXT NOT NULL DEFAULT 'unlisted'
+        CHECK (default_listing IN ('listed','unlisted'));
+      UPDATE namespaces SET default_listing =
+        CASE WHEN default_visibility = 'public' THEN 'listed' ELSE 'unlisted' END;
+      ALTER TABLE namespaces DROP COLUMN default_visibility;
+
+      ALTER TABLE skills ADD COLUMN listing TEXT NOT NULL DEFAULT 'unlisted'
+        CHECK (listing IN ('listed','unlisted'));
+      UPDATE skills SET listing =
+        CASE WHEN visibility = 'public' THEN 'listed' ELSE 'unlisted' END;
+      ALTER TABLE skills DROP COLUMN visibility;
+      ALTER TABLE skills DROP COLUMN moderation_status;
+
+      DROP TABLE IF EXISTS search_docs;
+      CREATE VIRTUAL TABLE search_docs USING fts5(
+        slug,
+        display_name,
+        summary,
+        skill_md_content,
+        tags,
+        owner_handle,
+        doc_id        UNINDEXED,
+        doc_type      UNINDEXED,
+        target_id     UNINDEXED,
+        category      UNINDEXED,
+        namespace_slug UNINDEXED,
+        listing       UNINDEXED,
+        is_suspicious UNINDEXED,
+        is_deleted    UNINDEXED,
+        downloads     UNINDEXED,
+        stars         UNINDEXED,
+        updated_at    UNINDEXED,
+        created_at    UNINDEXED,
+        tokenize = 'trigram'
+      );
+      INSERT INTO search_docs
+        (slug, display_name, summary, skill_md_content, tags, owner_handle,
+         doc_id, doc_type, target_id, category, namespace_slug, listing,
+         is_suspicious, is_deleted, downloads, stars, updated_at, created_at)
+      SELECT s.slug,
+             COALESCE(s.display_name, s.slug),
+             COALESCE(s.summary, ''),
+             COALESCE((SELECT CAST(f.content AS TEXT) FROM skill_version_files f
+                        WHERE f.version_id = s.latest_version_id AND f.path = 'SKILL.md'), ''),
+             COALESCE(s.tags, ''),
+             COALESCE(u.handle, ''),
+             s.id, 'skill', s.id, s.category, COALESCE(n.slug, ''),
+             s.listing,
+             -- Carried across from the row rather than defaulted: a flagged
+             -- skill must stay flagged in the index, exactly as
+             -- reindexSkill would write it.
+             s.is_suspicious,
+             -- Soft-deleted skills stay in the index, flagged -- that is what
+             -- reindexSkill writes for them, and search filters on this
+             -- column. Dropping the rows instead would leave is_deleted
+             -- permanently 0 and make the column a lie.
+             CASE WHEN s.soft_deleted_at IS NULL THEN 0 ELSE 1 END,
+             s.downloads,
+             s.stars_count,
+             -- The index sorts by these. Reindexing through the service layer
+             -- would store Date.parse(...), i.e. epoch milliseconds, so they
+             -- are converted the same way here rather than reset to 0 — a
+             -- search sorted by "recently updated" would otherwise come back in
+             -- arbitrary order after the upgrade. julianday reads the ISO-8601
+             -- strings directly; the epoch offset is the 1970-01-01 constant.
+             CAST((julianday(s.updated_at) - 2440587.5) * 86400000 AS INTEGER),
+             CAST((julianday(s.created_at) - 2440587.5) * 86400000 AS INTEGER)
+        FROM skills s
+        JOIN users u ON u.id = s.owner_id
+        LEFT JOIN namespaces n ON n.id = s.namespace_id;
+    `,
+  },
 ]
 
-/** Slugs that may never be used as a skill/plugin slug (`seedReservedSlugs`). */
+/** Slugs that may never be used as a skill slug (`seedReservedSlugs`). */
 export const SEED_RESERVED_SLUGS = [
   'admin',
   'api',

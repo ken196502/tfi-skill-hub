@@ -136,9 +136,8 @@ function resolveRuntimeSkill(
         'SELECT * FROM skills WHERE slug = ? AND soft_deleted_at IS NULL',
         parsed.slug,
       )
-      // Prefer a public+approved match when a bare slug is ambiguous.
-      skillRow =
-        rows.find((r) => r.visibility === 'public' && r.moderation_status === 'approved') ?? rows[0]
+      // Prefer a listed match when a bare slug is ambiguous.
+      skillRow = rows.find((r) => r.listing === 'listed') ?? rows[0]
     }
   } else {
     return { error: { code: 'invalid_ref', message: 'id or slug is required', status: 400 } }
@@ -289,7 +288,7 @@ export async function list(ctx: RequestContext): Promise<Response> {
     const owner = ctx.url.searchParams.get('owner') ?? ''
     const cursor = ctx.url.searchParams.get('cursor') ?? ''
 
-    const where: string[] = ['soft_deleted_at IS NULL', "visibility = 'public'", "moderation_status = 'approved'"]
+    const where: string[] = ['soft_deleted_at IS NULL', "listing = 'listed'"]
     const params: unknown[] = []
     if (owner) {
       const ns = namespaces.getBySlug(owner)

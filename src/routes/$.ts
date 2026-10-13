@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 /**
  * Root-level non-UI endpoints.
  *
- * TanStack Router picks the most specific match, so `/skills`, `/plugins`, …
+ * TanStack Router picks the most specific match, so `/skills`, `/search`, …
  * still resolve to the page routes; only paths nobody else claims land here.
  * That is exactly the set of service endpoints that live at the root of the
  * original route table.

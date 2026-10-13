@@ -50,8 +50,8 @@ export function seedBuiltinSkills(db: DatabaseSync, log: (msg: string) => void =
     (id, handle, display_name, role, is_banned, created_at, updated_at)
     VALUES (?, 'skillhub', 'SkillHub 内置技能', 'admin', 0, ?, ?)`).run(systemId, now, now)
   db.prepare(`INSERT OR IGNORE INTO namespaces
-    (id, slug, display_name, description, owner_id, type, status, default_visibility, max_skills, created_at, updated_at)
-    VALUES (?, 'builtin', '内置技能', '随 SkillHub 项目初始化提供的技能', ?, 'team', 'active', 'public', 0, ?, ?)`).run(namespaceId, systemId, now, now)
+    (id, slug, display_name, description, owner_id, type, status, default_listing, max_skills, created_at, updated_at)
+    VALUES (?, 'builtin', '内置技能', '随 SkillHub 项目初始化提供的技能', ?, 'team', 'active', 'listed', 0, ?, ?)`).run(namespaceId, systemId, now, now)
   db.prepare(`INSERT OR IGNORE INTO namespace_members
     (id, namespace_id, user_id, role, created_at) VALUES (?, ?, ?, 'owner', ?)`).run(
     '00000000-0000-4000-8000-000000000003', namespaceId, systemId, now,
@@ -59,9 +59,9 @@ export function seedBuiltinSkills(db: DatabaseSync, log: (msg: string) => void =
 
   const skillStmt = db.prepare(`INSERT OR IGNORE INTO skills
     (id, slug, display_name, summary, display_name_en, summary_en, owner_id, namespace_id,
-     latest_version_id, visibility, moderation_status, is_suspicious, kind, category, tags,
+     latest_version_id, listing, is_suspicious, kind, category, tags,
      versions_count, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'public', 'approved', 0, 'builtin', ?, ?, 1, ?, ?)`)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'listed', 0, 'builtin', ?, ?, 1, ?, ?)`)
   const enStmt = db.prepare('UPDATE skills SET display_name_en = ?, summary_en = ? WHERE id = ?')
   const versionStmt = db.prepare(`INSERT OR IGNORE INTO skill_versions
     (id, skill_id, version, fingerprint, files, parsed, created_by, sha256_hash, created_at)
@@ -74,9 +74,9 @@ export function seedBuiltinSkills(db: DatabaseSync, log: (msg: string) => void =
   const unindexStmt = db.prepare('DELETE FROM search_docs WHERE doc_id = ?')
   const searchStmt = db.prepare(`INSERT INTO search_docs
     (slug, display_name, summary, skill_md_content, tags, owner_handle,
-     doc_id, doc_type, target_id, category, namespace_slug, visibility,
-     moderation_status, is_suspicious, is_deleted, downloads, stars, updated_at, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'skill', ?, ?, 'builtin', 'public', 'approved', 0, 0, 0, 0, ?, ?)`)
+     doc_id, doc_type, target_id, category, namespace_slug, listing,
+     is_suspicious, is_deleted, downloads, stars, updated_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'skill', ?, ?, 'builtin', 'listed', 0, 0, 0, 0, ?, ?)`)
   const nowMs = Date.parse(now)
   for (const skill of BUILTIN_SKILLS) {
     const skillId = `builtin-${skill.slug}`

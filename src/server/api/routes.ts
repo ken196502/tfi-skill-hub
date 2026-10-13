@@ -7,8 +7,8 @@
  * capture.
  *
  * Ordering is handled by specificity (static segments beat parameters), so
- * `/api/v1/plugins/by-id/:id` is tried before `/api/v1/plugins/:slug` without
- * relying on declaration order here.
+ * `/api/v1/skills/by-id/:id`-style disambiguations are tried ahead of their
+ * parameterised siblings without relying on declaration order here.
  */
 
 import { compileRoutes, dispatch, type RouteDef } from '../http'
@@ -33,11 +33,16 @@ const adminRead = { auth: 'admin', bucket: 'read' } as const
 /**
  * Capability an admin API key needs to call a route. Routes left unannotated
  * reject every key, so a key issued to drive the skill catalogue cannot drift
- * into user, plugin or namespace administration.
+ * into user or namespace administration.
  */
 const K_READ = { apiKeyScope: 'skills:read' } as const satisfies { apiKeyScope: ApiKeyScope }
 const K_PUBLISH = { apiKeyScope: 'skills:publish' } as const satisfies { apiKeyScope: ApiKeyScope }
 const K_DELETE = { apiKeyScope: 'skills:delete' } as const satisfies { apiKeyScope: ApiKeyScope }
+/**
+ * Curator actions on skills that are already published: yanking or deprecating a
+ * version, transferring ownership, editing the homepage rail, and taking a
+ * skill on or off the shelf.
+ */
 const K_MODERATE = { apiKeyScope: 'skills:moderate' } as const satisfies { apiKeyScope: ApiKeyScope }
 /**
  * Account review. Deliberately its own capability: a key minted to drive the
@@ -70,6 +75,10 @@ function buildRoutes(): RouteDef[] {
     // ── Search & browsing ────────────────────────────────────────────────────
     { method: 'GET', path: '/api/v1/search', handler: h.skillRead.search, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/categories', handler: h.skillRead.categories, ...opt, ...K_READ },
+    // What the catalogue actually holds, for the browse page's filter. A
+    // separate path from `/categories` on purpose — the latter advertises the
+    // fixed taxonomy and is part of the published contract.
+    { method: 'GET', path: '/api/v1/categories/in-use', handler: h.skillRead.categoriesInUse, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/features', handler: h.skillRead.listFeatures, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/skills', handler: h.skillRead.listSkills, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/resolve', handler: h.skillRead.resolve, ...opt, ...K_READ },
@@ -96,16 +105,6 @@ function buildRoutes(): RouteDef[] {
     // gating them would hide the catalogue from signed-out visitors.
     { method: 'GET', path: '/api/v1/download', handler: h.skillRead.download, auth: 'required', bucket: 'download', ...K_READ },
 
-    // ── Plugins (reads) ──────────────────────────────────────────────────────
-    { method: 'GET', path: '/api/v1/plugins', handler: h.pluginRead.listPlugins, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/by-id/:id', handler: h.pluginRead.getPluginById, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/file', handler: h.pluginRead.pluginFile, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/download', handler: h.pluginRead.pluginDownload, auth: 'required', bucket: 'read' },
-    { method: 'GET', path: '/api/v1/plugins/:slug', handler: h.pluginRead.getPlugin, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/:slug/versions', handler: h.pluginRead.pluginVersions, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug', handler: h.pluginRead.getPlugin, ...opt },
-    { method: 'GET', path: '/api/v1/plugins/@:namespace/:slug/versions', handler: h.pluginRead.pluginVersions, ...opt },
-
     // ── Identity ─────────────────────────────────────────────────────────────
     // `whoami` stays open to any session — the UI needs it to render the header.
     { method: 'GET', path: '/api/v1/whoami', handler: h.auth.whoami, ...authed, ...K_READ },
@@ -118,7 +117,6 @@ function buildRoutes(): RouteDef[] {
     { method: 'DELETE', path: '/api/v1/skills/:slug', handler: h.skillWrite.remove, ...adminWrite, ...K_DELETE },
     { method: 'DELETE', path: '/api/v1/skills/:slug/purge', handler: h.skillWrite.purge, ...adminWrite, ...K_DELETE },
     { method: 'POST', path: '/api/v1/skills/:slug/undelete', handler: h.skillWrite.undelete, ...adminWrite, ...K_DELETE },
-    { method: 'POST', path: '/api/v1/skills/:slug/request-public', handler: h.skillWrite.requestPublic, ...adminWrite, ...K_PUBLISH },
     { method: 'PUT', path: '/api/v1/skills/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...adminWrite, ...K_PUBLISH },
     { method: 'PUT', path: '/api/v1/skills/:slug/file', handler: h.skillWrite.updateFile, ...adminWrite, ...K_PUBLISH },
     { method: 'POST', path: '/api/v1/skills/:slug/transfer', handler: h.skillWrite.transfer, ...adminWrite, ...K_MODERATE },
@@ -130,7 +128,6 @@ function buildRoutes(): RouteDef[] {
     { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug', handler: h.skillWrite.remove, ...adminWrite, ...K_DELETE },
     { method: 'DELETE', path: '/api/v1/skills/@:namespace/:slug/purge', handler: h.skillWrite.purge, ...adminWrite, ...K_DELETE },
     { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/undelete', handler: h.skillWrite.undelete, ...adminWrite, ...K_DELETE },
-    { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/request-public', handler: h.skillWrite.requestPublic, ...adminWrite, ...K_PUBLISH },
     { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/detail-html', handler: h.skillWrite.updateDetailHtml, ...adminWrite, ...K_PUBLISH },
     { method: 'PUT', path: '/api/v1/skills/@:namespace/:slug/file', handler: h.skillWrite.updateFile, ...adminWrite, ...K_PUBLISH },
     { method: 'POST', path: '/api/v1/skills/@:namespace/:slug/transfer', handler: h.skillWrite.transfer, ...adminWrite, ...K_MODERATE },
@@ -184,17 +181,6 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/api/v1/invitations/:id/accept', handler: h.namespaceHandlers.acceptInvitation, ...adminWrite },
     { method: 'POST', path: '/api/v1/invitations/:id/decline', handler: h.namespaceHandlers.declineInvitation, ...adminWrite },
 
-    // ── Plugin writes (administrators only) ──────────────────────────────────
-    { method: 'POST', path: '/api/v1/plugins', handler: h.pluginWrite.publish, ...adminWrite },
-    { method: 'DELETE', path: '/api/v1/plugins/:slug', handler: h.pluginWrite.remove, ...adminWrite },
-    { method: 'POST', path: '/api/v1/plugins/:slug/undelete', handler: h.pluginWrite.undelete, ...adminWrite },
-    { method: 'POST', path: '/api/v1/plugins/:slug/versions/:version/yank', handler: h.pluginWrite.yank, ...adminWrite },
-    { method: 'DELETE', path: '/api/v1/plugins/:slug/versions/:version/yank', handler: h.pluginWrite.unyank, ...adminWrite },
-    { method: 'DELETE', path: '/api/v1/plugins/@:namespace/:slug', handler: h.pluginWrite.remove, ...adminWrite },
-    { method: 'POST', path: '/api/v1/plugins/@:namespace/:slug/undelete', handler: h.pluginWrite.undelete, ...adminWrite },
-    { method: 'POST', path: '/api/v1/plugins/@:namespace/:slug/versions/:version/yank', handler: h.pluginWrite.yank, ...adminWrite },
-    { method: 'DELETE', path: '/api/v1/plugins/@:namespace/:slug/versions/:version/yank', handler: h.pluginWrite.unyank, ...adminWrite },
-
     // ── Admin ────────────────────────────────────────────────────────────────
     { method: 'POST', path: '/api/v1/admin/users/ban', handler: h.admin.banUser, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/users/role', handler: h.admin.setRole, auth: 'admin' },
@@ -207,21 +193,19 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/api/v1/admin/api-keys', handler: h.admin.createApiKey, auth: 'admin', bucket: 'write' },
     { method: 'DELETE', path: '/api/v1/admin/api-keys/:id', handler: h.admin.revokeApiKey, auth: 'admin', bucket: 'write' },
     { method: 'GET', path: '/api/v1/admin/skills', handler: h.admin.listSkills, auth: 'admin', ...K_MODERATE },
+    // Categories on disk, for the console's category field to suggest.
+    { method: 'GET', path: '/api/v1/admin/categories', handler: h.admin.listCategories, auth: 'admin', ...K_READ },
     { method: 'GET', path: '/api/v1/admin/features', handler: h.admin.listFeaturedSkills, auth: 'admin', ...K_READ },
     { method: 'PUT', path: '/api/v1/admin/features', handler: h.admin.replaceFeaturedSkills, auth: 'admin', ...K_MODERATE },
     // Content management: the console's own create/edit pair. Creating and
-    // editing content needs `skills:publish`; taking a skill offline or
+    // editing content needs `skills:publish`; taking a skill off the shelf or
     // removing it for good reuses the lifecycle routes further up.
     { method: 'POST', path: '/api/v1/admin/skills', handler: h.admin.createSkill, auth: 'admin', ...K_PUBLISH },
     { method: 'PUT', path: '/api/v1/admin/skills/:slug', handler: h.admin.updateSkill, auth: 'admin', ...K_PUBLISH },
     { method: 'PUT', path: '/api/v1/admin/skills/@:namespace/:slug', handler: h.admin.updateSkill, auth: 'admin', ...K_PUBLISH },
-    { method: 'POST', path: '/api/v1/admin/skills/:slug/review', handler: h.admin.reviewSkill, auth: 'admin', ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/admin/skills/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin', ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/review', handler: h.admin.reviewSkill, auth: 'admin', ...K_MODERATE },
-    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/visibility', handler: h.admin.setSkillVisibility, auth: 'admin', ...K_MODERATE },
-    { method: 'GET', path: '/api/v1/admin/plugins', handler: h.admin.listPlugins, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/plugins/:slug/review', handler: h.admin.reviewPlugin, auth: 'admin' },
-    { method: 'POST', path: '/api/v1/admin/plugins/:slug/visibility', handler: h.admin.setPluginVisibility, auth: 'admin' },
+    // On/off the shelf. The one write that changes who can see a skill.
+    { method: 'POST', path: '/api/v1/admin/skills/:slug/listing', handler: h.admin.setSkillListing, auth: 'admin', ...K_MODERATE },
+    { method: 'POST', path: '/api/v1/admin/skills/@:namespace/:slug/listing', handler: h.admin.setSkillListing, auth: 'admin', ...K_MODERATE },
     { method: 'GET', path: '/api/v1/admin/audit-logs', handler: h.admin.auditLogs, auth: 'admin' },
 
     // ── Agent skill API ──────────────────────────────────────────────────────

@@ -16,7 +16,7 @@ import type {
   SkillVersion,
   SkillWithOwner,
   VersionFile,
-  Visibility,
+  ListingStatus,
 } from '../../lib/types'
 import { VALID_CATEGORIES, VALID_KINDS, RESERVED_NAMESPACE_PREFIXES } from '../../lib/types'
 import { asNumber, nowIso, query, tx, type Row } from '../db'
@@ -76,6 +76,16 @@ export function listSkills(opts: ListOptions) {
     viewer: opts.viewer,
   })
   return { ...page, data: markStarred(page.data, opts.viewer) }
+}
+
+/**
+ * The categories the catalogue actually has, for the browse page's filter.
+ *
+ * Scoped to what this viewer can see, so the sidebar never offers a filter that
+ * can only ever return an empty page.
+ */
+export function listCategoriesInUse(viewer: Viewer | null): string[] {
+  return skillRepo.listCategoriesInUse(viewer)
 }
 
 /**
@@ -262,7 +272,11 @@ export interface PublishRequest {
   summaryEn?: string
   category?: string
   kind?: string
-  visibility?: string
+  /**
+   * Whether the skill starts on or off the shelf. Omit to inherit the
+   * namespace's `defaultListing`.
+   */
+  listing?: string
   namespaceSlug?: string
   tags?: string[]
   dependencies?: SkillDependency[]
@@ -369,12 +383,13 @@ export function publishVersion(
     }
   }
 
-  // 10. visibility
-  const rawVisibility = req.visibility ?? ''
-  if (rawVisibility !== '' && rawVisibility !== 'private' && rawVisibility !== 'public') {
-    fail("visibility must be 'private' or 'public'")
+  // 10. listing
+  const rawListing = req.listing ?? ''
+  if (rawListing !== '' && rawListing !== 'listed' && rawListing !== 'unlisted') {
+    fail("listing must be 'listed' or 'unlisted'")
   }
-  const visibility: Visibility = rawVisibility === '' ? namespace.defaultVisibility : (rawVisibility as Visibility)
+  const listing: ListingStatus =
+    rawListing === '' ? namespace.defaultListing : (rawListing as ListingStatus)
 
   // 11. create or authorize
   let skill: Skill
@@ -390,7 +405,7 @@ export function publishVersion(
       summaryEn: req.summaryEn || null,
       ownerId: user.id,
       namespaceId: namespace.id,
-      visibility,
+      listing,
       kind,
       category: req.category && VALID_CATEGORIES.includes(req.category as never)
         ? req.category
@@ -466,7 +481,7 @@ export function publishVersion(
         summaryEn: req.summaryEn,
         category: req.category && VALID_CATEGORIES.includes(req.category as never) ? req.category : undefined,
         tags: req.tags && req.tags.length > 0 ? req.tags : undefined,
-        visibility: rawVisibility === '' ? undefined : (rawVisibility as Visibility),
+        listing: rawListing === '' ? undefined : (rawListing as ListingStatus),
       })
     }
 
@@ -525,16 +540,6 @@ export function purge(user: UserRecord, ref: SkillRef): void {
   unindexTarget(skill.id)
   skillRepo.purge(skill.id)
   auditLog({ actorId: user.id, action: 'purge', resourceType: 'skill', resourceId: skill.id })
-}
-
-/** Owner-initiated request for public listing; moves the skill into review. */
-export function requestPublic(user: UserRecord, ref: SkillRef): void {
-  const skill = resolveSkillRef(ref, { id: user.id, role: user.role })
-  if (!skill) fail('skill not found')
-  if (skill.ownerId !== user.id && user.role !== 'admin') fail('forbidden')
-  if (skill.visibility === 'public') fail('skill is already public')
-  skillRepo.setVisibility(skill.id, 'private', 'pending_review')
-  reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
 }
 
 export function yankVersion(
@@ -767,7 +772,7 @@ export function probeVersion(
   return { fingerprint: resolved.version.fingerprint, version: resolved.version.version }
 }
 
-/** Fingerprint reverse-lookup. No auth and no visibility check, per upstream. */
+/** Fingerprint reverse-lookup. No auth and no listing check, per upstream. */
 export function resolveFingerprint(
   fingerprint: string,
 ): { version: SkillVersion; skill: SkillWithOwner } | null {

@@ -42,19 +42,18 @@ export function AdminNav({ active }: { active: AdminSection }) {
 export function AdminStatus({ value }: { value: string }) {
   const t = useT()
   const labels: Record<string, [string, string]> = {
-    public: ['公开', 'Public'],
-    private: ['私有', 'Private'],
+    listed: ['已上架', 'Listed'],
+    unlisted: ['已下架', 'Unlisted'],
     approved: ['已通过', 'Approved'],
     pending: ['待审核', 'Awaiting review'],
-    pending_review: ['待审核', 'Pending review'],
     rejected: ['已拒绝', 'Rejected'],
     active: ['正常', 'Active'],
     banned: ['已封禁', 'Banned'],
     revoked: ['已撤销', 'Revoked'],
     expired: ['已过期', 'Expired'],
   }
-  const tone = value === 'approved' || value === 'public' || value === 'active' ? 'success'
-    : value === 'rejected' || value === 'private' || value === 'banned' || value === 'revoked' || value === 'expired' ? 'danger'
+  const tone = value === 'approved' || value === 'listed' || value === 'active' ? 'success'
+    : value === 'rejected' || value === 'banned' || value === 'revoked' || value === 'expired' ? 'danger'
       : 'warning'
   const pair = labels[value]
   return (

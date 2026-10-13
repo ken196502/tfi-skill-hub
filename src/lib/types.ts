@@ -7,8 +7,14 @@
  * *absent* rather than `null`.
  */
 
-export type Visibility = 'private' | 'public'
-export type ModerationStatus = 'approved' | 'pending_review' | 'rejected'
+/**
+ * Whether a skill is on the shelf. `listed` skills appear in the catalogue;
+ * `unlisted` ones exist and stay editable, but nobody but their owner sees them.
+ *
+ * This replaces the old `public` / `private` visibility flag, which conflated two
+ * questions — who may see a skill, and whether it is published for discovery.
+ */
+export type ListingStatus = 'listed' | 'unlisted'
 export type SkillKind = 'builtin' | 'domain' | 'learned' | 'custom'
 /**
  * Roles a person can hold: `admin` and `user`, nothing in between. `agent` is
@@ -108,8 +114,7 @@ export interface Skill {
   ownerId: string
   namespaceId?: string
   latestVersionId?: string
-  visibility: Visibility
-  moderationStatus: ModerationStatus
+  listing: ListingStatus
   isSuspicious: boolean
   kind: SkillKind
   /**
@@ -196,44 +201,6 @@ export interface SkillVersion {
   signatureIssuer?: string
 }
 
-export interface Plugin {
-  id: string
-  slug: string
-  displayName?: string
-  summary?: string
-  displayNameEn?: string
-  summaryEn?: string
-  ownerId: string
-  namespaceId?: string
-  latestVersionId?: string
-  visibility: Visibility
-  moderationStatus: ModerationStatus
-  category: string
-  tags: string[]
-  downloads: number
-  starsCount: number
-  versionsCount: number
-  createdAt: string
-  updatedAt: string
-  softDeletedAt?: string
-}
-
-export interface PluginVersion {
-  id: string
-  pluginId: string
-  version: string
-  fingerprint: string
-  manifest: Record<string, unknown>
-  files: VersionFile[]
-  changelog?: string
-  createdBy: string
-  sha256Hash: string
-  createdAt: string
-  softDeletedAt?: string
-  yankedAt?: string
-  yankReason?: string
-}
-
 export interface Namespace {
   id: string
   slug: string
@@ -242,7 +209,8 @@ export interface Namespace {
   ownerId: string
   type: NamespaceType
   status: 'active' | 'suspended'
-  defaultVisibility: Visibility
+  /** Listing state newly published skills in this namespace start in. */
+  defaultListing: ListingStatus
   /** 0 = unlimited. */
   maxSkills: number
   createdAt: string

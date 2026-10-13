@@ -1483,6 +1483,10 @@ main { flex: 1; }
   cursor: pointer;
 }
 
+/* A field that also accepts typing: the pointer cursor would promise a picker
+   that cannot be typed into. */
+.combo-input-free { cursor: text; }
+
 /* The two trailing affordances share the right edge: clear (only once a value
    is chosen) then the caret that opens the list. */
 .combo-clear,
@@ -1552,6 +1556,16 @@ main { flex: 1; }
 /* The chosen entry stays marked once the list is reopened. */
 .combo-option.selected { color: var(--accent); font-weight: 600; }
 .combo-option.disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* "Use this" — the row that commits text which is not yet a category. Set apart
+   from the existing entries so committing a new one is visibly a choice. */
+.combo-option-new {
+  border-bottom: 1px solid var(--card-border);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--accent);
+  margin-bottom: 4px;
+  padding-bottom: 10px;
+}
 
 .combo-empty {
   padding: 12px 10px;
@@ -1979,6 +1993,9 @@ main { flex: 1; }
 
 .admin-form-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
 .admin-form-grid-2 > label { display: block; min-width: 0; }
+/* Fields that are not a bare `<label>` wrapper — a label plus a custom control,
+   where the label needs a real `for` to stay tied to the input. */
+.admin-form-grid-2 > .admin-field { display: block; min-width: 0; }
 .admin-form-grid-2 .form-label { display: block; margin-bottom: 6px; }
 
 .admin-form-hint-inline { display: block; margin: 6px 0 10px; }
@@ -2044,6 +2061,24 @@ main { flex: 1; }
   cursor: pointer;
 }
 .file-picker-remove:hover { color: var(--danger); background: rgba(239, 68, 68, .12); }
+
+.admin-download-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 12px;
+  color: var(--brand);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+.admin-download-link::before {
+  content: "↓";
+  font-size: 1rem;
+  line-height: 1;
+}
+.admin-download-link:hover { text-decoration: underline; }
 
 /* ── Rich-text field ────────────────────────────────────────────────────── */
 

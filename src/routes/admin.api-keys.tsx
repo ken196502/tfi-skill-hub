@@ -24,8 +24,8 @@ const SCOPE_COPY: Record<ApiKeyScope, { title: [string, string]; hint: [string, 
     hint: ['删除技能、恢复、彻底清除', 'Delete, restore and purge skills'],
   },
   'skills:moderate': {
-    title: ['审核与可见性', 'Review & visibility'],
-    hint: ['下架与弃用标记、审核结果、公开范围', 'Yank, deprecate, review results and visibility'],
+    title: ['上下架与版本标记', 'Listing & version flags'],
+    hint: ['技能上下架、将某个版本标记为下架或弃用、转移归属', 'List or unlist skills, yank or deprecate a version, transfer ownership'],
   },
   'users:moderate': {
     title: ['审核注册用户', 'Review sign-ups'],
@@ -37,7 +37,7 @@ const SCOPE_SHORT: Record<ApiKeyScope, [string, string]> = {
   'skills:read': ['读取', 'Read'],
   'skills:publish': ['发布', 'Publish'],
   'skills:delete': ['删除', 'Delete'],
-  'skills:moderate': ['审核', 'Review'],
+  'skills:moderate': ['上下架', 'Listing'],
   'users:moderate': ['用户', 'Users'],
 }
 
@@ -102,15 +102,9 @@ const API_EXAMPLES: ApiExample[] = [
   },
   {
     scope: 'skills:moderate',
-    label: ['审核通过 / 拒绝', 'Approve or reject'],
+    label: ['上架或下架技能', 'List or unlist a skill'],
     command: (o, k) =>
-      `curl -X POST -H "Authorization: Bearer ${k}" -H 'Content-Type: application/json' \\\n  -d '{"action":"approve"}' \\\n  ${o}/api/v1/admin/skills/@<namespace>/<slug>/review`,
-  },
-  {
-    scope: 'skills:moderate',
-    label: ['设置公开或私有', 'Set visibility'],
-    command: (o, k) =>
-      `curl -X POST -H "Authorization: Bearer ${k}" -H 'Content-Type: application/json' \\\n  -d '{"visibility":"public"}' \\\n  ${o}/api/v1/admin/skills/@<namespace>/<slug>/visibility`,
+      `curl -X POST -H "Authorization: Bearer ${k}" -H 'Content-Type: application/json' \\\n  -d '{"listing":"listed"}' \\\n  ${o}/api/v1/admin/skills/@<namespace>/<slug>/listing`,
   },
   {
     scope: 'users:moderate',

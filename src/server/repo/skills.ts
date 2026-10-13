@@ -2,8 +2,8 @@
  * SQL for the skill domain: skills, versions, version file bytes, stars,
  * ratings, comments and download de-duplication.
  *
- * Visibility filtering, cursor pagination and the download-counter de-dup rule
- * all live here because they are SQL concerns that the service layer should not
+ * Listing filtering, cursor pagination and the download-counter de-dup rule all
+ * live here because they are SQL concerns that the service layer should not
  * have to reconstruct.
  */
 
@@ -11,7 +11,7 @@ import crypto from 'node:crypto'
 import { asBool, asNumber, asString, nowIso, newId, query, tx, type Row } from '../db'
 import type {
   CommentWithUser,
-  ModerationStatus,
+  ListingStatus,
   RatingWithUser,
   Skill,
   SkillDependency,
@@ -19,7 +19,6 @@ import type {
   SkillVersion,
   SkillWithOwner,
   VersionFile,
-  Visibility,
 } from '../../lib/types'
 
 const parseJson = <T>(raw: unknown, fallback: T): T => {
@@ -47,8 +46,7 @@ function mapSkill(r: Row): Skill {
     ownerId: asString(r.owner_id),
     ...(r.namespace_id != null ? { namespaceId: asString(r.namespace_id) } : {}),
     ...(r.latest_version_id != null ? { latestVersionId: asString(r.latest_version_id) } : {}),
-    visibility: asString(r.visibility) as Visibility,
-    moderationStatus: asString(r.moderation_status) as ModerationStatus,
+    listing: asString(r.listing) as ListingStatus,
     isSuspicious: asBool(r.is_suspicious),
     kind: asString(r.kind) as SkillKind,
     category: asString(r.category),
@@ -121,22 +119,22 @@ export interface Viewer {
 }
 
 /**
- * Visibility predicate. Returns `{ sql, params }` to be ANDed into a query.
+ * Listing predicate. Returns `{ sql, params }` to be ANDed into a query.
  *
  * Membership in a namespace does **not** widen the *list*: only ownership does.
  * (Single-skill reads are more permissive — see `services/skills.ts`.)
  */
-function visibilityClause(viewer: Viewer | null): { sql: string; params: unknown[] } {
+function listingClause(viewer: Viewer | null): { sql: string; params: unknown[] } {
   if (viewer && viewer.role === 'admin') {
     return { sql: '', params: [] }
   }
   if (viewer) {
     return {
-      sql: ` AND ((s.visibility = 'public' AND s.moderation_status = 'approved') OR s.owner_id = ?)`,
+      sql: ` AND (s.listing = 'listed' OR s.owner_id = ?)`,
       params: [viewer.id],
     }
   }
-  return { sql: ` AND s.visibility = 'public' AND s.moderation_status = 'approved'`, params: [] }
+  return { sql: ` AND s.listing = 'listed'`, params: [] }
 }
 
 export type SortKey = 'created' | 'downloads' | 'stars' | 'updated' | 'name'
@@ -179,26 +177,14 @@ export interface ListOptions {
 /**
  * Filter shared by the admin listing's count and page queries. Kept in one
  * place so `total` and `data` can never disagree about what the filter means.
- *
- * `pending` is deliberately not a visibility value: it selects rows whose
- * moderation state is still open, whatever their visibility happens to be.
  */
-function adminSkillFilter(visibility: string): { where: string[]; params: unknown[] } {
+function adminSkillFilter(listing: string): { where: string[]; params: unknown[] } {
   const where: string[] = ['s.soft_deleted_at IS NULL']
   const params: unknown[] = []
 
-  switch (visibility) {
-    case 'private':
-      where.push("s.visibility = 'private'")
-      break
-    case 'public':
-      where.push("s.visibility = 'public'")
-      break
-    case 'pending':
-      where.push("s.moderation_status = 'pending_review'")
-      break
-    default:
-      break
+  if (listing === 'listed' || listing === 'unlisted') {
+    where.push('s.listing = ?')
+    params.push(listing)
   }
 
   return { where, params }
@@ -254,7 +240,7 @@ export const skills = {
 
     if (!opts.includeDeleted) where.push('s.soft_deleted_at IS NULL')
 
-    const vis = visibilityClause(opts.viewer)
+    const vis = listingClause(opts.viewer)
     if (vis.sql) {
       where.push(vis.sql.replace(/^ AND /, ''))
       params.push(...vis.params)
@@ -307,7 +293,7 @@ export const skills = {
   },
 
   /**
-   * Admin listing — no visibility filter, ordered by `updated_at DESC`.
+   * Admin listing — no listing filter, ordered by `updated_at DESC`.
    *
    * Two paging modes share one filter expression:
    *   - `page >= 1` selects a numbered page (`LIMIT/OFFSET`) — the console's
@@ -319,12 +305,12 @@ export const skills = {
    * caller can render a page count without a second round trip.
    */
   listForAdmin(opts: {
-    visibility: string
+    listing: string
     cursor: string
     limit: number
     page: number
   }): { data: SkillWithOwner[]; nextCursor: string; total: number } {
-    const { where, params } = adminSkillFilter(opts.visibility)
+    const { where, params } = adminSkillFilter(opts.listing)
     const total = asNumber(
       query.get<Row>(
         `SELECT COUNT(*) AS c FROM skills s WHERE ${where.join(' AND ')}`,
@@ -361,6 +347,31 @@ export const skills = {
     return { data: items.slice(0, opts.limit), nextCursor, total }
   },
 
+  /**
+   * Every category a live skill is actually filed under, filtered exactly the
+   * way `list` filters.
+   *
+   * The answer has to come from the records rather than from the advertised
+   * taxonomy — the catalogue is not restricted to the four values
+   * `/api/v1/categories` names. Passing the viewer matters for the public
+   * catalogue: a category whose only skills are offline would otherwise be
+   * offered as a filter that can only ever return nothing.
+   *
+   * Ordered case-insensitively here; callers re-sort for display.
+   */
+  listCategoriesInUse(viewer: Viewer | null = null): string[] {
+    const vis = listingClause(viewer)
+    return query
+      .all<Row>(
+        `SELECT DISTINCT s.category AS category FROM skills s
+          WHERE s.soft_deleted_at IS NULL
+            AND s.category IS NOT NULL AND TRIM(s.category) != ''${vis.sql}
+          ORDER BY s.category COLLATE NOCASE`,
+        ...vis.params,
+      )
+      .map((row) => asString(row.category))
+  },
+
   create(input: {
     slug: string
     displayName?: string | null
@@ -369,19 +380,18 @@ export const skills = {
     summaryEn?: string | null
     ownerId: string
     namespaceId: string
-    visibility: Visibility
+    listing: ListingStatus
     kind: SkillKind
     category: string
     tags: string[]
-    moderationStatus?: ModerationStatus
   }): Skill {
     const id = newId()
     const now = nowIso()
     query.run(
       `INSERT INTO skills
         (id, slug, display_name, summary, display_name_en, summary_en, owner_id, namespace_id,
-         visibility, moderation_status, is_suspicious, kind, category, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+         listing, is_suspicious, kind, category, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
       id,
       input.slug,
       input.displayName ?? null,
@@ -390,8 +400,7 @@ export const skills = {
       input.summaryEn ?? null,
       input.ownerId,
       input.namespaceId,
-      input.visibility,
-      input.moderationStatus ?? 'approved',
+      input.listing,
       input.kind,
       input.category,
       JSON.stringify(input.tags),
@@ -411,7 +420,7 @@ export const skills = {
       summaryEn?: string
       category?: string
       tags?: string[]
-      visibility?: Visibility
+      listing?: ListingStatus
     },
   ): void {
     const sets: string[] = []
@@ -440,9 +449,9 @@ export const skills = {
       sets.push('tags = ?')
       params.push(JSON.stringify(fields.tags))
     }
-    if (fields.visibility) {
-      sets.push('visibility = ?')
-      params.push(fields.visibility)
+    if (fields.listing) {
+      sets.push('listing = ?')
+      params.push(fields.listing)
     }
     if (sets.length === 0) return
     params.push(id)
@@ -457,10 +466,6 @@ export const skills = {
    * emptied input would be silently ignored and the author could never clear a
    * summary or drop the English name. Here an empty value clears the column,
    * which is what a form that submits every field means by it.
-   *
-   * `moderationStatus` rides along because an explicit administrative save is a
-   * decision: it takes the row out of the review queue, exactly as the
-   * visibility endpoint does.
    */
   updateForAdmin(
     id: string,
@@ -471,14 +476,13 @@ export const skills = {
       summaryEn: string | null
       category: string
       tags: string[]
-      visibility: Visibility
-      moderationStatus: ModerationStatus
+      listing: ListingStatus
     },
   ): void {
     query.run(
       `UPDATE skills
           SET display_name = ?, summary = ?, display_name_en = ?, summary_en = ?,
-              category = ?, tags = ?, visibility = ?, moderation_status = ?, updated_at = ?
+              category = ?, tags = ?, listing = ?, updated_at = ?
         WHERE id = ?`,
       fields.displayName,
       fields.summary,
@@ -486,8 +490,7 @@ export const skills = {
       fields.summaryEn,
       fields.category,
       JSON.stringify(fields.tags),
-      fields.visibility,
-      fields.moderationStatus,
+      fields.listing,
       nowIso(),
       id,
     )
@@ -561,11 +564,11 @@ export const skills = {
     query.run('UPDATE skills SET latest_version_id = ? WHERE id = ?', versionId, id)
   },
 
-  setVisibility(id: string, visibility: Visibility, moderationStatus: ModerationStatus): void {
+  /** Takes a skill on or off the shelf — the only visibility-shaped write. */
+  setListing(id: string, listing: ListingStatus): void {
     query.run(
-      'UPDATE skills SET visibility = ?, moderation_status = ?, updated_at = ? WHERE id = ?',
-      visibility,
-      moderationStatus,
+      'UPDATE skills SET listing = ?, updated_at = ? WHERE id = ?',
+      listing,
       nowIso(),
       id,
     )
@@ -915,8 +918,8 @@ export const stars = {
    *
    * The cursor is a `stars` row id, not a skill id, because the ordering column
    * lives on the join table. Soft-deleted skills are skipped, and the same
-   * visibility rule as the catalogue listing applies — a skill that has since
-   * gone private drops out of the collection rather than leaking to the viewer.
+   * listing rule as the catalogue listing applies — a skill that has since
+   * gone off the shelf drops out of the collection rather than leaking to the viewer.
    *
    * Both ordering keys are DESC so the row-value `<` comparator used for the
    * cursor means exactly "comes later in this order" — mixing directions would
@@ -929,7 +932,7 @@ export const stars = {
     const where: string[] = ['st.user_id = ?', 's.soft_deleted_at IS NULL']
     const params: unknown[] = [userId]
 
-    const vis = visibilityClause(opts.viewer)
+    const vis = listingClause(opts.viewer)
     if (vis.sql) {
       where.push(vis.sql.replace(/^ AND /, ''))
       params.push(...vis.params)

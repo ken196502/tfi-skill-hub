@@ -33,8 +33,7 @@ function SearchPage() {
     setSubmitted(input.trim())
   }
 
-  // Plugins are no longer browseable on the frontend; hide them from results.
-  const hits = (query.data?.hits ?? []).filter((h) => h.docType !== 'plugin')
+  const hits = query.data?.hits ?? []
 
   return (
     <div className="container" style={{ paddingTop: 40 }}>

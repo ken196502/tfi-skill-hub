@@ -19,19 +19,14 @@ const ACTION_LABELS: Record<string, [string, string]> = {
   ban_user: ['封禁用户', 'Ban user'],
   admin_create_token: ['签发 Token', 'Mint token'],
   replace_featured_skills: ['更新首页精选', 'Update featured skills'],
-  review_skill_approve: ['通过技能审核', 'Approve skill'],
-  review_skill_reject: ['拒绝技能审核', 'Reject skill'],
-  set_skill_visibility: ['设置技能可见性', 'Set skill visibility'],
-  review_plugin_approve: ['通过插件审核', 'Approve plugin'],
-  review_plugin_reject: ['拒绝插件审核', 'Reject plugin'],
-  set_plugin_visibility: ['设置插件可见性', 'Set plugin visibility'],
+  list_skill: ['上架技能', 'List skill'],
+  unlist_skill: ['下架技能', 'Unlist skill'],
 }
 
 const RESOURCE_LABELS: Record<string, [string, string]> = {
   user: ['用户', 'User'],
   api_token: ['API Token', 'API token'],
   skill: ['技能', 'Skill'],
-  plugin: ['插件', 'Plugin'],
   featured_skills: ['首页精选', 'Featured skills'],
 }
 

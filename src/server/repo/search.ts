@@ -1,13 +1,12 @@
 /**
- * Full-text search over skills and plugins, backed by SQLite FTS5.
+ * Full-text search over skills, backed by SQLite FTS5.
  *
  * Replaces the embedded Bleve index. Design notes:
  *
- * * One virtual table (`search_docs`) holds both document types, keyed by
- *   `doc_id` — the skill UUID for skills, `plugin_<uuid>` for plugins. That
- *   reproduces upstream's Bleve document IDs.
+ * * One virtual table (`search_docs`) holds one document per skill, keyed by
+ *   `doc_id` — the skill UUID.
  * * The six leading columns are tokenised; every filter/sort field is
- *   `UNINDEXED`, so `visibility = 'public'` and friends are plain column
+ *   `UNINDEXED`, so `listing = 'listed'` and friends are plain column
  *   comparisons over the matched set rather than index lookups.
  * * `tokenize='trigram'` gives CJK substring matching, which the default
  *   `unicode61` tokenizer cannot do. Trigrams need at least three characters,
@@ -22,10 +21,8 @@
 import { asNumber, asString, query, type Row } from '../db'
 
 export interface SearchDoc {
-  /** Skill UUID, or `plugin_<uuid>`. */
+  /** Skill UUID. */
   docId: string
-  docType: 'skill' | 'plugin'
-  /** Skill or plugin UUID. */
   targetId: string
   slug: string
   displayName: string
@@ -35,8 +32,7 @@ export interface SearchDoc {
   ownerHandle: string
   category: string
   namespaceSlug: string
-  visibility: string
-  moderationStatus: string
+  listing: string
   isSuspicious: boolean
   isDeleted: boolean
   downloads: number
@@ -59,15 +55,14 @@ export interface SearchHit {
   ownerHandle: string
   ownerHandleExact: string
   namespaceSlug: string
-  visibility: string
-  moderationStatus: string
+  listing: string
   isSuspicious: boolean
   isDeleted: boolean
   downloads: number
   stars: number
   updatedAt: number
   createdAt: number
-  /** `plugin` for plugin documents; `skill` otherwise. */
+  /** Always `skill`; kept because it is part of the published response shape. */
   docType: string
 }
 
@@ -96,8 +91,7 @@ const UNINDEXED_COLUMNS = [
   'target_id',
   'category',
   'namespace_slug',
-  'visibility',
-  'moderation_status',
+  'listing',
   'is_suspicious',
   'is_deleted',
   'downloads',
@@ -116,12 +110,9 @@ const ALL_COLUMNS = [...FTS_COLUMNS, ...UNINDEXED_COLUMNS]
 const HIT_SELECT = /* sql */ `
   SELECT sd.*,
          COALESCE(s.display_name_en, '') AS s_display_name_en,
-         COALESCE(s.summary_en, '')      AS s_summary_en,
-         COALESCE(p.display_name_en, '') AS p_display_name_en,
-         COALESCE(p.summary_en, '')      AS p_summary_en
+         COALESCE(s.summary_en, '')      AS s_summary_en
   FROM search_docs sd
-  LEFT JOIN skills  s ON sd.doc_type = 'skill'  AND s.id = sd.target_id
-  LEFT JOIN plugins p ON sd.doc_type = 'plugin' AND p.id = sd.target_id
+  LEFT JOIN skills s ON sd.doc_type = 'skill' AND s.id = sd.target_id
 `
 
 function rowToHit(r: Row): SearchHit {
@@ -130,25 +121,22 @@ function rowToHit(r: Row): SearchHit {
     slug: asString(r.slug),
     displayName: asString(r.display_name),
     summary: asString(r.summary),
-    displayNameEn:
-      asString(r.doc_type) === 'plugin' ? asString(r.p_display_name_en) : asString(r.s_display_name_en),
-    summaryEn:
-      asString(r.doc_type) === 'plugin' ? asString(r.p_summary_en) : asString(r.s_summary_en),
+    displayNameEn: asString(r.s_display_name_en),
+    summaryEn: asString(r.s_summary_en),
     skillMdContent: asString(r.skill_md_content),
     category: asString(r.category),
     tags: asString(r.tags).split(' ').filter(Boolean),
     ownerHandle: asString(r.owner_handle),
     ownerHandleExact: asString(r.owner_handle),
     namespaceSlug: asString(r.namespace_slug),
-    visibility: asString(r.visibility),
-    moderationStatus: asString(r.moderation_status),
+    listing: asString(r.listing),
     isSuspicious: asNumber(r.is_suspicious) !== 0,
     isDeleted: asNumber(r.is_deleted) !== 0,
     downloads: asNumber(r.downloads),
     stars: asNumber(r.stars),
     updatedAt: asNumber(r.updated_at),
     createdAt: asNumber(r.created_at),
-    docType: asString(r.doc_type) === 'plugin' ? 'plugin' : 'skill',
+    docType: 'skill',
   }
 }
 
@@ -166,12 +154,11 @@ export const searchIndex = {
       doc.tags,
       doc.ownerHandle,
       doc.docId,
-      doc.docType,
+      'skill',
       doc.targetId,
       doc.category,
       doc.namespaceSlug,
-      doc.visibility,
-      doc.moderationStatus,
+      doc.listing,
       doc.isSuspicious ? 1 : 0,
       doc.isDeleted ? 1 : 0,
       doc.downloads,
@@ -204,7 +191,7 @@ export interface SearchOptions {
   offset: number
   /** Single field name with optional `:asc` / `:desc`. Bare field = descending. */
   sort: string
-  /** Only `skill` / `plugin` are honoured; anything else is ignored. */
+  /** Only `skill` is honoured; anything else is ignored. */
   type: string
   namespace: string
 }
@@ -250,15 +237,14 @@ export function search(opts: SearchOptions): SearchResult {
   const offset = opts.offset >= 0 ? opts.offset : 0
 
   // Always-applied filters. Columns are qualified because the hit query joins
-  // the source tables, which carry same-named columns (`visibility`, …).
+  // the source table, which carries same-named columns (`listing`, …).
   const filters: string[] = [
-    "sd.visibility = 'public'",
-    "sd.moderation_status = 'approved'",
+    "sd.listing = 'listed'",
     'sd.is_deleted = 0',
   ]
   const filterParams: unknown[] = []
 
-  if (opts.type === 'skill' || opts.type === 'plugin') {
+  if (opts.type === 'skill') {
     filters.push('sd.doc_type = ?')
     filterParams.push(opts.type)
   }
@@ -278,12 +264,9 @@ export function search(opts: SearchOptions): SearchResult {
         `SELECT sd.*,
            COALESCE(s.display_name_en, '') AS s_display_name_en,
            COALESCE(s.summary_en, '')      AS s_summary_en,
-           COALESCE(p.display_name_en, '') AS p_display_name_en,
-           COALESCE(p.summary_en, '')      AS p_summary_en,
            bm25(search_docs, ${BM25_WEIGHTS.join(', ')}) AS rank
          FROM search_docs sd
-         LEFT JOIN skills  s ON sd.doc_type = 'skill'  AND s.id = sd.target_id
-         LEFT JOIN plugins p ON sd.doc_type = 'plugin' AND p.id = sd.target_id
+         LEFT JOIN skills s ON sd.doc_type = 'skill' AND s.id = sd.target_id
          WHERE sd MATCH ? AND ${filterSql}
          ORDER BY ${sortClause(opts.sort)}
          LIMIT ? OFFSET ?`,

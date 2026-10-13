@@ -468,6 +468,7 @@ export function RegisterPage() {
                     }}
                     placeholder={t('输入关键字搜索，或展开下拉选择', 'Type to search, or open the list')}
                     invalid={touched && missing.has('country')}
+                    listLabel={t('国家或地区', 'Country or region')}
                     emptyLabel={t('没有匹配的地区，请换一个关键字或选择「其他」', 'No match — try another keyword, or pick "Other"')}
                   />
                   {touched && missing.has('country') && (

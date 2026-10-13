@@ -308,6 +308,23 @@ try {
     r.text,
   )
 
+  // The browse filter is built from the records, not the advertised taxonomy —
+  // the seeded catalogue is filed under design / research / documentation /
+  // writing, so a hard-coded list would send every visitor to an empty page.
+  r = await req('GET', '/api/v1/categories/in-use')
+  check(
+    'GET /api/v1/categories/in-use lists what the catalogue actually holds',
+    r.status === 200
+      && Array.isArray(r.body?.categories)
+      && ['design', 'research', 'documentation', 'writing'].every((c) => r.body.categories.includes(c)),
+    r.text,
+  )
+  check(
+    'it does not claim the advertised-but-unused taxonomy',
+    !r.body.categories.includes('finance'),
+    JSON.stringify(r.body?.categories),
+  )
+
   r = await req('GET', '/api/v1/definitely-not-a-route')
   check('unknown API path → 404 JSON', r.status === 404 && r.body?.error === 'not found', r.text)
 
@@ -377,7 +394,7 @@ try {
         summary: '冒烟测试技能',
         tags: 'testing,smoke',
         category: 'testing',
-        visibility: 'public',
+        listing: 'listed',
       },
       { 'SKILL.md': skillMd('smoke-skill') },
     ),
@@ -598,7 +615,7 @@ try {
 
   r = await req('POST', '/api/v1/skills', {
     body: multipart(
-      { slug: 'smoke-skill', version: '1.1.0', changelog: 'second release', visibility: 'public' },
+      { slug: 'smoke-skill', version: '1.1.0', changelog: 'second release', listing: 'listed' },
       { 'SKILL.md': skillMd('smoke-skill', 'extra line') },
     ),
   })
@@ -633,40 +650,40 @@ try {
   })
   check('malformed JSON on skill yank → 400', r.status === 400 && r.body?.error === 'invalid JSON body', `${r.status} ${r.text}`)
 
-  // ── 9. visibility ─────────────────────────────────────────────────────────
-  section('Visibility and permissions')
+  // ── 9. listing ──────────────────────────────────────────────────────────
+  section('Listing and permissions')
 
   r = await req('POST', '/api/v1/skills', {
     body: multipart(
-      { slug: 'private-skill', version: '1.0.0', visibility: 'private' },
-      { 'SKILL.md': skillMd('private-skill') },
+      { slug: 'unlisted-skill', version: '1.0.0', listing: 'unlisted' },
+      { 'SKILL.md': skillMd('unlisted-skill') },
     ),
   })
-  check('publish a private skill → 200', r.status === 200, `${r.status} ${r.text.slice(0, 200)}`)
+  check('publish an unlisted skill → 200', r.status === 200, `${r.status} ${r.text.slice(0, 200)}`)
 
   r = await req('POST', '/api/v1/skills', {
-    body: multipart({ slug: 'default-vis-skill', version: '1.0.0' }, { 'SKILL.md': skillMd('default') }),
+    body: multipart({ slug: 'default-listing-skill', version: '1.0.0' }, { 'SKILL.md': skillMd('default') }),
   })
   check(
-    'omitting visibility inherits the personal namespace default (private)',
-    r.status === 200 && r.body?.skill?.visibility === 'private',
-    r.body?.skill?.visibility,
+    'omitting listing inherits the personal namespace default (unlisted)',
+    r.status === 200 && r.body?.skill?.listing === 'unlisted',
+    r.body?.skill?.listing,
   )
 
   // Anonymous readers must not see it; the owner (the signed-in admin) can.
   cookie = ''
-  r = await req('GET', '/api/v1/skills/private-skill')
-  check('a private skill is invisible to anonymous callers → 404', r.status === 404 && r.body?.error === 'skill not found', `${r.status} ${r.text}`)
+  r = await req('GET', '/api/v1/skills/unlisted-skill')
+  check('an unlisted skill is invisible to anonymous callers → 404', r.status === 404 && r.body?.error === 'skill not found', `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/skills?limit=50')
   check(
-    'the public list omits the private skill',
-    !(r.body?.data ?? []).some((s) => s.slug === 'private-skill'),
+    'the catalogue omits the unlisted skill',
+    !(r.body?.data ?? []).some((s) => s.slug === 'unlisted-skill'),
   )
 
   cookie = adminCookie
-  r = await req('GET', '/api/v1/skills/private-skill')
-  check('the owner can read their own private skill', r.status === 200, `${r.status}`)
+  r = await req('GET', '/api/v1/skills/unlisted-skill')
+  check('the owner can read their own unlisted skill', r.status === 200, `${r.status}`)
 
   cookie = ''
   r = await req('POST', '/api/v1/skills', {
@@ -723,69 +740,12 @@ try {
   // The team-token surface is gone; namespace binding is covered by the
   // namespace-scoped API keys in the "Admin API keys" section below.
 
-  // ── 11. plugin ────────────────────────────────────────────────────────────
-  section('Plugins')
-
-  const pluginForm = new FormData()
-  pluginForm.set('slug', 'smoke-plugin')
-  pluginForm.set('version', '1.0.0')
-  pluginForm.set('summary', '冒烟测试插件')
-  pluginForm.set('visibility', 'public')
-  pluginForm.append('files', new Blob([JSON.stringify({ name: 'smoke-plugin', version: '1.0.0' })], { type: 'application/json' }), 'plugin.json')
-  r = await req('POST', '/api/v1/plugins', { body: pluginForm })
-  check('publish a plugin → 201', r.status === 201 && r.body?.plugin?.slug === 'smoke-plugin', `${r.status} ${r.text.slice(0, 250)}`)
-
-  // A plugin published without an explicit visibility inherits the namespace
-  // default, which is `private` for a personal namespace.
-  const defaultVisForm = new FormData()
-  defaultVisForm.set('slug', 'default-vis-plugin')
-  defaultVisForm.set('version', '1.0.0')
-  defaultVisForm.append(
-    'files',
-    new Blob([JSON.stringify({ name: 'default-vis-plugin', version: '1.0.0' })], { type: 'application/json' }),
-    'plugin.json',
-  )
-  r = await req('POST', '/api/v1/plugins', { body: defaultVisForm })
-  check(
-    'omitting plugin visibility inherits the namespace default (private)',
-    r.status === 201 && r.body?.plugin?.visibility === 'private',
-    r.body?.plugin?.visibility,
-  )
-
-  r = await req('GET', '/api/v1/plugins')
-  check(
-    'the public plugin list omits a private plugin',
-    !(r.body?.data ?? []).some((p) => p.slug === 'default-vis-plugin'),
-    r.text.slice(0, 200),
-  )
-
-  r = await req('GET', '/api/v1/plugins')
-  check(
-    'the plugin list uses the flattened projection',
-    r.body?.data?.some((p) => p.slug === 'smoke-plugin' && p.ownerHandle === ADMIN_USER && p.version === '1.0.0'),
-    r.text.slice(0, 250),
-  )
-
-  r = await req('GET', '/api/v1/plugins/smoke-plugin')
-  check('plugin detail resolves the latest version', r.status === 200 && r.body?.version === '1.0.0', `${r.status} ${r.text.slice(0, 200)}`)
-  check('plugin detail omits ownerId (projection contract)', r.body?.ownerId === undefined)
-  check('plugin detail omits moderationStatus', r.body?.moderationStatus === undefined)
-
-  const anonPluginDl = await fetch(`${base}/api/v1/plugins/download?slug=smoke-plugin`)
-  check('plugin download without credentials → 401', anonPluginDl.status === 401, `${anonPluginDl.status}`)
-
-  const pluginDl = await fetch(`${base}/api/v1/plugins/download?slug=smoke-plugin`, { headers: authHeader })
-  check('plugin download with credentials → 200 application/zip', pluginDl.status === 200 && pluginDl.headers.get('content-type') === 'application/zip', `${pluginDl.status}`)
-
-  r = await req('GET', '/api/v1/plugins/file?slug=smoke-plugin&path=plugin.json', { raw: true })
-  check('plugin file read → 200 octet-stream', r.status === 200 && (r.headers.get('content-type') ?? '').includes('application/octet-stream'), `${r.status}`)
-
   // ── 12. agent skill API ───────────────────────────────────────────────────
   section('Agent skill API')
 
   r = await req('POST', '/api/agent/skills', {
     body: multipart(
-      { slug: 'agent-skill', version: '1.0.0', visibility: 'public' },
+      { slug: 'agent-skill', version: '1.0.0', listing: 'listed' },
       { 'SKILL.md': skillMd('agent-skill') },
     ),
   })
@@ -1266,26 +1226,57 @@ try {
 
   r = await req('GET', '/api/v1/admin/skills?limit=100')
   check(
-    'admin skill list sees private skills too',
-    r.status === 200 && (r.body?.data ?? []).some((s) => s.slug === 'private-skill'),
+    'admin skill list sees unlisted skills too',
+    r.status === 200 && (r.body?.data ?? []).some((s) => s.slug === 'unlisted-skill'),
     r.text.slice(0, 200),
   )
 
-  r = await req('POST', '/api/v1/admin/skills/private-skill/visibility', { body: { visibility: 'public' } })
-  check('admin sets visibility → 200', r.status === 200, `${r.status} ${r.text}`)
-
-  r = await req('GET', '/api/v1/skills/private-skill')
-  check('the skill is now publicly visible', r.status === 200, `${r.status}`)
-
-  r = await req('POST', '/api/v1/admin/skills/private-skill/visibility', { body: { visibility: 'bogus' } })
+  // The listing filter takes the same two values, and nothing else.
+  r = await req('GET', '/api/v1/admin/skills?listing=unlisted&limit=50')
   check(
-    "an invalid visibility → 400 \"must be 'public' or 'private'\"",
-    r.status === 400 && /must be 'public' or 'private'/.test(r.body?.error ?? ''),
+    'admin can filter the list by listing state',
+    r.status === 200 &&
+      (r.body?.data ?? []).some((s) => s.slug === 'unlisted-skill') &&
+      (r.body?.data ?? []).every((s) => s.listing === 'unlisted'),
+    r.text.slice(0, 200),
+  )
+
+  r = await req('GET', '/api/v1/admin/skills?listing=pending&limit=50')
+  check(
+    'the review queue filter is gone — listing=pending matches everything',
+    r.status === 200 && (r.body?.total ?? 0) > 1,
+    `total=${r.body?.total}`,
+  )
+
+  r = await req('POST', '/api/v1/admin/skills/unlisted-skill/listing', { body: { listing: 'listed' } })
+  check('admin lists a skill → 200', r.status === 200 && r.body?.message === 'skill listed', `${r.status} ${r.text}`)
+
+  r = await req('GET', '/api/v1/skills/unlisted-skill')
+  check('the skill is now in the catalogue', r.status === 200, `${r.status}`)
+
+  r = await req('POST', '/api/v1/admin/skills/unlisted-skill/listing', { body: { listing: 'bogus' } })
+  check(
+    "an invalid listing → 400 \"must be 'listed' or 'unlisted'\"",
+    r.status === 400 && /must be 'listed' or 'unlisted'/.test(r.body?.error ?? ''),
     `${r.status} ${r.text}`,
   )
 
+  // Neither the old visibility endpoint nor the review endpoint may come back.
+  r = await req('POST', '/api/v1/admin/skills/smoke-skill/visibility', { body: { visibility: 'public' } })
+  check('the removed /visibility endpoint → 404', r.status === 404, `${r.status} ${r.text}`)
+
   r = await req('POST', '/api/v1/admin/skills/smoke-skill/review', { body: { action: 'approve' } })
-  check('review approve → 200 "skill approved"', r.status === 200 && r.body?.message === 'skill approved', `${r.status} ${r.text}`)
+  check('the removed /review endpoint → 404', r.status === 404, `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/skills/smoke-skill/request-public', {})
+  check('the removed /request-public endpoint → 404', r.status === 404, `${r.status} ${r.text}`)
+
+  // The plugin surface is gone entirely, reads included.
+  r = await req('GET', '/api/v1/plugins')
+  check('the removed plugin list → 404', r.status === 404, `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/plugins', { body: multipart({ slug: 'x', version: '1.0.0' }, { 'plugin.json': '{}' }) })
+  check('the removed plugin publish → 404', r.status === 404, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/admin/audit-logs?limit=100')
   check(
@@ -1304,13 +1295,6 @@ try {
 
   r = await req('POST', '/api/v1/admin/users', { body: { handle: 'smoke-mod-attempt', role: 'moderator' } })
   check('creating a moderator → 400', r.status === 400 && /must be one of: user, admin/.test(r.body?.error ?? ''), `${r.status} ${r.text}`)
-
-  r = await req('GET', '/api/v1/admin/plugins?limit=20')
-  check(
-    'admin plugin list returns the raw Plugin shape',
-    r.status === 200 && (r.body?.data ?? []).some((p) => p.slug === 'smoke-plugin' && p.moderationStatus !== undefined),
-    r.text.slice(0, 250),
-  )
 
   // ── 16. content management (admin console) ───────────────────────────────
   section('Content management')
@@ -1358,7 +1342,7 @@ try {
       summaryEn: '',
       category: 'workspace',
       tags: ['smoke', 'managed'],
-      visibility: 'private',
+      listing: 'unlisted',
       html: '<p>正文</p><ul><li>一</li></ul>',
       htmlEn: '',
     },
@@ -1379,6 +1363,25 @@ try {
       JSON.stringify(r.body?.tags) === JSON.stringify(['smoke', 'managed']),
     r.text.slice(0, 250),
   )
+
+  // The console's category field takes free text, so a category outside the
+  // fixed taxonomy must survive creation rather than being filed as `general`
+  // by the publishing path's allow-list.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: {
+      slug: 'smoke-freeform-category',
+      displayName: '自由分类',
+      category: 'Compliance',
+      listing: 'unlisted',
+      tags: [],
+    },
+  })
+  check(
+    'a free-text category survives creation from the console form',
+    r.status === 201 && r.body?.skill?.category === 'Compliance',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  await req('DELETE', '/api/v1/skills/smoke-freeform-category/purge')
 
   r = await req('GET', '/api/v1/skills/smoke-managed/versions')
   check('the synthesised version is 1.0.0', r.body?.versions?.[0]?.version === '1.0.0', r.text.slice(0, 200))
@@ -1409,7 +1412,7 @@ try {
       summaryEn: '',
       category: 'workspace',
       tags: ['renamed'],
-      visibility: 'public',
+      listing: 'listed',
       html: '',
       htmlEn: '',
     },
@@ -1423,7 +1426,7 @@ try {
   r = await req('GET', '/api/v1/skills/smoke-managed')
   check(
     'an emptied summary is cleared (key absent, not null)',
-    r.body?.summary === undefined && r.body?.displayNameEn === 'Renamed' && r.body?.visibility === 'public',
+    r.body?.summary === undefined && r.body?.displayNameEn === 'Renamed' && r.body?.listing === 'listed',
     r.text.slice(0, 250),
   )
   check('an emptied rich body is cleared', r.body?.detailHtml === undefined, JSON.stringify(r.body?.detailHtml))
@@ -1446,7 +1449,7 @@ try {
       summaryEn: seeded?.summaryEn ?? '',
       category: seeded?.category ?? '',
       tags: seeded?.tags ?? [],
-      visibility: seeded?.visibility ?? 'public',
+      listing: seeded?.listing ?? 'public',
       html: seeded?.detailHtml ?? '',
       htmlEn: seeded?.detailHtmlEn ?? '',
     },
@@ -1462,11 +1465,42 @@ try {
     JSON.stringify(r.body?.skill?.displayNameEn),
   )
 
+  // The console's category field takes free text and offers what the catalogue
+  // already uses. That list comes from the records, not from the fixed
+  // `/categories` taxonomy, so it must carry the seeded values the allow-list
+  // does not know about — and the one just saved through the console form.
+  r = await req('GET', '/api/v1/admin/categories')
+  check(
+    'GET /admin/categories → 200 with the categories on disk',
+    r.status === 200 && Array.isArray(r.body?.categories),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  check(
+    'the on-disk categories include the seeded ones outside the allow-list',
+    ['design', 'research', 'documentation', 'writing'].every((c) => r.body.categories.includes(c)),
+    JSON.stringify(r.body?.categories),
+  )
+  check(
+    'and include the one just saved through the console form',
+    r.body.categories.includes('workspace'),
+    JSON.stringify(r.body?.categories),
+  )
+
   r = await req('DELETE', '/api/v1/skills/smoke-managed/purge')
   check('purging a skill → 200', r.status === 200, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/skills/smoke-managed')
   check('the purged skill is gone → 404', r.status === 404, `${r.status}`)
+
+  // The browse filter must not offer a category whose only skills are offline —
+  // clicking it would return nothing. `smoke-managed` was public until the
+  // purge above, so its `workspace` category is now in use by nobody visible.
+  r = await req('GET', '/api/v1/categories/in-use')
+  check(
+    'the public filter drops a category once its last visible skill is gone',
+    r.status === 200 && !r.body.categories.includes('workspace'),
+    JSON.stringify(r.body?.categories),
+  )
 
   // ── 16b. content management, with files ─────────────────────────────────
   section('Content management — uploads')
@@ -1480,7 +1514,7 @@ try {
   // over the synthesised stub — that is the point of uploading.
   r = await req('POST', '/api/v1/admin/skills', {
     body: multipart(
-      { slug: 'smoke-uploaded', displayName: '上传的技能', summary: '带文件', category: 'general', tags: 'a,b', visibility: 'public', html: '<p>正文</p>', htmlEn: '' },
+      { slug: 'smoke-uploaded', displayName: '上传的技能', summary: '带文件', category: 'general', tags: 'a,b', listing: 'listed', html: '<p>正文</p>', htmlEn: '' },
       { 'SKILL.md': skillMd('smoke-uploaded', '\nuploaded body'), 'run.py': 'print("v1")', 'docs/guide.md': '# guide' },
     ),
   })
@@ -1510,7 +1544,7 @@ try {
   // single-file endpoint follows, so the history never lies about what shipped.
   r = await req('PUT', '/api/v1/admin/skills/smoke-uploaded', {
     body: multipart(
-      { slug: '', displayName: '上传的技能', summary: '带文件', displayNameEn: '', summaryEn: '', category: 'general', tags: 'a,b', visibility: 'public', html: '<p>正文</p>', htmlEn: '' },
+      { slug: '', displayName: '上传的技能', summary: '带文件', displayNameEn: '', summaryEn: '', category: 'general', tags: 'a,b', listing: 'listed', html: '<p>正文</p>', htmlEn: '' },
       { 'run.py': 'print("v2")', 'scripts/helper.sh': '#!/bin/sh' },
     ),
   })
@@ -1531,7 +1565,7 @@ try {
 
   // Metadata-only save must not mint a version.
   r = await req('PUT', '/api/v1/admin/skills/smoke-uploaded', {
-    body: { displayName: '改名后', summary: '', displayNameEn: '', summaryEn: '', category: 'general', tags: ['a'], visibility: 'private', html: '', htmlEn: '' },
+    body: { displayName: '改名后', summary: '', displayNameEn: '', summaryEn: '', category: 'general', tags: ['a'], listing: 'unlisted', html: '', htmlEn: '' },
   })
   check('a metadata-only save → 200', r.status === 200, `${r.status} ${r.text.slice(0, 160)}`)
 
@@ -1578,14 +1612,14 @@ try {
   r = await req('POST', '/api/v1/skills', {
     token: fullKey,
     body: multipart(
-      { slug: 'apikey-skill', version: '1.0.0', visibility: 'public', category: 'testing' },
+      { slug: 'apikey-skill', version: '1.0.0', listing: 'listed', category: 'testing' },
       { 'SKILL.md': skillMd('apikey-skill') },
     ),
   })
   check('a key with skills:publish can publish', r.status === 200 && r.body?.skill?.slug === 'apikey-skill', `${r.status} ${r.text.slice(0, 250)}`)
 
-  r = await req('POST', '/api/v1/admin/skills/@admin/apikey-skill/visibility', { token: fullKey, body: { visibility: 'public' } })
-  check('a key with skills:moderate can set visibility', r.status === 200, `${r.status} ${r.text}`)
+  r = await req('POST', '/api/v1/admin/skills/@admin/apikey-skill/listing', { token: fullKey, body: { listing: 'unlisted' } })
+  check('a key with skills:moderate can change the listing state', r.status === 200, `${r.status} ${r.text}`)
 
   r = await req('GET', '/api/v1/admin/features', { token: fullKey })
   check('a key with skills:read can list admin features', r.status === 200 && Array.isArray(r.body?.data), `${r.status} ${r.text.slice(0, 150)}`)
@@ -1868,7 +1902,7 @@ try {
   // middleware before any handler runs.
   const catalogue = await req('GET', '/api/v1/skills?limit=20&sort=name')
   const anySkill = (catalogue.body?.data ?? []).find(
-    (s) => s.visibility === 'public' && s.moderationStatus === 'approved',
+    (s) => s.listing === 'listed',
   )
   const anyRef = anySkill?.namespaceSlug ? `@${anySkill.namespaceSlug}/${anySkill.slug}` : anySkill?.slug
   check('a plain user can browse the catalogue', catalogue.status === 200 && !!anyRef, `${catalogue.status} ${catalogue.text.slice(0, 120)}`)
@@ -1898,7 +1932,7 @@ try {
   )
 
   // The console's own create/edit pair is administrator-only too.
-  r = await req('POST', '/api/v1/admin/skills', { body: { slug: 'plain-denied', visibility: 'private' } })
+  r = await req('POST', '/api/v1/admin/skills', { body: { slug: 'plain-denied', listing: 'unlisted' } })
   check(
     'a plain user cannot create content → 403',
     r.status === 403 && r.body?.error === 'insufficient permissions',
@@ -1914,7 +1948,6 @@ try {
 
   // The remaining write surfaces, all expected to be refused outright.
   const refusals = [
-    ['publish a plugin', 'POST', '/api/v1/plugins', multipart({ slug: 'plain-denied-plugin', version: '1.0.0' }, { 'plugin.json': JSON.stringify({ name: 'x', version: '1.0.0' }) })],
     ['publish via the agent API', 'POST', '/api/agent/skills', multipart({ slug: 'plain-denied-agent', version: '1.0.0' }, { 'SKILL.md': skillMd('plain-denied-agent') })],
     ['create a namespace', 'POST', '/api/v1/namespaces', { slug: 'plain-denied-ns' }],
     ['list namespaces', 'GET', '/api/v1/namespaces', undefined],
