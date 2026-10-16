@@ -476,6 +476,17 @@ export function adminBanUser(userId: string, reason: string): Promise<{ message:
   })
 }
 
+/** Sets a new password on an account. The password is chosen by the administrator. */
+export function adminResetUserPassword(
+  userId: string,
+  password: string,
+): Promise<{ message: string }> {
+  return request<{ message: string }>('/admin/users/password', {
+    method: 'POST',
+    body: JSON.stringify({ userId, password }),
+  })
+}
+
 /**
  * Administrative skill listing, one numbered page at a time.
  *

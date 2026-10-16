@@ -21,6 +21,7 @@ import {
   RESEARCH_NEEDS_MAX,
   MARKETS,
   countryOptions,
+  institutionOptions,
   isEmailVerificationCode,
 } from '../lib/registration'
 import { Combobox } from './Combobox'
@@ -101,6 +102,9 @@ export function RegisterPage() {
   // Stable across renders so the combobox's filter memo is not thrown away on
   // every keystroke elsewhere in the form.
   const countries = useMemo(() => countryOptions(lang), [lang])
+  // Institution list for the CRM-backed picker. UAT placeholder data today; the
+  // source is fixed per session, so memoising once is enough.
+  const institutions = useMemo(() => institutionOptions(), [])
 
   const toggleMarket = (slug: string) => {
     setTouched(true)
@@ -583,24 +587,21 @@ export function RegisterPage() {
                   <label className="form-label" htmlFor="organization">
                     {t('机构名称', 'Institution')} *
                   </label>
-                  <div className="login-input-wrap">
-                    <span className="login-input-icon">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-                        <path d="M4 21V7l8-4 8 4v14" />
-                        <path d="M9 21v-5h6v5M9 10h.01M12 10h.01M15 10h.01M9 13h.01M12 13h.01M15 13h.01" />
-                      </svg>
-                    </span>
-                    <input
-                      id="organization"
-                      className={`form-input login-input${mark('organization')}`}
-                      value={organization}
-                      maxLength={PROFILE_FIELD_MAX}
-                      onChange={(e) => setOrganization(e.target.value)}
-                      placeholder={t('例如：中信证券研究所', 'e.g. Research Institute')}
-                    />
-                  </div>
+                  <Combobox
+                    id="organization"
+                    value={organization}
+                    options={institutions}
+                    onChange={(next) => {
+                      setOrganization(next)
+                      setTouched(true)
+                    }}
+                    placeholder={t('从机构客户列表中检索并选择', 'Search and pick from the institution list')}
+                    invalid={touched && missing.has('organization')}
+                    listLabel={t('机构客户列表（集团）', 'Institution list (group)')}
+                    emptyLabel={t('未找到匹配的机构，请调整关键字', 'No matching institution — try another keyword')}
+                  />
                   {touched && missing.has('organization') && (
-                    <span className="field-hint">{t('请填写机构名称。', 'Please enter your institution.')}</span>
+                    <span className="field-hint">{t('请选择机构名称。', 'Please select your institution.')}</span>
                   )}
                 </div>
 

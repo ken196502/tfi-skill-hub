@@ -31,7 +31,7 @@ import {
 import { createZip } from '../zip'
 import { sanitizeHtml, isBlankHtml } from '../../lib/sanitizeHtml'
 import { isValid as isValidSemver, compare as compareSemver, nextPatch } from '../semver'
-import { members, namespaces, type UserRecord } from '../repo/core'
+import { members, namespaces, userDownloads, type UserRecord } from '../repo/core'
 import {
   skills as skillRepo,
   versions as versionRepo,
@@ -746,6 +746,17 @@ export function download(
     }
   } catch {
     /* counting must not fail the download */
+  }
+
+  // A signed-in download is also logged against the account, which is what the
+  // console's per-user figure counts. `identityHash` cannot answer that: it is a
+  // hash of the client IP, not of a person.
+  if (viewer) {
+    try {
+      userDownloads.record(viewer.id, skill.id, resolved.version.id)
+    } catch {
+      /* counting must not fail the download */
+    }
   }
 
   return {

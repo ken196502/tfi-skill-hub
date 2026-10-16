@@ -233,6 +233,71 @@ export const users = {
   countAdmins(): number {
     return asNumber(query.get<Row>("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'")?.c)
   },
+
+  /**
+   * Records a successful sign-in.
+   *
+   * `updated_at` moves with it: the row genuinely changed, and every other write
+   * in this module keeps the two in step.
+   */
+  incrementLogin(id: string): void {
+    query.run('UPDATE users SET login_count = login_count + 1, updated_at = ? WHERE id = ?', nowIso(), id)
+  },
+
+  /**
+   * Per-account activity for the console's user list — how many bundles each
+   * account has downloaded, and how many times it has signed in.
+   *
+   * One query for a whole page rather than a correlated subquery per column in
+   * the row mapper: these figures belong to the list, not to the account, so
+   * they never travel with a single user.
+   */
+  activityCounts(ids: string[]): Map<string, { downloadCount: number; loginCount: number }> {
+    const counts = new Map<string, { downloadCount: number; loginCount: number }>()
+    if (ids.length === 0) return counts
+    const placeholders = ids.map(() => '?').join(',')
+    const rows = query.all<Row>(
+      `SELECT u.id AS id,
+              u.login_count AS login_count,
+              (SELECT COUNT(*) FROM user_downloads d WHERE d.user_id = u.id) AS download_count
+         FROM users u
+        WHERE u.id IN (${placeholders})`,
+      ...ids,
+    )
+    for (const row of rows) {
+      counts.set(asString(row.id), {
+        downloadCount: asNumber(row.download_count),
+        loginCount: asNumber(row.login_count),
+      })
+    }
+    return counts
+  },
+}
+
+/**
+ * Downloads made by a signed-in account.
+ *
+ * Distinct from `downloadDedupes` in `repo/skills.ts`, which guards the *skill's*
+ * popularity counter and identifies a downloader by IP hash. This table answers
+ * "who downloaded, and how much", so an anonymous download has no row here.
+ */
+export const userDownloads = {
+  /**
+   * Logs a download. Returns `true` only the first time this account takes this
+   * version, mirroring the de-duplication rule the skill counter uses.
+   */
+  record(userId: string, skillId: string, versionId: string): boolean {
+    const result = query.run(
+      `INSERT OR IGNORE INTO user_downloads (id, user_id, skill_id, version_id, downloaded_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      newId(),
+      userId,
+      skillId,
+      versionId,
+      nowIso(),
+    )
+    return Number(result.changes ?? 0) > 0
+  },
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

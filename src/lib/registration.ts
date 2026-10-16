@@ -82,6 +82,53 @@ export function marketLabel(slug: string, lang: 'zh' | 'en'): string {
   return lang === 'zh' ? found.zh : found.en
 }
 
+/**
+ * 机构客户列表（集团维度）。
+ *
+ * 真实环境下这一列来自 CRM 的机构客户名单（集团级），注册时由用户在可检索
+ * 下拉中选取，而非自由填写，便于后续按集团归并、去重与权限核对。
+ *
+ * ⚠️ 当前为 UAT 占位数据：UAT 阶段不允许接入真实客户数据，下列公司名仅用于
+ * 联调与界面验证，上线前需替换为 CRM 拉取的集团维度名单（保留 `id` 字段以便
+ * 与 CRM 记录对齐，提交时可一并带上）。
+ */
+export interface InstitutionOption {
+  /** CRM 集团主键；UAT 占位用名字本身，接入后改为真实 id。 */
+  id: string
+  /** 集团展示名，即注册表单提交并落库的机构名称。 */
+  name: string
+  /** 额外可被检索命中的关键字（英文别名等），便于跨语言检索。 */
+  keywords?: string
+}
+
+export const INSTITUTIONS: InstitutionOption[] = [
+  { id: 'citic-group', name: '中信集团', keywords: 'CITIC Group' },
+  { id: 'cmg', name: '招商局集团', keywords: 'China Merchants Group' },
+  { id: 'cr-group', name: '华润集团', keywords: 'China Resources' },
+  { id: 'cofco', name: '中粮集团', keywords: 'COFCO' },
+  { id: 'pingan', name: '中国平安保险集团', keywords: 'Ping An' },
+  { id: 'tencent', name: '腾讯控股', keywords: 'Tencent Holdings' },
+  { id: 'alibaba', name: '阿里巴巴集团', keywords: 'Alibaba Group' },
+  { id: 'fosun', name: '复星国际', keywords: 'Fosun International' },
+  { id: 'haier', name: '海尔集团', keywords: 'Haier Group' },
+  { id: 'wanda', name: '万达集团', keywords: 'Wanda Group' },
+]
+
+/**
+ * Combobox rows for the institution picker.
+ *
+ * `value` 与 `label` 都用集团名：落库的是机构名称本身，而不是一个 code——
+ * 与自由填写时期望存储的内容保持一致。接入 CRM 后若想存 id，只需让 `value`
+ * 取 `id`、`label` 取 `name` 即可，提交处同步调整。
+ */
+export function institutionOptions() {
+  return INSTITUTIONS.map((item) => ({
+    value: item.name,
+    label: item.name,
+    keywords: item.keywords ?? '',
+  }))
+}
+
 const COUNTRY_BY_CODE = new Map(COUNTRIES.map((item) => [item.code, item]))
 
 /** Label for a stored country code, in the requested language. */

@@ -712,6 +712,41 @@ export const MIGRATIONS: Migration[] = [
         LEFT JOIN namespaces n ON n.id = s.namespace_id;
     `,
   },
+  {
+    // Two activity counters for the admin console's user list.
+    //
+    // **Downloads.** A skill's `downloads` column says how popular the skill is,
+    // and it is de-duplicated by the downloader's IP hash (`download_dedupes`) —
+    // enough to stop one person inflating a skill, but it answers nothing about
+    // *who* is downloading. The console asks the other question, so a download
+    // by a signed-in account is now also logged here against that account. The
+    // unique key keeps the same discipline as `download_dedupes`: one row per
+    // person per version, so re-fetching a bundle you already have does not pad
+    // the figure. Anonymous downloads are not attributable and stay unrecorded.
+    //
+    // **Sign-ins.** Counted in a column on `users` rather than derived from
+    // `sessions`, whose rows describe *live credentials*: a count over them would
+    // silently change meaning the day sessions are pruned or rotated. Existing
+    // history is backfilled from the session rows that exist, so accounts that
+    // have already signed in do not read as zero.
+    v: 14,
+    name: 'per-user download log and sign-in counter',
+    sql: `
+      CREATE TABLE user_downloads (
+        id            TEXT PRIMARY KEY,
+        user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        skill_id      TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+        version_id    TEXT NOT NULL REFERENCES skill_versions(id) ON DELETE CASCADE,
+        downloaded_at TEXT NOT NULL,
+        UNIQUE (user_id, skill_id, version_id)
+      );
+      CREATE INDEX idx_user_downloads_user ON user_downloads (user_id);
+
+      ALTER TABLE users ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0;
+      UPDATE users SET login_count =
+        (SELECT COUNT(*) FROM sessions s WHERE s.user_id = users.id);
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill slug (`seedReservedSlugs`). */

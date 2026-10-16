@@ -609,6 +609,9 @@ export const auth: Record<string, Handler> = {
       tokenHash: hashToken(raw),
       expiresAt: new Date(Date.now() + getConfig().sessionTtlSeconds * 1000).toISOString(),
     })
+    // Counted on the account, not derived from `sessions`, so the console's
+    // figure survives a session being pruned or rotated.
+    users.incrementLogin(user.id)
 
     return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie(ctx.request, raw) })
   },
@@ -1352,6 +1355,20 @@ export const admin: Record<string, Handler> = {
     } catch (e) {
       if (isServiceError(e)) return serviceError(e)
       return errorJson('failed to ban user', 500)
+    }
+  },
+
+  /** Sets a new password on an account; the value is chosen by the administrator. */
+  resetUserPassword: async (ctx) => {
+    const body = await jsonBody<{ userId?: string; password?: string }>(ctx.request)
+    if (!body?.userId || typeof body.password !== 'string') return errorJson('invalid request', 400)
+    if (!isUuidLike(body.userId)) return errorJson('invalid user ID', 400)
+    try {
+      manageSvc.resetUserPassword(ctx.user!.id, body.userId, body.password)
+      return json({ message: 'password updated' })
+    } catch (e) {
+      if (isServiceError(e)) return serviceError(e)
+      return errorJson('failed to reset password', 500)
     }
   },
 

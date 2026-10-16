@@ -1967,7 +1967,116 @@ try {
 
   cookie = adminCookie
 
-  // ── 19. rate limiting (tight limits, separate process) ───────────────────
+  // ── 19. user activity & password reset ───────────────────────────────────
+  section('User activity & password reset')
+
+  // The two counters the console shows per row. `smokeuser` signed in once and
+  // downloaded a listed skill in the section above, so both of its figures must
+  // have moved — and the download must be attributed to the downloader, who is
+  // the only thing `download_dedupes` cannot identify.
+  r = await req('GET', '/api/v1/admin/users')
+  const rowOf = (handle) => (r.body?.data ?? []).find((u) => u.handle === handle)
+  const smokeUserRow = rowOf('smokeuser')
+  check(
+    'the user listing carries both activity counters as numbers',
+    r.status === 200 &&
+      typeof smokeUserRow?.downloadCount === 'number' &&
+      typeof smokeUserRow?.loginCount === 'number',
+    `${r.status} ${JSON.stringify(smokeUserRow && { downloads: smokeUserRow.downloadCount, logins: smokeUserRow.loginCount })}`,
+  )
+  check(
+    'a signed-in download is counted against that account',
+    (smokeUserRow?.downloadCount ?? 0) >= 1,
+    `downloadCount=${smokeUserRow?.downloadCount}`,
+  )
+  check(
+    'a sign-in is counted against that account',
+    (smokeUserRow?.loginCount ?? 0) >= 1,
+    `loginCount=${smokeUserRow?.loginCount}`,
+  )
+  check(
+    'the administrator\'s own sign-in is counted too',
+    (rowOf(ADMIN_USER)?.loginCount ?? 0) >= 1,
+    `loginCount=${rowOf(ADMIN_USER)?.loginCount}`,
+  )
+
+  const resetUserId = await signUpAndApprove('reset-target')
+  check('an account to reset exists', resetUserId !== '', `${resetUserId}`)
+
+  // Negative control: an account that has never signed in and downloaded nothing
+  // reads as zero, so a counter that never moves cannot pass the checks above.
+  r = await req('GET', '/api/v1/admin/users')
+  const freshRow = (r.body?.data ?? []).find((u) => u.handle === 'reset-target')
+  check(
+    'a brand-new account reads zero for both counters',
+    freshRow?.downloadCount === 0 && freshRow?.loginCount === 0,
+    JSON.stringify(freshRow && { downloads: freshRow.downloadCount, logins: freshRow.loginCount }),
+  )
+
+  // Resetting takes a password chosen by the administrator, and never hands it
+  // back — the console is where it is read and copied.
+  const freshPassword = 'SmokeFresh!2345'
+
+  r = await req('POST', '/api/v1/admin/users/password', { body: { userId: resetUserId, password: 'short' } })
+  check(
+    'a password under the server floor → 400',
+    r.status === 400 && /at least 8 characters/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text}`,
+  )
+
+  r = await req('POST', '/api/v1/admin/users/password', { body: { userId: resetUserId } })
+  check('a missing password → 400 "invalid request"', r.status === 400 && r.body?.error === 'invalid request', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/password', { body: { userId: 'not-a-uuid', password: freshPassword } })
+  check('resetting with an invalid user id → 400 "invalid user ID"', r.status === 400 && r.body?.error === 'invalid user ID', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/password', { body: { userId: crypto.randomUUID(), password: freshPassword } })
+  check('resetting an unknown account → 404', r.status === 404 && r.body?.error === 'user not found', `${r.status} ${r.text}`)
+
+  r = await req('POST', '/api/v1/admin/users/password', { body: { userId: resetUserId, password: freshPassword } })
+  check('reset a password → 200', r.status === 200 && r.body?.message === 'password updated', `${r.status} ${r.text}`)
+
+  const resetCookie = await loginCookie('reset-target', freshPassword)
+  check('the account signs in with the new password', resetCookie !== '', `${resetCookie}`)
+
+  const staleLogin = await fetch(`${base}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ handle: 'reset-target', password: ADMIN_PASSWORD }),
+  })
+  check('the password it was created with no longer works → 401', staleLogin.status === 401, `${staleLogin.status}`)
+
+  // The sign-in above is the only one this account has ever made, so the count
+  // is exact rather than merely non-zero.
+  r = await req('GET', '/api/v1/admin/users')
+  check(
+    'that sign-in moved the counter to exactly one',
+    (r.body?.data ?? []).find((u) => u.handle === 'reset-target')?.loginCount === 1,
+    JSON.stringify((r.body?.data ?? []).find((u) => u.handle === 'reset-target')),
+  )
+
+  // Setting someone's password is session-only: like `ban` and `role`, the route
+  // declares no `apiKeyScope`, so even a users:moderate key is refused.
+  r = await req('POST', '/api/v1/admin/users/password', { token: reviewKey, body: { userId: resetUserId, password: freshPassword } })
+  check('a users:moderate API key cannot reset a password → 403', r.status === 403, `${r.status} ${r.text.slice(0, 120)}`)
+
+  cookie = plainUserCookie
+  r = await req('POST', '/api/v1/admin/users/password', { body: { userId: resetUserId, password: freshPassword } })
+  check('a plain user cannot reset a password → 403', r.status === 403, `${r.status} ${r.text.slice(0, 120)}`)
+  cookie = adminCookie
+
+  const auditLog = await req('GET', '/api/v1/admin/audit-logs?limit=200')
+  check(
+    'the reset is recorded in the audit log',
+    (auditLog.body?.data ?? []).some((l) => l.action === 'reset_user_password' && l.resourceId === resetUserId),
+    auditLog.text.slice(0, 250),
+  )
+  check(
+    'the audit log never records the password itself',
+    !auditLog.text.includes(freshPassword),
+  )
+
+  // ── 20. rate limiting (tight limits, separate process) ───────────────────
   section('Rate limiting')
 
   {
@@ -2015,7 +2124,7 @@ try {
     }
   }
 
-  // ── 20. persistence across restart ────────────────────────────────────────
+  // ── 21. persistence across restart ────────────────────────────────────────
   section('Persistence')
 
   const before = await req('GET', '/api/v1/skills?limit=100')
@@ -2041,6 +2150,16 @@ try {
 
   r = await req('GET', '/api/v1/search?q=smoke')
   check('the search index survives a restart', (r.body?.hits ?? []).some((h) => h.slug === 'smoke-skill'), r.text.slice(0, 200))
+
+  // The activity log is a table of its own and the sign-in counter is a column,
+  // so both have to come back from disk with the rest.
+  r = await req('GET', '/api/v1/admin/users')
+  const survivor = (r.body?.data ?? []).find((u) => u.handle === 'reset-target')
+  check(
+    'the activity counters survive a restart',
+    survivor?.loginCount === 1 && typeof survivor?.downloadCount === 'number',
+    JSON.stringify(survivor && { downloads: survivor.downloadCount, logins: survivor.loginCount }),
+  )
 } catch (e) {
   failed += 1
   failures.push(`unhandled: ${e.message}`)

@@ -281,6 +281,58 @@ npm run smoke       # 必须全绿
 OAuth 登录、Webhook 导入、Git 镜像、S3/OSS 后端与直传、Sigstore 校验、PostgreSQL、
 Go 模板兜底页。详见 README「本版本未覆盖的功能」。
 
+## 用户活跃统计与重置密码（2026-10-16 新增，迁移 v14）
+
+### 列表两列统计
+
+`GET /api/v1/admin/users` 的每条记录多两个键：**`downloadCount`**、**`loginCount`**（都是 number，
+新账号为 `0`）。它们**只出现在列表响应里**，不进单用户响应（`/whoami`、创建用户等）——
+所以**不在 `mapUser` 里**，由 `manage.listUsers` 调 `repo.users.activityCounts(ids)` 一次查整页再合并，
+理由与 `pendingCount` 相同：这是「列表的属性」，不是「账号的属性」。
+
+### 下载次数的口径
+
+**是这个用户自己下载了多少次**，不是「他发布的技能被下载了多少次」。原实现只有 `download_dedupes`
+（`UNIQUE(skill_id, version_id, identity_hash)`，`identity_hash = sha256(clientIp)`）——只能防一个人刷同一个技能，
+**认不出下载的人是谁**。所以新增：
+
+- 表 `user_downloads(id, user_id, skill_id, version_id, downloaded_at)`，`UNIQUE(user_id, skill_id, version_id)`
+- 写入点在 `services/skills.ts` 的 `download()`：`viewer` 非空时 `userDownloads.record(...)`，
+  与技能计数一样包在 `try {} catch {}` 里（**计数失败不能拖垮下载**）
+- 去重规则与技能计数对齐：同一个人重复下**同一个版本**只算一次，换版本再算一次
+- **未登录的下载无法归因**（拿不到人），不记；下载路由本身要求 `auth: 'required'`，所以实际都会记上
+- 304 快路径（`If-None-Match` 命中）在 `download()` 之前就返回了，**不计数**（与技能计数一致）
+
+### 登录次数的口径
+
+用 **`users.login_count` 列**，`handlers.ts` 的 `login` 在会话创建后调 `users.incrementLogin(id)`。
+**不要改成 `COUNT(*) FROM sessions`**：`sessions` 是「活凭证」表，行数会随清理/轮换静默改义；
+而且将来加会话清理就会把历史数字抹掉。`incrementLogin` 会同时更新 `updated_at`（本模块所有写操作都这样）。
+
+v14 里从 `sessions` 回填了历史值，所以升级后老账号不是 0（新库仍从 0 开始）。
+
+### 重置密码
+
+- 端点 **`POST /api/v1/admin/users/password`**，body `{userId, password}`
+- **不带 `apiKeyScope`** —— 与 `ban`、`role` 一致，**只接受会话 Cookie**，任何 API Key 都是 403
+- 服务端 `manage.resetUserPassword`：账号不存在 → **404** `user not found`；密码短于 `MIN_PASSWORD_LENGTH`(8)
+  → 400 `password must be at least 8 characters`。长度下限与自助注册同一常量
+- 审计动作 **`reset_user_password`**，`details` **只写 `handle=...`，绝不写密码**
+- **不动该用户的现有会话**：这是「托管改密」而不是「踢下线」，本人正在用的会话继续有效
+- 密码由管理员在前端输入（不是服务端生成），所以接口只收不发，响应只有 `{message:'password updated'}`
+
+### 前端 `/admin/users`
+
+- 表格 **8 列**：用户 / 审核 / 角色 / 状态 / **下载次数** / **登录次数** / 创建时间 / 操作。
+  加列时 `admin-detail-row` 和空状态行的 `colSpan` 也要同步（6 → 8）
+- 「重置密码」弹窗用共享组件 **`src/components/Modal.tsx`**（原 `admin.content.tsx` 里的局部 Modal 已抽出，
+  两处共用；backdrop / Escape / 滚动锁都在那里）
+- 骰子按钮：`crypto.getRandomValues` 生成 16 位，字母表去掉易混的 `l1IoO0`，
+  **长度凑成正好 64** ⇒ `byte % 64` 无模偏；点击后把「用户名 + 密码」写到剪贴板
+  （`Username: <handle>\nPassword: <密码>`，用户要求含用户名）
+- ⚠️ 剪贴板**必须有降级路径**：`navigator.clipboard` 要求 secure context，局域网用 http 打开时不可用 ⇒
+  隐藏 `textarea` + `document.execCommand('copy')` 兜底。手改输入框要清掉「已复制」提示（否则那句话不再成立）
+
 ## 本机环境坑
 
 WorkBuddy 沙箱在单个 turn 内拦截 **>50 个文件的批量删除**（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`），

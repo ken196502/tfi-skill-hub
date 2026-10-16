@@ -1848,6 +1848,15 @@ main { flex: 1; }
 
 /* Two badges (review state + ban state) stacked without overflowing the cell. */
 .admin-status-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* Activity counters in the user list. They are figures, so they read as figures:
+   tabular so the digits line up, grey so they stay secondary to the name. */
+.admin-stat-cell {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .admin-empty { padding: 36px 16px !important; color: var(--sec-hint); text-align: center; }
 .admin-details { max-width: 360px; color: var(--text-secondary); overflow-wrap: anywhere; }
 .admin-scope-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 12px 0 4px; }
@@ -1988,6 +1997,23 @@ main { flex: 1; }
   background: var(--input-bg);
 }
 .admin-confirm-target small { color: var(--sec-hint); font-family: var(--font-mono); font-size: 0.72rem; overflow-wrap: anywhere; }
+
+/* ── Password field inside the reset dialog ─────────────────────────────── */
+
+.admin-password-field { margin-top: 18px; }
+.admin-password-field .form-label { display: block; margin-bottom: 6px; }
+/* The field and its generate button share a line, so the button stretches to the
+   input's height instead of sitting beside it at its own size. */
+.admin-password-row { display: flex; align-items: stretch; gap: 8px; }
+.admin-password-row .form-input { flex: 1; min-width: 0; font-family: var(--font-mono); }
+.admin-dice {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 13px;
+}
+.admin-copied { margin: 8px 0 0; color: var(--accent); font-size: 0.78rem; }
 
 /* ── Form layout inside the dialog ──────────────────────────────────────── */
 

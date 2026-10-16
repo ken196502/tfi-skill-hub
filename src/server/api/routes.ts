@@ -184,6 +184,9 @@ function buildRoutes(): RouteDef[] {
     // ── Admin ────────────────────────────────────────────────────────────────
     { method: 'POST', path: '/api/v1/admin/users/ban', handler: h.admin.banUser, auth: 'admin' },
     { method: 'POST', path: '/api/v1/admin/users/role', handler: h.admin.setRole, auth: 'admin' },
+    // Setting someone's password is not something a scoped API key should do —
+    // like `ban` and `role`, it carries no `apiKeyScope` and is session-only.
+    { method: 'POST', path: '/api/v1/admin/users/password', handler: h.admin.resetUserPassword, auth: 'admin' },
     // The review queue and its listing are reachable with `users:moderate`, so
     // an approval bot can be driven by a key that can do nothing else.
     { method: 'GET', path: '/api/v1/admin/users', handler: h.admin.listUsers, auth: 'admin', ...K_USER },

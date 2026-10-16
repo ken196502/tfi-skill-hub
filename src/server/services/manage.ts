@@ -42,12 +42,21 @@ export function listUsers(cursor: string, status?: string) {
   // internal credential projection before returning it to an API handler.
   const filter = isUserStatus(status) ? status : undefined
   const page = users.list(cursor, 20, filter)
+  // Two counters the console shows per row: how much the account has downloaded
+  // and how often it has signed in. Gathered for the whole page at once, and
+  // attached here rather than in the row mapper — they belong to the listing,
+  // not to the account, so a single-user response stays as it was.
+  const activity = users.activityCounts(page.data.map((item) => item.id))
   return {
     ...page,
     // Carried alongside the page so the console can badge the review queue
     // without a second round trip.
     pendingCount: users.countByStatus('pending'),
-    data: page.data.map(({ passwordHash: _passwordHash, ...user }) => user),
+    data: page.data.map(({ passwordHash: _passwordHash, ...user }) => ({
+      ...user,
+      downloadCount: activity.get(user.id)?.downloadCount ?? 0,
+      loginCount: activity.get(user.id)?.loginCount ?? 0,
+    })),
   }
 }
 
@@ -386,6 +395,39 @@ export function banUser(actorId: string, userId: string, reason: string): void {
     resourceType: 'user',
     resourceId: userId,
     details: reason || null,
+  })
+}
+
+/**
+ * Sets a new password on an account at the administrator's request.
+ *
+ * The password is chosen by the administrator rather than minted here: the
+ * console is where it is read and handed over, and a value generated in this
+ * layer would have to be sent back over the wire anyway.
+ *
+ * The audit row records *that* a reset happened and for whom — never the
+ * password itself, which must not end up in a log anyone can read.
+ *
+ * Live sessions are deliberately left alone. The account holder keeps the
+ * session they are already using; a reset here is a handover, not a lockout.
+ */
+export function resetUserPassword(actorId: string, userId: string, password: string): void {
+  const target = users.getById(userId)
+  if (!target) notFound('user not found')
+
+  // Same floor self-registration applies, so an admin cannot set a password the
+  // sign-up form itself would have refused.
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    fail(`password must be at least ${MIN_PASSWORD_LENGTH} characters`)
+  }
+
+  users.setPassword(userId, hashPassword(password))
+  auditLog({
+    actorId,
+    action: 'reset_user_password',
+    resourceType: 'user',
+    resourceId: userId,
+    details: `handle=${target.handle}`,
   })
 }
 

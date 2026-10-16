@@ -5,6 +5,7 @@ import {
   adminBanUser,
   adminCreateUser,
   adminListUsers,
+  adminResetUserPassword,
   adminReviewUser,
   adminSetRole,
 } from '../lib/api'
@@ -12,12 +13,72 @@ import { useSession } from '../lib/auth'
 import { useLang, useT } from '../lib/i18n'
 import { countryLabel, marketLabel } from '../lib/registration'
 import { AdminNav, AdminStatus } from '../components/AdminShell'
-import { ErrorBox, Loading, PageHeader, formatDate } from '../components/ui'
+import { Modal } from '../components/Modal'
+import { ErrorBox, Loading, PageHeader, formatDate, formatNumber } from '../components/ui'
 import type { User, UserRole, UserStatus } from '../lib/types'
 
 export const Route = createFileRoute('/admin/users')({ component: UsersPage })
 
 const ROLES: UserRole[] = ['user', 'admin']
+
+/** Kept in step with the server's own floor (`MIN_PASSWORD_LENGTH`). */
+const MIN_PASSWORD_LENGTH = 8
+
+/**
+ * Characters a generated password is drawn from.
+ *
+ * Glyphs that are easy to confuse when the value is read aloud or retyped from a
+ * screenshot are left out: `l`/`1`/`I`, `o`/`O`/`0`. The four runs add up to
+ * exactly 64, so `byte % 64` over a random byte is uniform — no modulo bias to
+ * skew the distribution towards the earlier characters.
+ */
+const PASSWORD_ALPHABET =
+  'abcdefghijkmnpqrstuvwxyz' + // 24 lowercase
+  'ABCDEFGHJKLMNPQRSTUVWXYZ' + // 24 uppercase
+  '23456789' + // 8 digits
+  '@#%+=?*!' // 8 symbols
+
+const PASSWORD_LENGTH = 16
+
+/** A random password from `PASSWORD_ALPHABET`, drawn from the platform CSPRNG. */
+function generatePassword(): string {
+  const bytes = new Uint8Array(PASSWORD_LENGTH)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (byte) => PASSWORD_ALPHABET[byte % PASSWORD_ALPHABET.length]).join('')
+}
+
+/**
+ * Puts text on the clipboard, reporting whether it worked.
+ *
+ * `navigator.clipboard` needs a secure context, which a console opened over
+ * plain HTTP on a LAN address is not — so a hidden textarea and the legacy
+ * `execCommand` path back it up. A refusal is not an error: the password is on
+ * screen either way and can be copied by hand.
+ */
+async function writeClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {
+    /* fall through to the legacy path */
+  }
+  try {
+    const area = document.createElement('textarea')
+    area.value = text
+    area.setAttribute('readonly', '')
+    area.style.position = 'fixed'
+    area.style.opacity = '0'
+    document.body.appendChild(area)
+    area.select()
+    const copied = document.execCommand('copy')
+    area.remove()
+    return copied
+  } catch {
+    return false
+  }
+}
 
 /** `''` = no filter (every account). */
 type StatusFilter = '' | UserStatus
@@ -37,6 +98,8 @@ function UsersPage() {
    */
   const [detailOverride, setDetailOverride] = useState<Record<string, boolean>>({})
   const [createForm, setCreateForm] = useState({ handle: '', displayName: '', email: '', role: 'user' })
+  /** The account whose password dialog is open, if any. */
+  const [resetTarget, setResetTarget] = useState<User | null>(null)
 
   const users = useInfiniteQuery({
     queryKey: ['admin-users-paged', statusFilter],
@@ -148,7 +211,7 @@ function UsersPage() {
     </div>
 
     {users.isLoading ? <Loading /> : users.isError ? <ErrorBox message={t('加载用户失败，请稍后重试。', 'Failed to load users. Please try again later.')} /> : <div className="admin-table-wrap">
-      <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('审核', 'Review')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
+      <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('审核', 'Review')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('下载次数', 'Downloads')}</th><th>{t('登录次数', 'Sign-ins')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
         {filteredUsers.map((item) => {
           // Pending applications show what the applicant wrote without being
           // opened — that is what the decision is based on. Everything else
@@ -167,6 +230,10 @@ function UsersPage() {
             <td><AdminStatus value={item.status} />{item.status === 'rejected' && item.reviewNote && <small className="admin-cell-sub">{item.reviewNote}</small>}</td>
             <td><select className="admin-inline-select" value={item.role} disabled={role.isPending || item.id === user.id} title={item.id === user.id ? t('不能修改自己的角色', 'You cannot change your own role') : undefined} onChange={(event) => role.mutate({ id: item.id, nextRole: event.target.value })}>{ROLES.map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></td>
             <td><div className="admin-status-row"><AdminStatus value={item.isBanned ? 'banned' : 'active'} />{item.isBanned && item.banReason && <small className="admin-cell-sub">{item.banReason}</small>}</div></td>
+            {/* How much the account has taken from the catalogue, and how often
+                it has been used. Both are figures, so they read as figures. */}
+            <td className="admin-stat-cell">{formatNumber(item.downloadCount)}</td>
+            <td className="admin-stat-cell">{formatNumber(item.loginCount)}</td>
             <td className="muted">{formatDate(item.createdAt)}</td>
             <td><div className="admin-actions">
               <button className="btn btn-primary btn-small" type="button" disabled={review.isPending || item.status === 'approved' || item.id === user.id} title={item.id === user.id ? t('不能审核自己的账号', 'You cannot review your own account') : undefined} onClick={() => review.mutate({ id: item.id, action: 'approve', note: '' })}>{t('通过', 'Approve')}</button>
@@ -175,12 +242,13 @@ function UsersPage() {
                   rather than leaving a greyed-out button unexplained. */}
               <button className="btn btn-danger btn-small" type="button" disabled={review.isPending || item.status === 'rejected' || item.status === 'approved' || item.id === user.id} title={item.id === user.id ? t('不能审核自己的账号', 'You cannot review your own account') : item.status === 'approved' ? t('已通过的账号不能驳回，如需收回访问权请使用封禁', 'An approved account cannot be rejected — use Ban to revoke access') : undefined} onClick={() => handleReject(item, t, (note) => review.mutate({ id: item.id, action: 'reject', note }))}>{t('驳回', 'Reject')}</button>
               <button className="btn btn-danger btn-small" disabled={item.isBanned || item.id === user.id || ban.isPending} title={item.id === user.id ? t('不能封禁自己的账号', 'You cannot ban your own account') : undefined} type="button" onClick={() => handleBan(item, t, () => ban.mutate({ id: item.id, reason: window.prompt(t('请输入封禁原因（可选）', 'Enter a ban reason (optional)'), '') ?? '' }))}>{item.isBanned ? t('已封禁', 'Banned') : t('封禁', 'Ban')}</button>
+              <button className="btn btn-secondary btn-small" type="button" onClick={() => setResetTarget(item)}>{t('重置密码', 'Reset password')}</button>
             </div></td>
           </tr>
           {/* The applicant's own words are what the decision rests on, so they get
               a full row rather than another cramped column. */}
           <tr className="admin-detail-row">
-            <td colSpan={6}>
+            <td colSpan={8}>
               <button className="admin-detail-toggle" type="button" aria-expanded={showDetail} onClick={() => setDetailOverride((current) => ({ ...current, [item.id]: !showDetail }))}>
                 {showDetail ? t('收起资料', 'Hide details') : t('查看资料', 'View details')}
               </button>
@@ -189,11 +257,128 @@ function UsersPage() {
           </tr>
         </Fragment>
         })}
-        {filteredUsers.length === 0 && <tr><td colSpan={6} className="admin-empty">{t('没有匹配的用户。', 'No matching users.')}</td></tr>}
+        {filteredUsers.length === 0 && <tr><td colSpan={8} className="admin-empty">{t('没有匹配的用户。', 'No matching users.')}</td></tr>}
       </tbody></table>
     </div>}
     {users.hasNextPage && <div className="load-more"><button className="btn btn-secondary" disabled={users.isFetchingNextPage} type="button" onClick={() => void users.fetchNextPage()}>{users.isFetchingNextPage ? t('加载中…', 'Loading…') : t('加载更多用户', 'Load more users')}</button></div>}
+    {resetTarget && <ResetPasswordDialog target={resetTarget} onClose={() => setResetTarget(null)} />}
   </div>
+}
+
+/**
+ * Sets a new password on one account.
+ *
+ * The administrator chooses the value — the dice only fills the field and puts
+ * the result on the clipboard, so what is handed to the account holder is what
+ * is shown here. Nothing is generated server-side, which is why the field is
+ * readable rather than masked.
+ */
+function ResetPasswordDialog({ target, onClose }: { target: User; onClose: () => void }) {
+  const t = useT()
+  const client = useQueryClient()
+  const [password, setPassword] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [error, setError] = useState('')
+
+  const reset = useMutation({
+    mutationFn: () => adminResetUserPassword(target.id, password),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['admin-users-paged'] })
+      onClose()
+    },
+    onError: (failure) =>
+      setError(
+        failure instanceof Error
+          ? failure.message
+          : t('操作失败，请重试。', 'Action failed. Please try again.'),
+      ),
+  })
+
+  const tooShort = password.length < MIN_PASSWORD_LENGTH
+
+  /** Fills the field with a fresh password and copies it, username included. */
+  const fill = () => {
+    const next = generatePassword()
+    setPassword(next)
+    setError('')
+    void writeClipboard(
+      `${t('用户名', 'Username')}: ${target.handle}\n${t('密码', 'Password')}: ${next}`,
+    ).then(setCopied)
+  }
+
+  return <Modal title={t('重置密码', 'Reset password')} onClose={onClose}>
+    <p className="admin-confirm-lead">{t('为该账号设置一个新密码，设置后请交给本人。', 'Set a new password for this account, then hand it to the account holder.')}</p>
+    <div className="admin-confirm-target">
+      <strong>{target.displayName || target.handle}</strong>
+      <small>@{target.handle}</small>
+    </div>
+
+    <div className="admin-password-field">
+      {/* A real `for` rather than a clickable wrapper: the control beside the
+          label is a button, so wrapping both would tie the label to nothing. */}
+      <label className="form-label" htmlFor="reset-password">{t('新密码', 'New password')}</label>
+      <div className="admin-password-row">
+        <input
+          id="reset-password"
+          className="form-input"
+          value={password}
+          // Not "off": this value is being set for someone else, so the browser
+          // must not offer to remember it as this administrator's own password.
+          autoComplete="new-password"
+          placeholder={t(`至少 ${MIN_PASSWORD_LENGTH} 位`, `At least ${MIN_PASSWORD_LENGTH} characters`)}
+          onChange={(event) => {
+            setPassword(event.target.value)
+            // The clipboard holds the previous value once the field is edited
+            // by hand, so the "copied" note stops being true.
+            setCopied(false)
+          }}
+        />
+        <button
+          className="btn btn-secondary admin-dice"
+          type="button"
+          onClick={fill}
+          title={t('生成随机密码并复制', 'Generate a password and copy it')}
+          aria-label={t('生成随机密码并复制', 'Generate a password and copy it')}
+        >
+          <DiceIcon />
+        </button>
+      </div>
+      {copied
+        ? <p className="admin-copied">{t('已生成并复制到剪贴板（含用户名）。', 'Generated and copied to the clipboard, username included.')}</p>
+        : password !== '' && tooShort
+          ? <p className="field-hint">{t(`密码至少 ${MIN_PASSWORD_LENGTH} 位。`, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`)}</p>
+          : null}
+    </div>
+
+    {error !== '' && <ErrorBox message={error} />}
+
+    <div className="admin-modal-foot">
+      <button className="btn btn-secondary" type="button" onClick={onClose}>{t('取消', 'Cancel')}</button>
+      <button
+        className="btn btn-primary"
+        type="button"
+        disabled={tooShort || reset.isPending}
+        onClick={() => reset.mutate()}
+      >
+        {reset.isPending ? t('保存中…', 'Saving…') : t('确认重置', 'Reset password')}
+      </button>
+    </div>
+  </Modal>
+}
+
+/**
+ * A die, drawn rather than typed as an emoji: it sits beside a password field as
+ * a control, and it has to take the button's colour in both themes.
+ */
+function DiceIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <rect x="3.2" y="3.2" width="17.6" height="17.6" rx="4.4" fill="none" stroke="currentColor" strokeWidth="1.7" />
+    <circle cx="8.6" cy="8.6" r="1.55" fill="currentColor" />
+    <circle cx="15.4" cy="8.6" r="1.55" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.55" fill="currentColor" />
+    <circle cx="8.6" cy="15.4" r="1.55" fill="currentColor" />
+    <circle cx="15.4" cy="15.4" r="1.55" fill="currentColor" />
+  </svg>
 }
 
 /**

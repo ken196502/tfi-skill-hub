@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createFileRoute, Navigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -17,6 +17,7 @@ import { useLang, useT, localizedName } from '../lib/i18n'
 import { AdminNav } from '../components/AdminShell'
 import { Combobox, type ComboboxOption } from '../components/Combobox'
 import { FileDropzone } from '../components/FileDropzone'
+import { Modal } from '../components/Modal'
 import { RichTextEditor } from '../components/RichTextEditor'
 import { ErrorBox, Loading, PageHeader, formatDate, skillPath } from '../components/ui'
 import type { ListingStatus, SkillWithOwner } from '../lib/types'
@@ -415,64 +416,6 @@ function Pagination({
 // ─────────────────────────────────────────────────────────────────────────────
 // Dialogs
 // ─────────────────────────────────────────────────────────────────────────────
-
-function Modal({
-  title,
-  size = 'default',
-  onClose,
-  children,
-}: {
-  title: string
-  size?: 'default' | 'wide'
-  onClose: () => void
-  children: ReactNode
-}) {
-  const t = useT()
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      document.body.style.overflow = previousOverflow
-    }
-  }, [onClose])
-
-  return (
-    <div
-      className="admin-modal-backdrop"
-      // Only a click that starts on the backdrop itself dismisses, so a drag
-      // that ends outside a text selection does not close the dialog.
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
-      }}
-    >
-      <div
-        className={`admin-modal${size === 'wide' ? ' admin-modal-wide' : ''}`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-      >
-        <header className="admin-modal-head">
-          <h2>{title}</h2>
-          <button
-            className="admin-modal-close"
-            type="button"
-            onClick={onClose}
-            aria-label={t('关闭', 'Close')}
-          >
-            ×
-          </button>
-        </header>
-        <div className="admin-modal-body">{children}</div>
-      </div>
-    </div>
-  )
-}
 
 function SkillDialog({
   skill,
