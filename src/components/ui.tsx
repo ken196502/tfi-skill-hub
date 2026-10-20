@@ -45,23 +45,18 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
   const name = localizedName(skill, lang)
   const summary = localizedSummary(skill, lang)
   const favorite = useFavoriteToggle(skill)
-  // Only a knowledge base is badged — a skill is the default, and marking
-  // every skill would only add noise. It matters where the two kinds sit side
-  // by side: search results and favourites.
+  // Every card says which catalogue it belongs to. It matters where the two
+  // kinds sit side by side — search results, favourites, the home rails — so
+  // the marker rides in the bottom-right corner of the card itself.
   const isKnowledgeBase = skill.type === 'knowledge_base'
-  // The chip row gets three slots, so a badged card shows one tag fewer: the
-  // row stays on one line and the card keeps its height.
-  const tags = skill.tags.slice(0, isKnowledgeBase ? 2 : 3)
+  const tags = skill.tags.slice(0, 3)
   return (
     <Link to="/skills/$" params={{ _splat: skillPath(skill) }}>
       <div className="card">
         <div className="card-head">
           <div className="card-title">{name}</div>
-          {(isKnowledgeBase || tags.length > 0) && (
+          {tags.length > 0 && (
             <div className="card-tags">
-              {isKnowledgeBase && (
-                <span className="card-kind">{t('知识库', 'Knowledge base')}</span>
-              )}
               {tags.map((tag) => (
                 <span className="tag" key={tag}>
                   {tag}
@@ -91,6 +86,11 @@ export function SkillCard({ skill }: { skill: SkillWithOwner }) {
           <span className="stat-owner">
             <i className="stat-icon" aria-hidden="true">@</i>
             {skill.ownerHandle}
+          </span>
+          {/* The kind marker closes the meta row, so it lands in the
+              bottom-right corner of the card. */}
+          <span className={`card-kind${isKnowledgeBase ? '' : ' card-kind-skill'}`}>
+            {isKnowledgeBase ? t('知识库', 'Knowledge base') : t('技能', 'Skill')}
           </span>
         </div>
       </div>

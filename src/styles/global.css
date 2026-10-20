@@ -570,6 +570,9 @@ main { flex: 1; }
 }
 .card-meta {
   display: flex;
+  /* Wraps rather than clips when a long owner handle and the kind marker
+     share the row; the marker keeps its place at the right edge. */
+  flex-wrap: wrap;
   align-items: center;
   gap: 16px;
   font-size: 0.8rem;
@@ -628,9 +631,11 @@ main { flex: 1; }
   font-size: 0.75rem;
 }
 
-/* The knowledge-base marker on a card. It sits in the tag row but reads as a
-   kind rather than a keyword, so it keeps the brand green that the tag chips
-   cycle away from. */
+/* The kind marker on a card — which of the two catalogues this entry belongs
+   to. It closes the card's meta row, so the bottom-right corner of every card
+   says what it is. It reads as a kind rather than a keyword, so a knowledge
+   base keeps the brand green that the tag chips cycle away from, while a
+   skill stays neutral. */
 .card-kind {
   background: var(--accent-bg);
   color: var(--accent);
@@ -640,6 +645,14 @@ main { flex: 1; }
   font-weight: 600;
   white-space: nowrap;
 }
+.card-kind-skill {
+  background: var(--sec-chip-bg);
+  color: var(--sec-chip-fg);
+}
+/* Pinned to the right end of the meta row — the bottom-right corner of the
+   card. Scoped to the row so the marker beside a detail-page title keeps
+   sitting next to the title. */
+.card-meta .card-kind { margin-left: auto; }
 
 /* Tag rows cycle through the secondary palette instead of one flat colour */
 .card-tags .tag:nth-child(3n + 2),

@@ -101,22 +101,17 @@ function HitCard({ hit }: { hit: SearchHit }) {
     lang === 'en' && hit.displayNameEn ? hit.displayNameEn : hit.displayName || hit.slug
   const summary =
     lang === 'en' && hit.summaryEn ? hit.summaryEn : hit.summary
-  // The chip row gets three slots, so a badged hit shows one tag fewer: the
-  // row stays on one line and the card keeps its height.
+  // Every hit says which catalogue it belongs to, in the bottom-right corner
+  // of the card — search answers with both kinds of entry.
   const isKnowledgeBase = hit.type === 'knowledge_base'
-  const tags = hit.tags.slice(0, isKnowledgeBase ? 2 : 3)
+  const tags = hit.tags.slice(0, 3)
   return (
     <Link to={to} params={{ _splat: ref }}>
       <div className="card">
         <div className="card-head">
           <div className="card-title">{name}</div>
-          {(isKnowledgeBase || tags.length > 0) && (
+          {tags.length > 0 && (
             <div className="card-tags">
-              {/* Search answers with both kinds of entry, so the hit says which
-                  one it is. */}
-              {isKnowledgeBase && (
-                <span className="card-kind">{t('知识库', 'Knowledge base')}</span>
-              )}
               {tags.map((tag) => (
                 <span className="tag" key={tag}>
                   {tag}
@@ -141,6 +136,11 @@ function HitCard({ hit }: { hit: SearchHit }) {
               {hit.ownerHandle}
             </span>
           )}
+          {/* The kind marker closes the meta row, so it lands in the
+              bottom-right corner of the card. */}
+          <span className={`card-kind${isKnowledgeBase ? '' : ' card-kind-skill'}`}>
+            {isKnowledgeBase ? t('知识库', 'Knowledge base') : t('技能', 'Skill')}
+          </span>
         </div>
       </div>
     </Link>
