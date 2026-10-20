@@ -246,20 +246,24 @@ export const users = {
 
   /**
    * Per-account activity for the console's user list — how many bundles each
-   * account has downloaded, and how many times it has signed in.
+   * account has downloaded, split by kind (skills and knowledge bases are
+   * counted separately), and how many times it has signed in.
    *
    * One query for a whole page rather than a correlated subquery per column in
    * the row mapper: these figures belong to the list, not to the account, so
    * they never travel with a single user.
    */
-  activityCounts(ids: string[]): Map<string, { downloadCount: number; loginCount: number }> {
-    const counts = new Map<string, { downloadCount: number; loginCount: number }>()
+  activityCounts(ids: string[]): Map<string, { downloadCount: number; knowledgeBaseDownloadCount: number; loginCount: number }> {
+    const counts = new Map<string, { downloadCount: number; knowledgeBaseDownloadCount: number; loginCount: number }>()
     if (ids.length === 0) return counts
     const placeholders = ids.map(() => '?').join(',')
     const rows = query.all<Row>(
       `SELECT u.id AS id,
               u.login_count AS login_count,
-              (SELECT COUNT(*) FROM user_downloads d WHERE d.user_id = u.id) AS download_count
+              (SELECT COUNT(*) FROM user_downloads d JOIN skills s ON s.id = d.skill_id
+                WHERE d.user_id = u.id AND s.type = 'skill') AS download_count,
+              (SELECT COUNT(*) FROM user_downloads d JOIN skills s ON s.id = d.skill_id
+                WHERE d.user_id = u.id AND s.type = 'knowledge_base') AS kb_download_count
          FROM users u
         WHERE u.id IN (${placeholders})`,
       ...ids,
@@ -267,6 +271,7 @@ export const users = {
     for (const row of rows) {
       counts.set(asString(row.id), {
         downloadCount: asNumber(row.download_count),
+        knowledgeBaseDownloadCount: asNumber(row.kb_download_count),
         loginCount: asNumber(row.login_count),
       })
     }

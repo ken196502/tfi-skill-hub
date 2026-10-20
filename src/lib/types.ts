@@ -112,11 +112,13 @@ export interface User {
   markets?: string[]
   /**
    * Activity figures carried by the admin console's user listing only: how many
-   * bundles the account has downloaded, and how many times it has signed in.
-   * They belong to the listing rather than to the account, so they are absent
-   * from a single-user response.
+   * bundles the account has downloaded — `downloadCount` for skills and
+   * `knowledgeBaseDownloadCount` for knowledge bases — and how many times it
+   * has signed in. They belong to the listing rather than to the account, so
+   * they are absent from a single-user response.
    */
   downloadCount?: number
+  knowledgeBaseDownloadCount?: number
   loginCount?: number
   createdAt: string
   updatedAt: string

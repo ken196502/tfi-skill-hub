@@ -2085,6 +2085,27 @@ try {
 
   // ── 18. ordinary-user permissions ────────────────────────────────────────
   section('Ordinary user permissions')
+
+  // The console's download column counts skills and knowledge bases apart, so
+  // the account below takes one of each. The entries from the knowledge-base
+  // section were purged, which leaves a fresh pair to download — created here,
+  // while the cookie is still the administrator's.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-dl-skill', displayName: '下载自检技能', listing: 'listed' },
+      { 'SKILL.md': skillMd('smoke-dl-skill') },
+    ),
+  })
+  check('a listed skill for the download counters exists', r.status === 201, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-dl-kb', displayName: '下载自检知识库', type: 'knowledge_base', listing: 'listed' },
+      { 'notes.md': '# notes' },
+    ),
+  })
+  check('a listed knowledge base for the download counters exists', r.status === 201, `${r.status} ${r.text.slice(0, 120)}`)
+
   cookie = plainUserCookie
 
   // Everything below runs as `smokeuser`, whose role is `user`. The policy is
@@ -2112,6 +2133,15 @@ try {
     `/api/v1/download?slug=${anySkill?.slug}&version=latest${anySkill?.namespaceSlug ? `&namespace=${anySkill.namespaceSlug}` : ''}`,
   )
   check('a plain user can download a skill', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+
+  // The console's download column is split by kind, so the account takes one of
+  // each: a skill and a knowledge base. Each half of the figure has to move on
+  // its own, which is what the activity checks below pin down.
+  r = await req('GET', '/api/v1/download?slug=smoke-dl-skill&version=latest')
+  check('a plain user can download a listed skill', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('GET', '/api/v1/download?slug=smoke-dl-kb&version=latest')
+  check('a plain user can download a listed knowledge base', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
 
   r = await req('POST', '/api/v1/skills', {
     body: multipart({ slug: 'plain-denied', version: '1.0.0' }, { 'SKILL.md': skillMd('plain-denied') }),
@@ -2161,24 +2191,30 @@ try {
   // ── 19. user activity & password reset ───────────────────────────────────
   section('User activity & password reset')
 
-  // The two counters the console shows per row. `smokeuser` signed in once and
-  // downloaded a listed skill in the section above, so both of its figures must
-  // have moved — and the download must be attributed to the downloader, who is
-  // the only thing `download_dedupes` cannot identify.
+  // The counters the console shows per row. `smokeuser` signed in once and
+  // downloaded one skill and one knowledge base in the section above, so each
+  // figure must have moved — and the download must be attributed to the
+  // downloader, who is the only thing `download_dedupes` cannot identify.
   r = await req('GET', '/api/v1/admin/users')
   const rowOf = (handle) => (r.body?.data ?? []).find((u) => u.handle === handle)
   const smokeUserRow = rowOf('smokeuser')
   check(
-    'the user listing carries both activity counters as numbers',
+    'the user listing carries the activity counters as numbers',
     r.status === 200 &&
       typeof smokeUserRow?.downloadCount === 'number' &&
+      typeof smokeUserRow?.knowledgeBaseDownloadCount === 'number' &&
       typeof smokeUserRow?.loginCount === 'number',
-    `${r.status} ${JSON.stringify(smokeUserRow && { downloads: smokeUserRow.downloadCount, logins: smokeUserRow.loginCount })}`,
+    `${r.status} ${JSON.stringify(smokeUserRow && { skills: smokeUserRow.downloadCount, knowledgeBases: smokeUserRow.knowledgeBaseDownloadCount, logins: smokeUserRow.loginCount })}`,
   )
   check(
-    'a signed-in download is counted against that account',
+    'a signed-in skill download is counted against that account',
     (smokeUserRow?.downloadCount ?? 0) >= 1,
     `downloadCount=${smokeUserRow?.downloadCount}`,
+  )
+  check(
+    'a signed-in knowledge-base download lands in its own counter',
+    (smokeUserRow?.knowledgeBaseDownloadCount ?? 0) >= 1,
+    `knowledgeBaseDownloadCount=${smokeUserRow?.knowledgeBaseDownloadCount}`,
   )
   check(
     'a sign-in is counted against that account',
@@ -2191,6 +2227,13 @@ try {
     `loginCount=${rowOf(ADMIN_USER)?.loginCount}`,
   )
 
+  // The download fixtures have served their purpose. Purging them cascades the
+  // activity rows away, so it can only happen once the figures above are read.
+  for (const slug of ['smoke-dl-skill', 'smoke-dl-kb']) {
+    r = await req('DELETE', `/api/v1/skills/${slug}/purge`)
+    check(`purging ${slug} → 200`, r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+  }
+
   const resetUserId = await signUpAndApprove('reset-target')
   check('an account to reset exists', resetUserId !== '', `${resetUserId}`)
 
@@ -2199,9 +2242,9 @@ try {
   r = await req('GET', '/api/v1/admin/users')
   const freshRow = (r.body?.data ?? []).find((u) => u.handle === 'reset-target')
   check(
-    'a brand-new account reads zero for both counters',
-    freshRow?.downloadCount === 0 && freshRow?.loginCount === 0,
-    JSON.stringify(freshRow && { downloads: freshRow.downloadCount, logins: freshRow.loginCount }),
+    'a brand-new account reads zero for every counter',
+    freshRow?.downloadCount === 0 && freshRow?.knowledgeBaseDownloadCount === 0 && freshRow?.loginCount === 0,
+    JSON.stringify(freshRow && { skills: freshRow.downloadCount, knowledgeBases: freshRow.knowledgeBaseDownloadCount, logins: freshRow.loginCount }),
   )
 
   // Resetting takes a password chosen by the administrator, and never hands it
@@ -2348,8 +2391,10 @@ try {
   const survivor = (r.body?.data ?? []).find((u) => u.handle === 'reset-target')
   check(
     'the activity counters survive a restart',
-    survivor?.loginCount === 1 && typeof survivor?.downloadCount === 'number',
-    JSON.stringify(survivor && { downloads: survivor.downloadCount, logins: survivor.loginCount }),
+    survivor?.loginCount === 1 &&
+      typeof survivor?.downloadCount === 'number' &&
+      typeof survivor?.knowledgeBaseDownloadCount === 'number',
+    JSON.stringify(survivor && { skills: survivor.downloadCount, knowledgeBases: survivor.knowledgeBaseDownloadCount, logins: survivor.loginCount }),
   )
 } catch (e) {
   failed += 1

@@ -42,10 +42,11 @@ export function listUsers(cursor: string, status?: string) {
   // internal credential projection before returning it to an API handler.
   const filter = isUserStatus(status) ? status : undefined
   const page = users.list(cursor, 20, filter)
-  // Two counters the console shows per row: how much the account has downloaded
-  // and how often it has signed in. Gathered for the whole page at once, and
-  // attached here rather than in the row mapper — they belong to the listing,
-  // not to the account, so a single-user response stays as it was.
+  // Two counters the console shows per row: how much the account has
+  // downloaded — counted separately for skills and knowledge bases — and how
+  // often it has signed in. Gathered for the whole page at once, and attached
+  // here rather than in the row mapper — they belong to the listing, not to
+  // the account, so a single-user response stays as it was.
   const activity = users.activityCounts(page.data.map((item) => item.id))
   return {
     ...page,
@@ -55,6 +56,7 @@ export function listUsers(cursor: string, status?: string) {
     data: page.data.map(({ passwordHash: _passwordHash, ...user }) => ({
       ...user,
       downloadCount: activity.get(user.id)?.downloadCount ?? 0,
+      knowledgeBaseDownloadCount: activity.get(user.id)?.knowledgeBaseDownloadCount ?? 0,
       loginCount: activity.get(user.id)?.loginCount ?? 0,
     })),
   }

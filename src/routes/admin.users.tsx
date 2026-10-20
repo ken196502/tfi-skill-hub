@@ -211,7 +211,7 @@ function UsersPage() {
     </div>
 
     {users.isLoading ? <Loading /> : users.isError ? <ErrorBox message={t('加载用户失败，请稍后重试。', 'Failed to load users. Please try again later.')} /> : <div className="admin-table-wrap">
-      <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('审核', 'Review')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('下载次数', 'Downloads')}</th><th>{t('登录次数', 'Sign-ins')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
+      <table className="admin-table"><thead><tr><th>{t('用户', 'User')}</th><th>{t('审核', 'Review')}</th><th>{t('角色', 'Role')}</th><th>{t('状态', 'Status')}</th><th>{t('下载次数(技能/知识库)', 'Downloads (Skills/KBs)')}</th><th>{t('登录次数', 'Sign-ins')}</th><th>{t('创建时间', 'Created')}</th><th>{t('操作', 'Actions')}</th></tr></thead><tbody>
         {filteredUsers.map((item) => {
           // Pending applications show what the applicant wrote without being
           // opened — that is what the decision is based on. Everything else
@@ -230,9 +230,11 @@ function UsersPage() {
             <td><AdminStatus value={item.status} />{item.status === 'rejected' && item.reviewNote && <small className="admin-cell-sub">{item.reviewNote}</small>}</td>
             <td><select className="admin-inline-select" value={item.role} disabled={role.isPending || item.id === user.id} title={item.id === user.id ? t('不能修改自己的角色', 'You cannot change your own role') : undefined} onChange={(event) => role.mutate({ id: item.id, nextRole: event.target.value })}>{ROLES.map((value) => <option key={value} value={value}>{roleLabel(value)}</option>)}</select></td>
             <td><div className="admin-status-row"><AdminStatus value={item.isBanned ? 'banned' : 'active'} />{item.isBanned && item.banReason && <small className="admin-cell-sub">{item.banReason}</small>}</div></td>
-            {/* How much the account has taken from the catalogue, and how often
-                it has been used. Both are figures, so they read as figures. */}
-            <td className="admin-stat-cell">{formatNumber(item.downloadCount)}</td>
+            {/* How much the account has taken from the catalogue — skills and
+                knowledge bases counted separately and read as one pair — and
+                how often it has been used. Both are figures, so they read as
+                figures. */}
+            <td className="admin-stat-cell">{formatNumber(item.downloadCount)}/{formatNumber(item.knowledgeBaseDownloadCount)}</td>
             <td className="admin-stat-cell">{formatNumber(item.loginCount)}</td>
             <td className="muted">{formatDate(item.createdAt)}</td>
             <td><div className="admin-actions">
