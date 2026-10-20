@@ -11,6 +11,7 @@
     "start": "NODE_OPTIONS=--disable-warning=ExperimentalWarning node --env-file-if-exists=.env scripts/serve.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-api.mjs",
+    "smoke:kb": "node --disable-warning=ExperimentalWarning scripts/smoke-kb.mjs",
     "seed:admin": "node --disable-warning=ExperimentalWarning scripts/create-admin.mjs"
   },
   "dependencies": {
