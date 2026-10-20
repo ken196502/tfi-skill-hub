@@ -17,7 +17,7 @@ const SCOPE_COPY: Record<ApiKeyScope, { title: [string, string]; hint: [string, 
   },
   'skills:publish': {
     title: ['发布与更新', 'Publish & update'],
-    hint: ['发布新版本、更新技能文件', 'Publish new versions and update skill files'],
+    hint: ['发布技能或知识库、更新文件与详情', 'Publish skills or knowledge bases, update files and detail'],
   },
   'skills:delete': {
     title: ['删除与恢复', 'Delete & restore'],
@@ -79,10 +79,21 @@ const API_EXAMPLES: ApiExample[] = [
     command: (o, k) => `curl -H "Authorization: Bearer ${k}" ${o}/api/v1/skills/@<namespace>/<slug>`,
   },
   {
+    scope: 'skills:read',
+    label: ['按类型筛选（技能 / 知识库）', 'Filter by type (skill / knowledge base)'],
+    command: (o, k) => `curl -H "Authorization: Bearer ${k}" "${o}/api/v1/skills?type=knowledge_base&limit=20"`,
+  },
+  {
     scope: 'skills:publish',
     label: ['发布新版本', 'Publish a version'],
     command: (o, k) =>
       `curl -X POST -H "Authorization: Bearer ${k}" \\\n  -F slug=<slug> -F version=1.0.0 -F "files=@SKILL.md" \\\n  ${o}/api/v1/skills`,
+  },
+  {
+    scope: 'skills:publish',
+    label: ['发布知识库', 'Publish a knowledge base'],
+    command: (o, k) =>
+      `curl -X POST -H "Authorization: Bearer ${k}" \\\n  -F slug=<slug> -F version=1.0.0 -F type=knowledge_base \\\n  ${o}/api/v1/skills`,
   },
   {
     scope: 'skills:publish',
