@@ -17,6 +17,16 @@
 export type ListingStatus = 'listed' | 'unlisted'
 export type SkillKind = 'builtin' | 'domain' | 'learned' | 'custom'
 /**
+ * What a catalogue entry *is*. A `skill` is something an agent installs and
+ * runs; a `knowledge_base` is a body of reference material that is read
+ * rather than executed.
+ *
+ * The two share every other column — the same version history, the same
+ * files, the same listing state — so this is a label the catalogue reads, not
+ * a second storage model.
+ */
+export type SkillType = 'skill' | 'knowledge_base'
+/**
  * Roles a person can hold: `admin` and `user`, nothing in between. `agent` is
  * not a human role — it marks accounts created by the agent provisioning flow
  * (`/api/agent/provision`) so machine publishers stay distinguishable, and it
@@ -65,6 +75,8 @@ export const VALID_CATEGORIES = [
 ] as const
 
 export const VALID_KINDS: SkillKind[] = ['builtin', 'domain', 'learned', 'custom']
+
+export const VALID_SKILL_TYPES: SkillType[] = ['skill', 'knowledge_base']
 
 export const VALID_ROLES: UserRole[] = ['user', 'admin']
 
@@ -125,6 +137,11 @@ export interface Skill {
   listing: ListingStatus
   isSuspicious: boolean
   kind: SkillKind
+  /**
+   * Whether this entry is a runnable skill or a knowledge base. Always
+   * present — the column is NOT NULL, so there is no "unknown" state.
+   */
+  type: SkillType
   /**
    * Rich detail markup rendered on the skill's page instead of SKILL.md.
    * Sanitised on the way in; absent when the publisher has not set one, in

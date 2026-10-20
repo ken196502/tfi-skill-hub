@@ -172,6 +172,7 @@ interface SkillFormBody {
   category?: unknown
   tags?: unknown
   listing?: unknown
+  type?: unknown
   html?: unknown
   htmlEn?: unknown
 }
@@ -190,6 +191,7 @@ function readSkillForm(body: SkillFormBody): SkillFormInput | null {
     'summaryEn',
     'category',
     'listing',
+    'type',
     'html',
     'htmlEn',
   ] as const
@@ -219,6 +221,9 @@ function readSkillForm(body: SkillFormBody): SkillFormInput | null {
     tags,
     // The console's create form defaults to off the shelf when it sends nothing.
     listing: text('listing') === '' ? 'unlisted' : text('listing'),
+    // Likewise for the type: a form that has not heard of knowledge bases
+    // files a skill.
+    type: text('type') === '' ? 'skill' : text('type'),
     html: text('html'),
     htmlEn: text('htmlEn'),
   }
@@ -255,6 +260,7 @@ async function readSkillFormRequest(
       category: formValue(fields, 'category'),
       tags: splitTags(formValue(fields, 'tags')),
       listing: formValue(fields, 'listing'),
+      type: formValue(fields, 'type'),
       html: formValue(fields, 'html'),
       htmlEn: formValue(fields, 'htmlEn'),
     })
@@ -389,8 +395,11 @@ curl -X POST '${base}/api/v1/skills' \\
 
 export const skillRead: Record<string, Handler> = {
   listFeatures: (ctx) => {
-    try { return json({ data: manageSvc.listFeaturedSkills(viewerOf(ctx)) }) }
-    catch { return internalError() }
+    try {
+      return json({
+        data: manageSvc.listFeaturedSkills(viewerOf(ctx), qStr(ctx.url, 'type')),
+      })
+    } catch { return internalError() }
   },
   search: (ctx) => {
     const q = qStr(ctx.url, 'q')
@@ -422,7 +431,9 @@ export const skillRead: Record<string, Handler> = {
    */
   categoriesInUse: (ctx) => {
     try {
-      return json({ categories: skillSvc.listCategoriesInUse(viewerOf(ctx)) })
+      return json({
+        categories: skillSvc.listCategoriesInUse(viewerOf(ctx), qStr(ctx.url, 'type')),
+      })
     } catch {
       return internalError()
     }
@@ -438,6 +449,7 @@ export const skillRead: Record<string, Handler> = {
           category: qStr(ctx.url, 'category'),
           q: qStr(ctx.url, 'q'),
           namespaceSlug: qStr(ctx.url, 'namespace'),
+          type: qStr(ctx.url, 'type'),
           viewer: viewerOf(ctx),
         }),
       )
@@ -456,6 +468,7 @@ export const skillRead: Record<string, Handler> = {
           category: qStr(ctx.url, 'category'),
           q: qStr(ctx.url, 'q'),
           namespaceSlug: ctx.params.slug ?? '',
+          type: qStr(ctx.url, 'type'),
           viewer: viewerOf(ctx),
         }),
       )
@@ -739,6 +752,7 @@ export const skillWrite: Record<string, Handler> = {
         summaryEn: fields.get('summaryEn') ?? '',
         category: fields.get('category') ?? '',
         kind: fields.get('kind') ?? '',
+        type: fields.get('type') ?? '',
         listing: fields.get('listing') ?? '',
         namespaceSlug: fields.get('namespace') ?? '',
         tags: fields.get('tags') ? splitTags(fields.get('tags')!) : undefined,
@@ -1435,6 +1449,7 @@ export const admin: Record<string, Handler> = {
       return json(
         manageSvc.listAllSkills({
           listing: qStr(ctx.url, 'listing'),
+          type: qStr(ctx.url, 'type'),
           cursor: qStr(ctx.url, 'cursor'),
           limit: qInt(ctx.url, 'limit', 20, 100),
           // `page` selects numbered paging; omitted (0) keeps the cursor walk

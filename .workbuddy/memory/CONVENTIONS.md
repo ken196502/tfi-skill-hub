@@ -333,6 +333,58 @@ v14 里从 `sessions` 回填了历史值，所以升级后老账号不是 0（�
 - ⚠️ 剪贴板**必须有降级路径**：`navigator.clipboard` 要求 secure context，局域网用 http 打开时不可用 ⇒
   隐藏 `textarea` + `document.execCommand('copy')` 兜底。手改输入框要清掉「已复制」提示（否则那句话不再成立）
 
+## 技能 / 知识库（2026-10-20 新增，迁移 v15）
+
+- `skills` 表加列 **`type TEXT NOT NULL DEFAULT 'skill' CHECK (type IN ('skill','knowledge_base'))`**，
+  附 `idx_skills_type`。取值只有 `skill` / `knowledge_base`，**不是**第三种存储模型：
+  版本历史、文件、上下架状态全部共用，type 只是目录读的一个标签。
+- ⚠️ **存量行全部回落成 `skill`**（v14 库实测 user_version 14→15，38 条内置技能的条数、
+  精选清单、搜索索引均不变）。迁移 **append-only**，别去改 v1 的 `INITIAL_SCHEMA` 快照。
+- **FTS5 索引没动**：搜索返回两种类型混排（用户确认不按类型过滤），所以不需要重建索引表。
+  搜索结果的类型是从 `HIT_SELECT` 里 **JOIN `skills s` 读出来的**（`COALESCE(s.type,'skill') AS s_type`），
+  两处查询（FTS 路径 + LIKE 回落路径）都要加这一列。
+- `type` 在 `Skill` 接口里**始终存在**（NOT NULL），像 `listing` / `kind` 一样直接赋值，不走 omitempty。
+- **写入路径**：
+  - `POST/PUT /api/v1/admin/skills`（控制台表单）表单项 `type`，缺省 = `skill`，
+    非法值 → `fail()` ⇒ **400**（`checkedType`）。
+  - `POST /api/v1/skills`（发布 API）表单字段 `type`，**空串 = 不改**已有条目的类型
+    （发新版本不该把知识库悄悄变回技能）。
+  - `publishVersion` 的 `PublishRequest.type` 只在**新建**时定类型。
+- **读路径**（`?type=skill|knowledge_base`，**不传 = 两种都返回**）：
+  `GET /api/v1/skills`、`/api/v1/namespaces/:slug/skills`、`/api/v1/features`、
+  `/api/v1/categories/in-use`、`/api/v1/admin/skills`。
+  - `/api/v1/categories/in-use?type=` 会带上 visibilityClause 再按 type 过滤 ⇒
+    知识库页的分类侧栏只列知识库真在用的分类。
+- **SKILL.md 规则按类型分**（这是唯一的行为差异）：
+  - `skill`：上传包**必须**含 `SKILL.md`（`assertSkillMd`），缺了 → 400。
+  - `knowledge_base`：知识库是资料集合，简介写在富文本正文里，**上传包不必带 `SKILL.md`**；
+    服务端用表单里的名称/简介**合成**一份 manifest 补上（页面与下载包都要回落读它）。
+    合成走 `stubSkillMd`（`manage.ts`）。
+  - 前端 `FileDropzone` 的 `requireSkillMd` 传 `!isEdit && type !== 'knowledge_base'`。
+- **前端**：
+  - 顶部导航多一个「知识库」入口 → 新路由 `/knowledge-bases`（`src/routes/knowledge-bases.index.tsx`）。
+  - `/skills` **只列技能**，`/knowledge-bases` **只列知识库**（两者共用
+    `src/components/CataloguePage.tsx`，靠 `type` prop 区分；筛选仍走 URL）。
+  - 首页四段：精选技能 / 精选知识库 / 热门技能 / 热门知识库。
+    精选**是同一个池子按 type 分流**（后台仍只有一个「首页精选」清单，最多 12 条，管理端不用改），
+    `listFeaturedSkills(viewer, type)` 在服务端分流。
+    **空区块整段不渲染**（新库还没有知识库时不要留一个空标题）。
+  - 卡片/搜索结果上**只给知识库打「知识库」角标**（`card-kind` class），技能是默认、不打标，
+    否则满屏标签反而是噪音。混合列表（搜索 / 收藏）里靠角标区分。
+    角标**占掉一个标签位**（带角标只显示 2 个 tag，总共仍是 3 个 chip），chip 行才不换行。
+  - ⚠️ **卡片布局坑**（2026-10-20 修）：`.card-title` 原来 `flex: 1; min-width: 0`，
+    窄列里被 chip 行挤到内容宽度以下，而 **CJK 可以在任意位置断行** ⇒ 中文标题塌成一字一行；
+    固定 `height: 200px` 又把摘要切掉。现在 `.card-head` 带 `flex-wrap: wrap`、
+    标题 `flex: 1 1 8em; min-width: 8em`、`.card` 改 **`min-height`**（配 `.skill-grid a { display: flex }`
+    让同行卡片底边仍对齐）。**以后往 card-head 里加元素，先在 3 列网格下看一眼。**
+  - 控制台内容管理页：表单多一个**类型**下拉；表格多一列**类型**（`colSpan` 5 → **6**）；
+    工具栏多一组类型筛选（全部类型 / 技能 / 知识库）。
+- ⚠️ **runtime API 排除知识库**（`/api/runtime/*` 是给智能体运行时加载可执行技能的）：
+  list / resolve / byId / bySlug 全部加 `type = 'skill'`。
+  知识库是参考资料，不是给智能体执行的东西。
+- ⚠️ **agent API（`/api/agent/*`）的 `type` 字段是 `kind` 小写**（既有发布契约），
+  **不要**改成新的 type。`toItem` 显式读 `row.kind`，与新列无关。
+
 ## 本机环境坑
 
 WorkBuddy 沙箱在单个 turn 内拦截 **>50 个文件的批量删除**（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`），

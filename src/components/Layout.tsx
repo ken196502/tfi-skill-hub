@@ -94,6 +94,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <nav className="nav">
             <Link to="/">{t('首页', 'Home')}</Link>
             <Link to="/skills">{t('技能', 'Skills')}</Link>
+            <Link to="/knowledge-bases">{t('知识库', 'Knowledge bases')}</Link>
             <Link to="/favorites">{t('收藏', 'Favorites')}</Link>
             {user ? (
               <>

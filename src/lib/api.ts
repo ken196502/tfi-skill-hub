@@ -203,6 +203,8 @@ export function listSkills(params: {
   category?: string
   namespace?: string
   q?: string
+  /** `skill` or `knowledge_base`; omit for both. */
+  type?: string
 }): Promise<SkillListResponse> {
   const qs = new URLSearchParams()
   if (params.limit) qs.set('limit', String(params.limit))
@@ -211,6 +213,7 @@ export function listSkills(params: {
   if (params.category) qs.set('category', params.category)
   if (params.namespace) qs.set('namespace', params.namespace)
   if (params.q) qs.set('q', params.q)
+  if (params.type) qs.set('type', params.type)
   const suffix = qs.toString()
   return request<SkillListResponse>(`/skills${suffix ? `?${suffix}` : ''}`)
 }
@@ -256,14 +259,21 @@ export function categories(): Promise<{ categories: string[] }> {
  * The categories the catalogue actually holds, for the browse filter.
  *
  * Scoped to what the signed-in viewer can see, so the filter never offers a
- * category whose skills are all offline.
+ * category whose skills are all offline. `type` narrows it to one kind of
+ * entry, so the knowledge-base page does not offer skill-only categories.
  */
-export function categoriesInUse(): Promise<{ categories: string[] }> {
-  return request<{ categories: string[] }>('/categories/in-use')
+export function categoriesInUse(type?: string): Promise<{ categories: string[] }> {
+  const qs = type ? `?type=${encodeURIComponent(type)}` : ''
+  return request<{ categories: string[] }>(`/categories/in-use${qs}`)
 }
 
-export function listFeatures(): Promise<{ data: SkillWithOwner[] }> {
-  return request('/features')
+/**
+ * The homepage's featured rail. `type` narrows the answer to one kind of
+ * entry, so the homepage can show skills and knowledge bases as two sections.
+ */
+export function listFeatures(type?: string): Promise<{ data: SkillWithOwner[] }> {
+  const qs = type ? `?type=${encodeURIComponent(type)}` : ''
+  return request(`/features${qs}`)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -286,6 +296,8 @@ export interface SearchHit {
   updatedAt: number
   createdAt: number
   docType: string
+  /** `skill` or `knowledge_base`. */
+  type: string
 }
 
 export function search(q: string, limit = 20): Promise<{
@@ -497,11 +509,13 @@ export function adminResetUserPassword(
  */
 export function adminListSkills(options: {
   listing?: string
+  type?: string
   page?: number
   pageSize?: number
 } = {}): Promise<{ data: SkillWithOwner[]; nextCursor: string; total: number }> {
   const qs = new URLSearchParams({ page: String(options.page ?? 1) })
   if (options.listing) qs.set('listing', options.listing)
+  if (options.type) qs.set('type', options.type)
   qs.set('limit', String(options.pageSize ?? 20))
   return request(`/admin/skills?${qs}`)
 }
@@ -516,6 +530,8 @@ export interface AdminSkillInput {
   category: string
   tags: string[]
   listing: string
+  /** `skill` or `knowledge_base`. */
+  type: string
   html: string
   htmlEn: string
 }
@@ -539,6 +555,7 @@ function skillFormBody(input: AdminSkillInput, files?: File[]): BodyInit {
   form.set('category', input.category)
   form.set('tags', input.tags.join(','))
   form.set('listing', input.listing)
+  form.set('type', input.type)
   form.set('html', input.html)
   form.set('htmlEn', input.htmlEn)
   // The server reads every file part regardless of field name.

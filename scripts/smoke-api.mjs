@@ -1578,6 +1578,197 @@ try {
   r = await req('DELETE', '/api/v1/skills/smoke-uploaded/purge')
   check('cleaning up the uploaded skill → 200', r.status === 200, `${r.status} ${r.text}`)
 
+  // ── 16c. knowledge bases ─────────────────────────────────────────────────
+  section('Knowledge bases')
+
+  // A catalogue entry is either a skill or a knowledge base. The distinction
+  // is a column the catalogue reads — the listing pages, the homepage's
+  // sections and the console's table all key off it — so the type has to
+  // survive every write path and answer every list endpoint.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: {
+      slug: 'smoke-kb',
+      displayName: '知识库',
+      summary: '自检知识库',
+      category: 'research',
+      listing: 'listed',
+      type: 'knowledge_base',
+      tags: ['kb'],
+    },
+  })
+  check(
+    'creating a knowledge base from the console form → 201',
+    r.status === 201 && r.body?.skill?.type === 'knowledge_base',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  const knowledgeBaseId = r.body?.skill?.id
+
+  // A form that has not heard of knowledge bases still files a skill — the
+  // column is NOT NULL with a default, so nothing has to send it.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: { slug: 'smoke-plain', displayName: '普通技能', listing: 'listed' },
+  })
+  check(
+    "a form that sends no type files a skill",
+    r.status === 201 && r.body?.skill?.type === 'skill',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  const plainSkillId = r.body?.skill?.id
+
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: { slug: 'smoke-bad-type', displayName: 'x', type: 'plugin' },
+  })
+  check(
+    "an unknown type → 400",
+    r.status === 400 && /type must be/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  // A knowledge base is reference material: its package needs no manifest,
+  // because the introduction lives in the rich body instead.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-kb-files', displayName: '带资料的知识库', type: 'knowledge_base', listing: 'listed', category: 'research' },
+      { 'papers/overview.pdf': 'binary-ish', 'notes.md': '# notes' },
+    ),
+  })
+  check(
+    'a knowledge base uploads without a SKILL.md → 201',
+    r.status === 201 && r.body?.skill?.type === 'knowledge_base',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-kb-files/versions')
+  check(
+    'the knowledge base still has a manifest, written from the form',
+    r.status === 200 && (r.body?.versions?.[0]?.files ?? []).some((f) => f.path === 'SKILL.md'),
+    JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  // The list endpoints answer with one kind or the other.
+  r = await req('GET', '/api/v1/skills?type=knowledge_base&limit=100')
+  check(
+    'the catalogue can be listed by knowledge base',
+    r.status === 200 && (r.body?.data ?? []).every((s) => s.type === 'knowledge_base'),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  check(
+    'and the knowledge bases it lists include the one just created',
+    (r.body?.data ?? []).some((s) => s.id === knowledgeBaseId),
+    JSON.stringify((r.body?.data ?? []).map((s) => s.slug)),
+  )
+
+  r = await req('GET', '/api/v1/skills?type=skill&limit=100')
+  check(
+    'the catalogue can be listed by skill',
+    r.status === 200 && (r.body?.data ?? []).every((s) => s.type === 'skill'),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  check(
+    'and the skill listing leaves the knowledge base out',
+    !(r.body?.data ?? []).some((s) => s.id === knowledgeBaseId),
+    JSON.stringify((r.body?.data ?? []).map((s) => s.slug)),
+  )
+
+  r = await req('GET', '/api/v1/skills?limit=100')
+  check(
+    'an unfiltered listing answers with both kinds',
+    r.status === 200 && (r.body?.data ?? []).some((s) => s.type === 'knowledge_base') &&
+      (r.body?.data ?? []).some((s) => s.type === 'skill'),
+    JSON.stringify((r.body?.data ?? []).map((s) => s.type)),
+  )
+
+  // The console's own listing filters the same way.
+  r = await req('GET', '/api/v1/admin/skills?type=knowledge_base&page=1&limit=100')
+  check(
+    'the console listing filters by type',
+    r.status === 200 && (r.body?.data ?? []).every((s) => s.type === 'knowledge_base'),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  // The category filter is scoped too, so the knowledge-base page does not
+  // offer a category that only skills are filed under.
+  r = await req('GET', '/api/v1/categories/in-use?type=knowledge_base')
+  check(
+    'the category filter is scoped to the kind asked for',
+    r.status === 200 && Array.isArray(r.body?.categories) && r.body.categories.includes('research'),
+    JSON.stringify(r.body?.categories),
+  )
+
+  // The featured pool is one list the console curates; the homepage splits it
+  // by type, so the endpoint has to be able to answer one kind at a time. The
+  // pool is set to a known pair here — one of each kind — so each filter has
+  // something to answer with.
+  r = await req('PUT', '/api/v1/admin/features', {
+    body: { skillIds: [plainSkillId, knowledgeBaseId].filter(Boolean) },
+  })
+  check('the featured pool can hold a knowledge base → 200', r.status === 200, `${r.status} ${r.text.slice(0, 160)}`)
+
+  r = await req('GET', '/api/v1/features?type=knowledge_base')
+  check(
+    'the featured rail answers with knowledge bases alone',
+    r.status === 200 && (r.body?.data ?? []).length === 1 &&
+      (r.body?.data ?? []).every((s) => s.type === 'knowledge_base'),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  check(
+    'and it includes the knowledge base just curated',
+    (r.body?.data ?? []).some((s) => s.id === knowledgeBaseId),
+    JSON.stringify((r.body?.data ?? []).map((s) => s.slug)),
+  )
+
+  r = await req('GET', '/api/v1/features?type=skill')
+  check(
+    'and with skills alone when asked for those',
+    r.status === 200 && (r.body?.data ?? []).length === 1 &&
+      (r.body?.data ?? []).every((s) => s.type === 'skill'),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  // Search answers with both kinds, so the hit says which one it is.
+  r = await req('GET', '/api/v1/search?q=' + encodeURIComponent('知识库') + '&limit=40')
+  const kbHit = (r.body?.hits ?? []).find((h) => h.id === knowledgeBaseId)
+  check(
+    'a search hit carries the kind of the entry it found',
+    r.status === 200 && kbHit !== undefined && kbHit?.type === 'knowledge_base',
+    JSON.stringify((r.body?.hits ?? []).map((h) => [h.slug, h.type])),
+  )
+
+  // A knowledge base is reference material, not something an agent runs, so
+  // the runtime surface leaves it out.
+  r = await req('GET', '/api/runtime/skills?limit=100')
+  check(
+    'the runtime listing leaves knowledge bases out',
+    r.status === 200 && !(r.body?.data ?? []).some((s) => s.id === knowledgeBaseId),
+    JSON.stringify((r.body?.data ?? []).map((s) => s.slug)),
+  )
+
+  // Retyping an existing entry is a console edit, and it sticks.
+  r = await req('PUT', '/api/v1/admin/skills/smoke-kb', {
+    body: {
+      displayName: '知识库',
+      summary: '自检知识库',
+      displayNameEn: '',
+      summaryEn: '',
+      category: 'research',
+      tags: ['kb'],
+      listing: 'listed',
+      type: 'skill',
+      html: '',
+      htmlEn: '',
+    },
+  })
+  check(
+    'an entry can be retyped from the console → 200',
+    r.status === 200 && r.body?.skill?.type === 'skill',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  for (const slug of ['smoke-kb', 'smoke-plain', 'smoke-kb-files']) {
+    r = await req('DELETE', `/api/v1/skills/${slug}/purge`)
+    check(`purging ${slug} → 200`, r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+  }
+
   // ── 17. admin API keys ───────────────────────────────────────────────────
   section('Admin API keys')
 

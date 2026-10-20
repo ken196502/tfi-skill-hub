@@ -747,6 +747,28 @@ export const MIGRATIONS: Migration[] = [
         (SELECT COUNT(*) FROM sessions s WHERE s.user_id = users.id);
     `,
   },
+  {
+    // The catalogue holds two kinds of content, distinguished by `type`:
+    // a **skill** is something an agent installs and runs, a **knowledge
+    // base** is a body of reference material that is read rather than
+    // executed. They share every other column — the same version history,
+    // the same files, the same listing state — so the type is a label the
+    // catalogue reads, not a second storage model.
+    //
+    // Existing rows are skills, so the NOT NULL DEFAULT backfills every one
+    // of them to 'skill' and no record that works today changes behaviour.
+    //
+    // The FTS5 index is left alone: a knowledge base is indexed exactly like
+    // a skill, and the search endpoint answers with both, so there is no
+    // filter column to add and nothing to rebuild.
+    v: 15,
+    name: 'skills are either skills or knowledge bases',
+    sql: `
+      ALTER TABLE skills ADD COLUMN type TEXT NOT NULL DEFAULT 'skill'
+        CHECK (type IN ('skill','knowledge_base'));
+      CREATE INDEX idx_skills_type ON skills (type);
+    `,
+  },
 ]
 
 /** Slugs that may never be used as a skill slug (`seedReservedSlugs`). */

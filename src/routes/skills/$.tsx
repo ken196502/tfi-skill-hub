@@ -76,7 +76,12 @@ function SkillDetailPage() {
   return (
     <div className="container" style={{ paddingTop: 40 }}>
       <div className="detail-header">
-        <h1 className="detail-title">{localizedName(s, lang)}</h1>
+        <div className="detail-kind-row">
+          <h1 className="detail-title">{localizedName(s, lang)}</h1>
+          {s.type === 'knowledge_base' && (
+            <span className="card-kind">{t('知识库', 'Knowledge base')}</span>
+          )}
+        </div>
         <p className="detail-summary">
           {localizedSummary(s, lang) || t('暂无描述', 'No description yet')}
         </p>
@@ -85,7 +90,6 @@ function SkillDetailPage() {
           <Stat label={t('版本', 'Versions')} value={formatNumber(s.versionsCount)} />
         </div>
       </div>
-
       <div className="detail-layout">
         <div>
           <div className="tab-bar">
@@ -122,7 +126,10 @@ function SkillDetailPage() {
           </div>
 
           <div className="sidebar-section">
-            <div className="sidebar-label">{t('安装', 'Install')}</div>
+            {/* A skill is installed by an agent; a knowledge base is read. */}
+            <div className="sidebar-label">
+              {s.type === 'knowledge_base' ? t('下载', 'Download') : t('安装', 'Install')}
+            </div>
             {user ? (
               <a className="btn btn-primary" href={downloadHref} style={{ width: '100%', justifyContent: 'center' }}>
                 {t('下载 ZIP', 'Download ZIP')}

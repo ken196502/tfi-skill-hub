@@ -8,8 +8,8 @@
 
 import { conflict, fail, notFound } from '../errors'
 import { asNumber, nowIso, query, type Row } from '../db'
-import { VALID_ROLES } from '../../lib/types'
-import type { SkillWithOwner, UserRole, UserStatus, ListingStatus } from '../../lib/types'
+import { VALID_ROLES, VALID_SKILL_TYPES } from '../../lib/types'
+import type { SkillWithOwner, UserRole, UserStatus, ListingStatus, SkillType } from '../../lib/types'
 import { audit, users, type UserRecord } from '../repo/core'
 import { skills as skillRepo, stars as starRepo, versions as versionRepo, versionFiles } from '../repo/skills'
 import type { FileMap } from '../content'
@@ -436,6 +436,7 @@ export function resetUserPassword(actorId: string, userId: string, password: str
 
 export function listAllSkills(opts: {
   listing: string
+  type: string
   cursor: string
   limit: number
   page: number
@@ -474,6 +475,10 @@ export interface SkillFormInput {
   category: string
   tags: string[]
   listing: string
+  /**
+   * What kind of entry this is — `skill` or `knowledge_base`.
+   */
+  type: string
   /**
    * Rich detail markup. An empty string clears the stored body and sends the
    * page back to rendering `SKILL.md`.
@@ -518,6 +523,20 @@ function checkedListing(raw: string): ListingStatus {
 }
 
 /**
+ * What kind of entry the form is filing. An empty value means the default —
+ * a skill — so a client that has not heard of knowledge bases yet keeps
+ * working unchanged.
+ */
+function checkedType(raw: string): SkillType {
+  const value = raw.trim()
+  if (value === '') return 'skill'
+  if (!VALID_SKILL_TYPES.includes(value as SkillType)) {
+    fail(`type must be 'skill' or 'knowledge_base'`)
+  }
+  return value as SkillType
+}
+
+/**
  * Category is a free-form label on the row; `VALID_CATEGORIES` only gates what
  * `/categories` advertises and what `publishVersion` will accept for a new
  * skill. Existing records legitimately carry others — the seeded catalogue uses
@@ -545,6 +564,18 @@ function nullable(value: string): string | null {
  */
 function assertSkillMd(files: FileMap): void {
   if (!files.has('SKILL.md')) fail('SKILL.md is required')
+}
+
+/**
+ * The manifest for an entry that was uploaded without one.
+ *
+ * A skill always brings its own `SKILL.md` — that file is what an agent
+ * reads. A knowledge base is a corpus of reference material instead, and its
+ * introduction lives in the rich body, so the manifest is synthesised from
+ * the name and summary rather than demanded of the publisher.
+ */
+function stubSkillMd(input: SkillFormInput): Uint8Array {
+  return new TextEncoder().encode(skillMdStub(input))
 }
 
 /**
@@ -592,6 +623,10 @@ export function createSkillFromForm(
   const slug = input.slug.trim()
   if (slug === '') fail('slug is required')
 
+  // What kind of entry this is. Checked before anything is written, so an
+  // unknown type is rejected rather than filed.
+  const type = checkedType(input.type)
+
   // Mirrors how `publishVersion` resolves the namespace for a form create:
   // no namespace slug and no team token means the author's personal namespace.
   const namespace = ensurePersonalNamespace(actor)
@@ -603,11 +638,16 @@ export function createSkillFromForm(
   // stub with it is the whole point of uploading. With no upload the skill is
   // still created — metadata-only is a legitimate first step.
   const uploaded = uploads && uploads.size > 0
-  if (uploaded) assertSkillMd(uploads!)
+  if (uploaded && type === 'skill') assertSkillMd(uploads!)
 
-  const files: FileMap = uploaded
-    ? uploads!
-    : new Map([['SKILL.md', new TextEncoder().encode(skillMdStub(input))]])
+  const files: FileMap = new Map(uploaded ? uploads! : [['SKILL.md', stubSkillMd(input)]])
+  // A knowledge base is a body of reference material: its introduction lives
+  // in the rich body, so a package without a manifest is legitimate. The
+  // manifest is still written — the page and the download bundle fall back to
+  // it — but it comes from the form rather than from the upload.
+  if (uploaded && type === 'knowledge_base' && !files.has('SKILL.md')) {
+    files.set('SKILL.md', stubSkillMd(input))
+  }
 
   const { skill } = publishVersion(actor, {
     slug,
@@ -619,6 +659,7 @@ export function createSkillFromForm(
     summaryEn: input.summaryEn.trim(),
     category: checkedCategory(input.category),
     listing: checkedListing(input.listing),
+    type,
     tags: input.tags,
     files,
     tokenNamespaceId: null,
@@ -662,8 +703,20 @@ export function updateSkillFromForm(
   const skill = resolveSkillRef(ref, { id: actor.id, role: 'admin' })
   if (!skill) notFound('skill not found')
 
+  // The type may be changed here, so it is read before the files are
+  // published — an upload is validated against the type the entry is
+  // becoming, not the one it currently has.
+  const type = checkedType(input.type)
+
   if (uploads && uploads.size > 0) {
     const current = currentVersionOf(skill)
+    const files = mergedVersionFiles(skill, uploads)
+    // A knowledge base uploaded without a manifest gets the synthesised one,
+    // the same way a create does. A skill keeps the rule that its package
+    // must bring its own.
+    if (type === 'knowledge_base' && !files.has('SKILL.md')) {
+      files.set('SKILL.md', stubSkillMd(input))
+    }
     publishVersion(actor, {
       slug: skill.slug,
       version: nextPatch(current),
@@ -674,8 +727,9 @@ export function updateSkillFromForm(
       summaryEn: input.summaryEn.trim(),
       category: checkedCategory(input.category),
       listing: checkedListing(input.listing),
+      type,
       tags: input.tags,
-      files: mergedVersionFiles(skill, uploads),
+      files,
       tokenNamespaceId: null,
       namespaceSlug: skill.namespaceSlug,
       // The skill exists and this is a deliberate replacement of its files.
@@ -691,6 +745,7 @@ export function updateSkillFromForm(
     category: checkedCategory(input.category),
     tags: input.tags,
     listing: checkedListing(input.listing),
+    type,
   })
   reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
   auditLog({
@@ -698,7 +753,7 @@ export function updateSkillFromForm(
     action: 'update_skill_content',
     resourceType: 'skill',
     resourceId: skill.id,
-    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},listing=${input.listing}${uploads && uploads.size > 0 ? `,files=${uploads.size}` : ''}`,
+    details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},listing=${input.listing},type=${type}${uploads && uploads.size > 0 ? `,files=${uploads.size}` : ''}`,
   })
 
   // Re-resolves through the caller's own ref, which is already known to be
@@ -706,13 +761,21 @@ export function updateSkillFromForm(
   return setDetailHtml(actor, ref, input.html, input.htmlEn, null)
 }
 
-export function listFeaturedSkills(viewer: Viewer | null = null) {
+/**
+ * The homepage's featured rail.
+ *
+ * The pool is a single list the console curates; `type` narrows the answer to
+ * one kind of entry so the homepage can show "featured skills" and "featured
+ * knowledge bases" as two sections of the same selection.
+ */
+export function listFeaturedSkills(viewer: Viewer | null = null, type = '') {
   const items = query
     .all<{ skill_id: string }>(
       'SELECT skill_id FROM featured_skills ORDER BY position ASC, updated_at DESC',
     )
     .map(({ skill_id }) => skillRepo.getWithOwnerById(skill_id))
     .filter((skill): skill is SkillWithOwner => skill !== null)
+    .filter((skill) => type === '' || skill.type === type)
   if (!viewer) return items
   // The card grid renders the same star toggle as the catalogue, so featured
   // rows carry the viewer's flag too.

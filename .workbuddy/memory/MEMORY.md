@@ -19,7 +19,7 @@
 - 位置优先级 `SKILLHUB_DATABASE_URL` > `SKILLHUB_DB_PATH` > `<repo>/data/skillhub.db`（WAL，备份要连 -wal/-shm）
 - Docker：`/app/data/skillhub.db`，命名卷 `skillhub-data`（`down -v` 才清）
 - 迁移 **append-only**（改历史迁移会破坏老库升级），版本查 `PRAGMA user_version`（**没有** schema_migrations 表），
-  每条包 `BEGIN/COMMIT`。最新：**v14**
+  每条包 `BEGIN/COMMIT`。最新：**v15**
 - 改 CHECK 约束不用重建表：`ADD COLUMN 新列(带新 CHECK NOT NULL DEFAULT)` → `UPDATE ... CASE 平移` → `DROP COLUMN 旧列`
   （只 ADD 不 DROP 旧 CHECK 还在，新值会被拒）
 - FTS5 虚表不能 ALTER，只能 DROP + 重建 + `INSERT...SELECT` 重灌
@@ -62,6 +62,18 @@
 - ⚠️ 剪贴板写入必须带降级路径（局域网 http 下 `navigator.clipboard` 不可用）；
   加列别忘同步 `colSpan`
 
+## 技能 / 知识库（v15，2026-10-20）——明细见 CONVENTIONS.md
+- `skills.type` = `skill` / `knowledge_base`（NOT NULL DEFAULT 'skill'）；**存量全回落 skill**；
+  FTS5 索引**没动**（搜索混排不按类型过滤），搜索结果的类型靠 JOIN `skills` 读
+- 读接口 `?type=skill|knowledge_base`（不传 = 两种都返回）：
+  `/api/v1/skills`、`/namespaces/:slug/skills`、`/features`、`/categories/in-use`、`/admin/skills`
+- 写接口 `type` 字段：控制台表单缺省 skill、非法值 400；发布 API 空串 = 不改已有条目
+- **SKILL.md 规则按类型分**：skill 必须带；knowledge_base 不必带（服务端按表单合成一份 manifest）
+- 导航多「知识库」入口 → `/knowledge-bases`（只列知识库）；`/skills` 只列技能；
+  首页四段：精选技能 / 精选知识库 / 热门技能 / 热门知识库（精选是**同一个池子**按 type 分流）
+- ⚠️ runtime API **排除知识库**（`type='skill'`）；agent API 的 `type` 字段是 `kind` 小写，**别动**
+- 控制台内容管理页：类型下拉 + 表格「类型」列（`colSpan` 5→6）+ 工具栏类型筛选
+
 ## 界面
 - 全站双语：`src/lib/i18n.tsx` 的 `useT()` **内联双语字面量**，不建中央 key 表；默认 en
 - 不写实现说明 / 运营视角文案；品牌色 `#004123`、Helvetica，改这些只动 `global.css` 变量
@@ -80,7 +92,7 @@
   HTML 只能用页面已有 class（`table`/`note`），每段写 zh+en 两个 span
 
 ## 交付前必跑
-`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（全绿，当前 337 条）
+`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（全绿，当前 359 条）
 - **改了源码必须重新 build 再 smoke**，否则验证的是旧 dist（曾因此误判）
 
 ## 本机环境坑

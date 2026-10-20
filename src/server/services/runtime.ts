@@ -11,6 +11,10 @@
  *     registry download endpoint still serves it by exact version pin.
  *   * Skills whose latest version is missing, yanked, or lacks `SKILL.md` are
  *     silently skipped from listings rather than surfaced as broken entries.
+ *
+ * Knowledge bases are excluded altogether. They are reference material, not
+ * something an agent loads and runs, so offering them here would hand a
+ * runtime a document collection to execute.
  */
 
 import crypto from 'node:crypto'
@@ -119,21 +123,24 @@ function resolveRuntimeSkill(
     if (!isUuidLike(ref.id)) {
       return { error: { code: 'invalid_ref', message: 'invalid skill id', status: 400 } }
     }
-    skillRow = query.get<Row>('SELECT * FROM skills WHERE id = ? AND soft_deleted_at IS NULL', ref.id)
+    skillRow = query.get<Row>(
+      "SELECT * FROM skills WHERE id = ? AND soft_deleted_at IS NULL AND type = 'skill'",
+      ref.id,
+    )
   } else if (ref.slug) {
     const parsed = parseRuntimeRef(ref.slug)
     if (parsed.namespace) {
       const ns = namespaces.getBySlug(parsed.namespace)
       if (ns) {
         skillRow = query.get<Row>(
-          'SELECT * FROM skills WHERE namespace_id = ? AND slug = ? AND soft_deleted_at IS NULL',
+          "SELECT * FROM skills WHERE namespace_id = ? AND slug = ? AND soft_deleted_at IS NULL AND type = 'skill'",
           ns.id,
           parsed.slug,
         )
       }
     } else {
       const rows = query.all<Row>(
-        'SELECT * FROM skills WHERE slug = ? AND soft_deleted_at IS NULL',
+        "SELECT * FROM skills WHERE slug = ? AND soft_deleted_at IS NULL AND type = 'skill'",
         parsed.slug,
       )
       // Prefer a listed match when a bare slug is ambiguous.
@@ -288,7 +295,7 @@ export async function list(ctx: RequestContext): Promise<Response> {
     const owner = ctx.url.searchParams.get('owner') ?? ''
     const cursor = ctx.url.searchParams.get('cursor') ?? ''
 
-    const where: string[] = ['soft_deleted_at IS NULL', "listing = 'listed'"]
+    const where: string[] = ['soft_deleted_at IS NULL', "listing = 'listed'", "type = 'skill'"]
     const params: unknown[] = []
     if (owner) {
       const ns = namespaces.getBySlug(owner)

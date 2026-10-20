@@ -34,7 +34,15 @@ function FeaturesPage() {
     <div className="admin-feature-list">
       {(skills.data?.data ?? []).map((skill) => <label className="admin-feature-item" key={skill.id}>
         <input type="checkbox" checked={selected.includes(skill.id)} onChange={() => toggle(skill.id)} />
-        <span><strong>{localizedName(skill, lang)}</strong><small>{skill.slug} · {skill.namespaceSlug}</small></span>
+        <span>
+          <strong>{localizedName(skill, lang)}</strong>
+          <small>
+            {skill.slug} · {skill.namespaceSlug}
+            {/* The featured pool feeds both homepage sections, so the kind is
+                spelled out here — the selection is split by it, not by hand. */}
+            {skill.type === 'knowledge_base' ? ' · 知识库' : ' · 技能'}
+          </small>
+        </span>
         {selected.includes(skill.id) && <em>#{selected.indexOf(skill.id) + 1}</em>}
       </label>)}
     </div>

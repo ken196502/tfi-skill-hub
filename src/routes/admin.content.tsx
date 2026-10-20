@@ -20,13 +20,14 @@ import { FileDropzone } from '../components/FileDropzone'
 import { Modal } from '../components/Modal'
 import { RichTextEditor } from '../components/RichTextEditor'
 import { ErrorBox, Loading, PageHeader, formatDate, skillPath } from '../components/ui'
-import type { ListingStatus, SkillWithOwner } from '../lib/types'
+import type { ListingStatus, SkillType, SkillWithOwner } from '../lib/types'
 
 export const Route = createFileRoute('/admin/content')({ component: ContentPage })
 
 const PAGE_SIZE = 20
 
 type StatusFilter = '' | ListingStatus
+type TypeFilter = '' | SkillType
 
 function rowStatus(skill: SkillWithOwner): ListingStatus {
   return skill.listing
@@ -43,6 +44,11 @@ const STATUS_TONE: Record<ListingStatus, string> = {
   unlisted: 'neutral',
 }
 
+const TYPE_LABEL: Record<SkillType, [string, string]> = {
+  skill: ['技能', 'Skill'],
+  knowledge_base: ['知识库', 'Knowledge base'],
+}
+
 /** The form's own shape: tags are edited as text, so they stay out of it. */
 type Draft = Omit<AdminSkillInput, 'slug' | 'tags'> & { slug: string }
 
@@ -54,6 +60,7 @@ const EMPTY_DRAFT: Draft = {
   summaryEn: '',
   category: '',
   listing: 'unlisted',
+  type: 'skill',
   html: '',
   htmlEn: '',
 }
@@ -71,6 +78,7 @@ function draftFromSkill(skill: SkillWithOwner, withBody = false): Draft {
     // rather than being snapped back to the default.
     category: skill.category ?? '',
     listing: skill.listing,
+    type: skill.type,
     // The list never carries the body; only the detail fetch does.
     html: withBody ? (skill.detailHtml ?? '') : '',
     htmlEn: withBody ? (skill.detailHtmlEn ?? '') : '',
@@ -109,6 +117,7 @@ function ContentPage() {
   const client = useQueryClient()
 
   const [filter, setFilter] = useState<StatusFilter>('')
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('')
   const [page, setPage] = useState(1)
   /** `{ skill: null }` opens the dialog in create mode. */
   const [editing, setEditing] = useState<{ skill: SkillWithOwner | null } | null>(null)
@@ -117,8 +126,8 @@ function ContentPage() {
   const isAdmin = user !== null && user.role === 'admin'
 
   const list = useQuery({
-    queryKey: ['admin-content-skills', filter, page],
-    queryFn: () => adminListSkills({ listing: filter, page, pageSize: PAGE_SIZE }),
+    queryKey: ['admin-content-skills', filter, typeFilter, page],
+    queryFn: () => adminListSkills({ listing: filter, type: typeFilter, page, pageSize: PAGE_SIZE }),
     enabled: isAdmin,
   })
 
@@ -205,8 +214,27 @@ function ContentPage() {
             </button>
           ))}
         </div>
+        <div className="admin-filter-group">
+          {([
+            ['', t('全部类型', 'All types')],
+            ['skill', t('技能', 'Skills')],
+            ['knowledge_base', t('知识库', 'Knowledge bases')],
+          ] as Array<[TypeFilter, string]>).map(([value, label]) => (
+            <button
+              key={value || 'all-types'}
+              className={`filter-btn${typeFilter === value ? ' active' : ''}`}
+              type="button"
+              onClick={() => {
+                setTypeFilter(value)
+                setPage(1)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
         <button className="btn btn-primary btn-small" type="button" onClick={() => setEditing({ skill: null })}>
-          {t('新建技能', 'New skill')}
+          {t('新建', 'New entry')}
         </button>
       </div>
 
@@ -291,7 +319,8 @@ function SkillTable({
       <table className="admin-table">
         <thead>
           <tr>
-            <th>{t('技能', 'Skill')}</th>
+            <th>{t('名称', 'Name')}</th>
+            <th>{t('类型', 'Type')}</th>
             <th>{t('作者', 'Author')}</th>
             <th>{t('状态', 'Status')}</th>
             <th>{t('更新时间', 'Updated')}</th>
@@ -308,6 +337,11 @@ function SkillTable({
                 <td>
                   <strong>{localizedName(skill, lang)}</strong>
                   <small className="admin-cell-sub">{ref}{skill.category ? ` · ${skill.category}` : ''}</small>
+                </td>
+                <td>
+                  <span className="admin-status admin-status-neutral">
+                    {t(TYPE_LABEL[skill.type][0], TYPE_LABEL[skill.type][1])}
+                  </span>
                 </td>
                 <td>{skill.ownerHandle}</td>
                 <td>
@@ -339,8 +373,8 @@ function SkillTable({
           })}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={5} className="admin-empty">
-                {t('当前筛选下没有技能。', 'No skills match the current filter.')}
+              <td colSpan={6} className="admin-empty">
+                {t('当前筛选下没有内容。', 'Nothing matches the current filter.')}
               </td>
             </tr>
           )}
@@ -477,9 +511,12 @@ function SkillDialog({
   const missingSlug = !isEdit && slug === ''
   // A new skill needs a SKILL.md to be usable, so an upload without one cannot
   // be saved. Editing does not: the skill already has one, and the point there
-  // is usually adding to it.
+  // is usually adding to it. A knowledge base is reference material, so its
+  // package needs no manifest — the server writes one from the form.
+  const isKnowledgeBase = draft.type === 'knowledge_base'
   const uploadsWithoutSkillMd =
     !isEdit &&
+    !isKnowledgeBase &&
     files.length > 0 &&
     !files.some((file) => file.name === 'SKILL.md' || file.webkitRelativePath.endsWith('SKILL.md'))
   const canSave =
@@ -497,7 +534,11 @@ function SkillDialog({
 
   return (
     <Modal
-      title={isEdit ? t('编辑技能', 'Edit skill') : t('新建技能', 'New skill')}
+      title={
+        isEdit
+          ? isKnowledgeBase ? t('编辑知识库', 'Edit knowledge base') : t('编辑技能', 'Edit skill')
+          : isKnowledgeBase ? t('新建知识库', 'New knowledge base') : t('新建技能', 'New skill')
+      }
       size="wide"
       onClose={onClose}
     >
@@ -571,6 +612,25 @@ function SkillDialog({
                     <option value="unlisted">{t('下架（不在目录中展示）', 'Unlisted (hidden from the catalogue)')}</option>
                     <option value="listed">{t('上架（在目录中展示）', 'Listed (shown in the catalogue)')}</option>
                   </select>
+                </label>
+              </div>
+
+              <div className="admin-form-grid admin-form-grid-2">
+                <label>
+                  <span className="form-label">{t('类型', 'Type')}</span>
+                  <select
+                    className="form-input"
+                    value={draft.type}
+                    onChange={(event) => set('type', event.target.value)}
+                  >
+                    <option value="skill">{t('技能', 'Skill')}</option>
+                    <option value="knowledge_base">{t('知识库', 'Knowledge base')}</option>
+                  </select>
+                  <span className="form-hint">
+                    {isKnowledgeBase
+                      ? t('知识库用于成体系的研究资料与参考文档。', 'Knowledge bases hold curated research material and reference documents.')
+                      : t('技能是智能体可以直接安装并运行的扩展包。', 'Skills are extension packages an agent can install and run.')}
+                  </span>
                 </label>
               </div>
 
@@ -667,19 +727,23 @@ function SkillDialog({
 
               <div className="admin-lang-block">
                 <div className="admin-lang-tabs">
-                  <span className="form-label">{t('技能文件', 'Skill files')}</span>
+                  <span className="form-label">
+                    {isKnowledgeBase ? t('知识库文件', 'Knowledge base files') : t('技能文件', 'Skill files')}
+                  </span>
                 </div>
                 <span className="form-hint admin-form-hint-inline">
                   {isEdit
                     ? t('上传的文件会作为新版本发布；不传则保持现有文件不变。', 'Uploaded files are published as a new version. Leave empty to keep the current files.')
-                    : t('可上传技能文件夹（需包含 SKILL.md）；不传则只创建条目，之后再补文件。', 'Upload a skill folder (it must include SKILL.md). Leave empty to create the entry first and add files later.')}
+                    : isKnowledgeBase
+                      ? t('可上传知识库资料包（无需 SKILL.md）；不传则只创建条目，之后再补文件。', 'Upload a knowledge base package (no SKILL.md needed). Leave empty to create the entry first and add files later.')
+                      : t('可上传技能文件夹（需包含 SKILL.md）；不传则只创建条目，之后再补文件。', 'Upload a skill folder (it must include SKILL.md). Leave empty to create the entry first and add files later.')}
                 </span>
                 {isEdit && existingDownloadHref && (
                   <a className="admin-download-link" href={existingDownloadHref} download>
                     {t('点击下载已上传附件', 'Download uploaded files')}
                   </a>
                 )}
-                <FileDropzone files={files} onChange={setFiles} requireSkillMd={!isEdit} />
+                <FileDropzone files={files} onChange={setFiles} requireSkillMd={!isEdit && !isKnowledgeBase} />
               </div>
 
               <div className="admin-modal-foot">
@@ -689,7 +753,9 @@ function SkillDialog({
                 <button className="btn btn-primary" type="submit" disabled={!canSave}>
                   {save.isPending
                     ? t('保存中…', 'Saving…')
-                    : isEdit ? t('保存修改', 'Save changes') : t('创建技能', 'Create skill')}
+                    : isEdit
+                      ? t('保存修改', 'Save changes')
+                      : isKnowledgeBase ? t('创建知识库', 'Create knowledge base') : t('创建技能', 'Create skill')}
                 </button>
               </div>
             </form>

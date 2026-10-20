@@ -64,6 +64,11 @@ export interface SearchHit {
   createdAt: number
   /** Always `skill`; kept because it is part of the published response shape. */
   docType: string
+  /**
+   * Whether the hit is a skill or a knowledge base. Read from the source
+   * table rather than the index, so it never goes stale.
+   */
+  type: string
 }
 
 export interface SearchResult {
@@ -106,11 +111,15 @@ const ALL_COLUMNS = [...FTS_COLUMNS, ...UNINDEXED_COLUMNS]
  * Joins the FTS document to its source table so hits also carry the optional
  * English name/summary. The FTS5 table itself is left untouched (altering an
  * FTS5 table is not supported); English text is read through the join instead.
+ *
+ * The entry's kind — skill or knowledge base — is read the same way: from the
+ * source row, so the index never has to be rebuilt when a record is retyped.
  */
 const HIT_SELECT = /* sql */ `
   SELECT sd.*,
          COALESCE(s.display_name_en, '') AS s_display_name_en,
-         COALESCE(s.summary_en, '')      AS s_summary_en
+         COALESCE(s.summary_en, '')      AS s_summary_en,
+         COALESCE(s.type, 'skill')       AS s_type
   FROM search_docs sd
   LEFT JOIN skills s ON sd.doc_type = 'skill' AND s.id = sd.target_id
 `
@@ -137,6 +146,7 @@ function rowToHit(r: Row): SearchHit {
     updatedAt: asNumber(r.updated_at),
     createdAt: asNumber(r.created_at),
     docType: 'skill',
+    type: asString(r.s_type) || 'skill',
   }
 }
 
@@ -264,6 +274,7 @@ export function search(opts: SearchOptions): SearchResult {
         `SELECT sd.*,
            COALESCE(s.display_name_en, '') AS s_display_name_en,
            COALESCE(s.summary_en, '')      AS s_summary_en,
+           COALESCE(s.type, 'skill')       AS s_type,
            bm25(search_docs, ${BM25_WEIGHTS.join(', ')}) AS rank
          FROM search_docs sd
          LEFT JOIN skills s ON sd.doc_type = 'skill' AND s.id = sd.target_id

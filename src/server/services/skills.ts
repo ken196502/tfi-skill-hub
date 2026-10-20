@@ -13,12 +13,13 @@ import type {
   Skill,
   SkillDependency,
   SkillKind,
+  SkillType,
   SkillVersion,
   SkillWithOwner,
   VersionFile,
   ListingStatus,
 } from '../../lib/types'
-import { VALID_CATEGORIES, VALID_KINDS, RESERVED_NAMESPACE_PREFIXES } from '../../lib/types'
+import { VALID_CATEGORIES, VALID_KINDS, VALID_SKILL_TYPES, RESERVED_NAMESPACE_PREFIXES } from '../../lib/types'
 import { asNumber, nowIso, query, tx, type Row } from '../db'
 import {
   computeContentFingerprint,
@@ -62,6 +63,8 @@ export interface ListOptions {
   category: string
   q: string
   namespaceSlug: string
+  /** `skill`, `knowledge_base`, or empty for both. */
+  type: string
   viewer: Viewer | null
 }
 
@@ -73,6 +76,7 @@ export function listSkills(opts: ListOptions) {
     category: opts.category,
     q: opts.q,
     namespaceSlug: opts.namespaceSlug,
+    type: opts.type,
     viewer: opts.viewer,
   })
   return { ...page, data: markStarred(page.data, opts.viewer) }
@@ -82,10 +86,11 @@ export function listSkills(opts: ListOptions) {
  * The categories the catalogue actually has, for the browse page's filter.
  *
  * Scoped to what this viewer can see, so the sidebar never offers a filter that
- * can only ever return an empty page.
+ * can only ever return an empty page. `type` narrows it further, so the
+ * knowledge-base browse page does not offer categories that only skills use.
  */
-export function listCategoriesInUse(viewer: Viewer | null): string[] {
-  return skillRepo.listCategoriesInUse(viewer)
+export function listCategoriesInUse(viewer: Viewer | null, type = ''): string[] {
+  return skillRepo.listCategoriesInUse(viewer, type)
 }
 
 /**
@@ -273,6 +278,11 @@ export interface PublishRequest {
   category?: string
   kind?: string
   /**
+   * What kind of entry this is — `skill` or `knowledge_base`. Omit to keep
+   * the default, or to leave an existing entry's type alone.
+   */
+  type?: string
+  /**
    * Whether the skill starts on or off the shelf. Omit to inherit the
    * namespace's `defaultListing`.
    */
@@ -342,16 +352,26 @@ export function publishVersion(
   }
   const kind = kindRaw as SkillKind
 
-  // 5. version
+  // 5. type
+  // A new entry is a skill unless the publisher says otherwise. An empty value
+  // on an existing entry means "leave the type alone" — the same rule the
+  // metadata write follows for every other field.
+  const typeRaw = (req.type ?? '') === '' ? '' : req.type!
+  if (typeRaw !== '' && !VALID_SKILL_TYPES.includes(typeRaw as SkillType)) {
+    fail(`invalid type '${typeRaw}'`)
+  }
+  const type = (typeRaw === '' ? 'skill' : typeRaw) as SkillType
+
+  // 6. version
   if (!isValidSemver(req.version)) {
     fail(`invalid version '${req.version}': must be valid semver (e.g. 1.0.0)`)
   }
 
-  // 6. dependencies
+  // 7. dependencies
   const dependencies = req.dependencies ?? []
   validateDependencies(dependencies, req.slug)
 
-  // 7. namespace resolution
+  // 8. namespace resolution
   let namespace = null as ReturnType<typeof namespaces.getBySlug>
   if (req.namespaceSlug && req.namespaceSlug !== '') {
     namespace = namespaces.getBySlug(req.namespaceSlug)
@@ -366,7 +386,7 @@ export function publishVersion(
     namespace = ensurePersonalNamespace(user)
   }
 
-  // 8. team-token / namespace agreement
+  // 9. team-token / namespace agreement
   if (req.tokenNamespaceId && namespace.id !== req.tokenNamespaceId) {
     forbidden('team token can only publish to its bound namespace')
   }
@@ -375,7 +395,7 @@ export function publishVersion(
     includeDeleted: true,
   })
 
-  // 9. namespace skill quota (new skills only)
+  // 10. namespace skill quota (new skills only)
   if (!existing && namespace.maxSkills > 0) {
     const count = skillRepo.countByNamespace(namespace.id)
     if (count >= namespace.maxSkills) {
@@ -383,7 +403,7 @@ export function publishVersion(
     }
   }
 
-  // 10. listing
+  // 11. listing
   const rawListing = req.listing ?? ''
   if (rawListing !== '' && rawListing !== 'listed' && rawListing !== 'unlisted') {
     fail("listing must be 'listed' or 'unlisted'")
@@ -391,7 +411,7 @@ export function publishVersion(
   const listing: ListingStatus =
     rawListing === '' ? namespace.defaultListing : (rawListing as ListingStatus)
 
-  // 11. create or authorize
+  // 12. create or authorize
   let skill: Skill
   if (!existing) {
     if (req.overwrite === false) {
@@ -407,6 +427,7 @@ export function publishVersion(
       namespaceId: namespace.id,
       listing,
       kind,
+      type,
       category: req.category && VALID_CATEGORIES.includes(req.category as never)
         ? req.category
         : 'general',
@@ -425,12 +446,12 @@ export function publishVersion(
     skill = skillRepo.getById(existing.id)!
   }
 
-  // 12. duplicate version
+  // 13. duplicate version
   if (versionRepo.exists(skill.id, req.version)) {
     conflict(`version ${req.version} already exists`)
   }
 
-  // 13. version must exceed the current latest
+  // 14. version must exceed the current latest
   const latest = versionRepo.getLatest(skill.id)
   if (latest && compareSemver(req.version, latest.version) <= 0) {
     fail(`version ${req.version} must be greater than current latest ${latest.version}`)
@@ -482,6 +503,9 @@ export function publishVersion(
         category: req.category && VALID_CATEGORIES.includes(req.category as never) ? req.category : undefined,
         tags: req.tags && req.tags.length > 0 ? req.tags : undefined,
         listing: rawListing === '' ? undefined : (rawListing as ListingStatus),
+        // An empty type leaves the record's own type alone — publishing a new
+        // version must not quietly turn a knowledge base back into a skill.
+        type: typeRaw === '' ? undefined : type,
       })
     }
 

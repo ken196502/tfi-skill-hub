@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { listFeatures, listSkills } from '../lib/api'
 import { SkillCard, Loading } from '../components/ui'
 import { useT } from '../lib/i18n'
+import type { SkillWithOwner } from '../lib/types'
 
 export const Route = createFileRoute('/')({
   component: HomePage,
@@ -16,14 +17,27 @@ function HomePage() {
   const navigate = useNavigate()
   const t = useT()
   const [query, setQuery] = useState('')
-  const popular = useQuery({
-    queryKey: ['skills', { sort: 'downloads', limit: 6 }],
-    queryFn: () => listSkills({ limit: 6, sort: 'downloads' }),
-  })
-  const featured = useQuery({
-    queryKey: ['features'],
-    queryFn: listFeatures,
+
+  // The homepage shows the two kinds of entry side by side: skills and
+  // knowledge bases each get their own featured and popular section, so a
+  // reader can tell at a glance which is which.
+  const featuredSkills = useQuery({
+    queryKey: ['features', { type: 'skill' }],
+    queryFn: () => listFeatures('skill'),
     select: (response) => response.data,
+  })
+  const featuredBases = useQuery({
+    queryKey: ['features', { type: 'knowledge_base' }],
+    queryFn: () => listFeatures('knowledge_base'),
+    select: (response) => response.data,
+  })
+  const popularSkills = useQuery({
+    queryKey: ['skills', { sort: 'downloads', limit: 6, type: 'skill' }],
+    queryFn: () => listSkills({ limit: 6, sort: 'downloads', type: 'skill' }),
+  })
+  const popularBases = useQuery({
+    queryKey: ['skills', { sort: 'downloads', limit: 6, type: 'knowledge_base' }],
+    queryFn: () => listSkills({ limit: 6, sort: 'downloads', type: 'knowledge_base' }),
   })
 
   const onSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -59,40 +73,98 @@ function HomePage() {
           </form>
         </section>
 
-        <section className="home-popular" aria-labelledby="featured-skills-title">
-          <div className="home-section-heading">
-            <div>
-              <h2 id="featured-skills-title">{t('精选技能', 'Featured skills')}</h2>
-            </div>
-          </div>
+        <FeaturedSection
+          id="featured-skills-title"
+          title={t('精选技能', 'Featured skills')}
+          query={featuredSkills}
+        />
 
-          {featured.isLoading ? (
-            <Loading />
-          ) : (
-            <div className="skill-grid">
-              {featured.data?.map((skill) => <SkillCard key={skill.id} skill={skill} />)}
-            </div>
-          )}
-        </section>
+        <FeaturedSection
+          id="featured-knowledge-bases-title"
+          title={t('精选知识库', 'Featured knowledge bases')}
+          query={featuredBases}
+        />
 
-        <section className="home-popular" aria-labelledby="popular-skills-title">
-          <div className="home-section-heading">
-            <div>
-              <h2 id="popular-skills-title">{t('热门技能', 'Popular skills')}</h2>
-            </div>
-          </div>
+        <PopularSection
+          id="popular-skills-title"
+          title={t('热门技能', 'Popular skills')}
+          query={popularSkills}
+        />
 
-          {popular.isLoading ? (
-            <Loading />
-          ) : (
-            <div className="skill-grid">
-              {(popular.data?.data ?? []).map((skill) => (
-                <SkillCard key={skill.id} skill={skill} />
-              ))}
-            </div>
-          )}
-        </section>
+        <PopularSection
+          id="popular-knowledge-bases-title"
+          title={t('热门知识库', 'Popular knowledge bases')}
+          query={popularBases}
+        />
       </div>
     </div>
+  )
+}
+
+/**
+ * The featured rail for one kind of entry.
+ *
+ * A section with nothing in it is left out entirely rather than shown empty —
+ * a fresh catalogue has no knowledge bases yet, and an empty heading reads as
+ * a broken page.
+ */
+function FeaturedSection({
+  id,
+  title,
+  query,
+}: {
+  id: string
+  title: string
+  query: { isLoading: boolean; data?: SkillWithOwner[] }
+}) {
+  const items = query.data ?? []
+  if (!query.isLoading && items.length === 0) return null
+  return (
+    <section className="home-popular" aria-labelledby={id}>
+      <div className="home-section-heading">
+        <div>
+          <h2 id={id}>{title}</h2>
+        </div>
+      </div>
+
+      {query.isLoading ? (
+        <Loading />
+      ) : (
+        <div className="skill-grid">
+          {items.map((skill) => <SkillCard key={skill.id} skill={skill} />)}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** The most-downloaded rail for one kind of entry. */
+function PopularSection({
+  id,
+  title,
+  query,
+}: {
+  id: string
+  title: string
+  query: { isLoading: boolean; data?: { data: SkillWithOwner[] } }
+}) {
+  const items = query.data?.data ?? []
+  if (!query.isLoading && items.length === 0) return null
+  return (
+    <section className="home-popular" aria-labelledby={id}>
+      <div className="home-section-heading">
+        <div>
+          <h2 id={id}>{title}</h2>
+        </div>
+      </div>
+
+      {query.isLoading ? (
+        <Loading />
+      ) : (
+        <div className="skill-grid">
+          {items.map((skill) => <SkillCard key={skill.id} skill={skill} />)}
+        </div>
+      )}
+    </section>
   )
 }

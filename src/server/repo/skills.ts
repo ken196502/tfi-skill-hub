@@ -16,6 +16,7 @@ import type {
   Skill,
   SkillDependency,
   SkillKind,
+  SkillType,
   SkillVersion,
   SkillWithOwner,
   VersionFile,
@@ -49,6 +50,9 @@ function mapSkill(r: Row): Skill {
     listing: asString(r.listing) as ListingStatus,
     isSuspicious: asBool(r.is_suspicious),
     kind: asString(r.kind) as SkillKind,
+    // NOT NULL with a default, so it is always present; the fallback only
+    // guards a row that predates the column.
+    type: (asString(r.type) || 'skill') as SkillType,
     category: asString(r.category),
     tags: parseJson<string[]>(r.tags, []),
     downloads: asNumber(r.downloads),
@@ -170,6 +174,11 @@ export interface ListOptions {
   q: string
   /** Namespace **slug**; an unknown slug applies no filter (upstream quirk). */
   namespaceSlug: string
+  /**
+   * Restricts the result to one kind of entry — `skill` or `knowledge_base`.
+   * Empty means both.
+   */
+  type: string
   viewer: Viewer | null
   includeDeleted?: boolean
 }
@@ -178,13 +187,18 @@ export interface ListOptions {
  * Filter shared by the admin listing's count and page queries. Kept in one
  * place so `total` and `data` can never disagree about what the filter means.
  */
-function adminSkillFilter(listing: string): { where: string[]; params: unknown[] } {
+function adminSkillFilter(listing: string, type: string): { where: string[]; params: unknown[] } {
   const where: string[] = ['s.soft_deleted_at IS NULL']
   const params: unknown[] = []
 
   if (listing === 'listed' || listing === 'unlisted') {
     where.push('s.listing = ?')
     params.push(listing)
+  }
+
+  if (type === 'skill' || type === 'knowledge_base') {
+    where.push('s.type = ?')
+    params.push(type)
   }
 
   return { where, params }
@@ -251,6 +265,11 @@ export const skills = {
       params.push(opts.category)
     }
 
+    if (opts.type === 'skill' || opts.type === 'knowledge_base') {
+      where.push('s.type = ?')
+      params.push(opts.type)
+    }
+
     if (opts.q) {
       // Same escaping contract as the search LIKE fallback in repo/search.ts.
       const like = `%${opts.q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`
@@ -306,11 +325,12 @@ export const skills = {
    */
   listForAdmin(opts: {
     listing: string
+    type: string
     cursor: string
     limit: number
     page: number
   }): { data: SkillWithOwner[]; nextCursor: string; total: number } {
-    const { where, params } = adminSkillFilter(opts.listing)
+    const { where, params } = adminSkillFilter(opts.listing, opts.type)
     const total = asNumber(
       query.get<Row>(
         `SELECT COUNT(*) AS c FROM skills s WHERE ${where.join(' AND ')}`,
@@ -359,15 +379,18 @@ export const skills = {
    *
    * Ordered case-insensitively here; callers re-sort for display.
    */
-  listCategoriesInUse(viewer: Viewer | null = null): string[] {
+  listCategoriesInUse(viewer: Viewer | null = null, type = ''): string[] {
     const vis = listingClause(viewer)
+    const typeClause = type === 'skill' || type === 'knowledge_base' ? ' AND s.type = ?' : ''
+    const typeParams = typeClause ? [type] : []
     return query
       .all<Row>(
         `SELECT DISTINCT s.category AS category FROM skills s
           WHERE s.soft_deleted_at IS NULL
-            AND s.category IS NOT NULL AND TRIM(s.category) != ''${vis.sql}
+            AND s.category IS NOT NULL AND TRIM(s.category) != ''${vis.sql}${typeClause}
           ORDER BY s.category COLLATE NOCASE`,
         ...vis.params,
+        ...typeParams,
       )
       .map((row) => asString(row.category))
   },
@@ -382,6 +405,7 @@ export const skills = {
     namespaceId: string
     listing: ListingStatus
     kind: SkillKind
+    type: SkillType
     category: string
     tags: string[]
   }): Skill {
@@ -390,8 +414,8 @@ export const skills = {
     query.run(
       `INSERT INTO skills
         (id, slug, display_name, summary, display_name_en, summary_en, owner_id, namespace_id,
-         listing, is_suspicious, kind, category, tags, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+         listing, is_suspicious, kind, type, category, tags, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
       id,
       input.slug,
       input.displayName ?? null,
@@ -402,6 +426,7 @@ export const skills = {
       input.namespaceId,
       input.listing,
       input.kind,
+      input.type,
       input.category,
       JSON.stringify(input.tags),
       now,
@@ -421,6 +446,7 @@ export const skills = {
       category?: string
       tags?: string[]
       listing?: ListingStatus
+      type?: SkillType
     },
   ): void {
     const sets: string[] = []
@@ -453,6 +479,10 @@ export const skills = {
       sets.push('listing = ?')
       params.push(fields.listing)
     }
+    if (fields.type) {
+      sets.push('type = ?')
+      params.push(fields.type)
+    }
     if (sets.length === 0) return
     params.push(id)
     query.run(`UPDATE skills SET ${sets.join(', ')} WHERE id = ?`, ...params)
@@ -477,12 +507,13 @@ export const skills = {
       category: string
       tags: string[]
       listing: ListingStatus
+      type: SkillType
     },
   ): void {
     query.run(
       `UPDATE skills
           SET display_name = ?, summary = ?, display_name_en = ?, summary_en = ?,
-              category = ?, tags = ?, listing = ?, updated_at = ?
+              category = ?, tags = ?, listing = ?, type = ?, updated_at = ?
         WHERE id = ?`,
       fields.displayName,
       fields.summary,
@@ -491,6 +522,7 @@ export const skills = {
       fields.category,
       JSON.stringify(fields.tags),
       fields.listing,
+      fields.type,
       nowIso(),
       id,
     )

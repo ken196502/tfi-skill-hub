@@ -101,14 +101,23 @@ function HitCard({ hit }: { hit: SearchHit }) {
     lang === 'en' && hit.displayNameEn ? hit.displayNameEn : hit.displayName || hit.slug
   const summary =
     lang === 'en' && hit.summaryEn ? hit.summaryEn : hit.summary
+  // The chip row gets three slots, so a badged hit shows one tag fewer: the
+  // row stays on one line and the card keeps its height.
+  const isKnowledgeBase = hit.type === 'knowledge_base'
+  const tags = hit.tags.slice(0, isKnowledgeBase ? 2 : 3)
   return (
     <Link to={to} params={{ _splat: ref }}>
       <div className="card">
         <div className="card-head">
           <div className="card-title">{name}</div>
-          {hit.tags.length > 0 && (
+          {(isKnowledgeBase || tags.length > 0) && (
             <div className="card-tags">
-              {hit.tags.slice(0, 3).map((tag) => (
+              {/* Search answers with both kinds of entry, so the hit says which
+                  one it is. */}
+              {isKnowledgeBase && (
+                <span className="card-kind">{t('知识库', 'Knowledge base')}</span>
+              )}
+              {tags.map((tag) => (
                 <span className="tag" key={tag}>
                   {tag}
                 </span>
