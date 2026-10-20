@@ -946,12 +946,13 @@ main { flex: 1; }
 
 .skills-layout { display: flex; gap: 32px; align-items: flex-start; }
 .skills-sidebar {
-  width: 176px;
+  width: 200px;
   flex-shrink: 0;
   position: sticky;
   top: 96px;
 }
 .skills-sidebar-title {
+  display: block;
   font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -959,26 +960,6 @@ main { flex: 1; }
   color: var(--sec-label);
   padding: 0 12px;
   margin-bottom: 8px;
-}
-.skills-cat-list { display: flex; flex-direction: column; gap: 2px; }
-.skills-cat-btn {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: none;
-  border: none;
-  padding: 7px 12px;
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.skills-cat-btn:hover { background: var(--card-bg); color: var(--text); }
-.skills-cat-btn.active {
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-weight: 600;
 }
 .skills-main { flex: 1; min-width: 0; }
 
@@ -1720,8 +1701,6 @@ main { flex: 1; }
   .skills-layout { flex-direction: column; gap: 16px; }
   .skills-sidebar { width: 100%; position: static; }
   .skills-sidebar-title { padding: 0; }
-  .skills-cat-list { flex-direction: row; flex-wrap: wrap; gap: 6px; }
-  .skills-cat-btn { width: auto; padding: 6px 14px; background: var(--card-bg); border: 1px solid var(--card-border); font-size: 0.8rem; }
 }
 
 @media (max-width: 480px) {

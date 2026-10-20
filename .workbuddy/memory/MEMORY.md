@@ -36,8 +36,10 @@
   **没有** visibility / moderationStatus / plugins。端点 `POST /api/v1/admin/skills/:slug/listing`，
   筛选 `?listing=`，审计 `list_skill`/`unlist_skill`。已删且**不要恢复**：`.../review`、`.../visibility`、
   `.../request-public`、`/api/v1/plugins*`（smoke 有反向 404 断言）
-- 分类是自由输入 + 已有分类下拉：已有分类走 `GET /api/v1/admin/categories`（DISTINCT），
-  公开侧 `/api/v1/categories/in-use`（**必须带 visibilityClause**）。公开 `/api/v1/categories` 仍返回四项白名单
+- 分类两处都是自由输入 Combobox（`allowCustom`）：管理台表单候选走 `GET /api/v1/admin/categories`（DISTINCT）；
+  公开目录页侧栏（/skills、/knowledge-bases，`CataloguePage.tsx`）候选走 `/api/v1/categories/in-use`
+  （**必须带 visibilityClause**，按 type 收窄），候选首位是「全部分类」(value='')，URL 上不在列表的分类
+  会追加进候选保持可见可点。公开 `/api/v1/categories` 仍返回四项白名单
 - ⚠️ `createSkillFromForm` 的 create 路径经 `publishVersion` 会把非白名单分类**静默改成 general**，
   之后要用 `updateMetadata` 写回（smoke 钉住）
 
@@ -54,8 +56,12 @@
 ## 用户列表统计 + 重置密码（v14，2026-10-16）——明细见 CONVENTIONS.md
 - `/admin/users` 多两列 **下载次数 / 登录次数**，键 `downloadCount`/`loginCount`，
   **只在列表响应里**（不进 `mapUser`、不进单用户响应）
-- 下载口径 = **该用户自己下载的次数**（不是"他的技能被下载"）：新增 `user_downloads` 表，
-  在 `download()` 里按 `viewer` 记账，UNIQUE(user_id,skill_id,version_id)
+- **下载次数按类型拆分**（2026-10-20）：`downloadCount` = 技能、`knowledgeBaseDownloadCount` = 知识库，
+  前端列头「下载次数(技能/知识库)」、值 `技能/知识库`（如 `2/1`）。`activityCounts` 用两条
+  correlated subquery `JOIN skills` 按 `s.type` 分流；口径仍是**该用户自己下载的次数**
+  （`user_downloads` 表，`download()` 里按 `viewer` 记账，UNIQUE(user_id,skill_id,version_id)）
+- ⚠️ smoke 里给某用户造下载夹具后若再 `purge` 该条目，`user_downloads` 会**级联清零** ⇒
+  purge 必须放在活动计数断言之后；且 16c 段造的 `smoke-kb` 等已被 purge，别下载不存在的 slug
 - 登录次数用 **`users.login_count` 列**，**不要**改成 `COUNT(sessions)`
 - 重置密码 `POST /api/v1/admin/users/password`，**不带 apiKeyScope**（只认 Cookie）；
   审计 `reset_user_password` **只写 handle，不写密码**
@@ -92,7 +98,7 @@
   HTML 只能用页面已有 class（`table`/`note`），每段写 zh+en 两个 span
 
 ## 交付前必跑
-`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（全绿，当前 359 条）
+`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 366 条断言）
 - **改了源码必须重新 build 再 smoke**，否则验证的是旧 dist（曾因此误判）
 
 ## 本机环境坑
@@ -103,4 +109,6 @@
 - 含控制字符正则一律 `/[\u0000-\u001f\u007f]/g` 显式转义（字面字符会让源码变 binary）
 - `agent-browser`：点小元素用 eval `el.click()`；eval 上下文持久 ⇒ `const` 会重复声明报错，用 IIFE；
   带 SVG 的按钮用 `elementFromPoint` 判 `button.contains(at)` 而不是 `at === button`；
-  截图是 `agent-browser screenshot "<path>"`（`--path` 会报元素找不到）
+  截图是 `agent-browser screenshot "<path>"`（`--path` 会报元素找不到）；
+  **`open` 后先 `get url` 确认真的导航了**（daemon 刚起时可能停在 about:blank，`wait --load networkidle` 也救不回）；
+  本项目登录框是 `#handle`/`#password`（**没有 name 属性**），提交用 `button[type="submit"]`

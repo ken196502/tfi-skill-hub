@@ -2,7 +2,7 @@
  * The catalogue browse page, shared by the skills and knowledge-base views.
  *
  * The two catalogues are the same thing with a different kind of entry in
- * them, so they are the same page: one column of categories, one search box,
+ * them, so they are the same page: one category filter, one search box,
  * one sort bar, one grid. Only the `type` they ask the server for, and the
  * wording around it, differ.
  *
@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { categoriesInUse, listSkills } from '../lib/api'
+import { Combobox, type ComboboxOption } from './Combobox'
 import { SkillCard, Loading, ErrorBox, PageHeader } from './ui'
 import { useT } from '../lib/i18n'
 import type { SkillType } from '../lib/types'
@@ -94,6 +95,23 @@ export function CataloguePage({
     [categoryQuery.data],
   )
 
+  /**
+   * The filter's suggestions, in the order they are offered: an explicit
+   * "all" entry first, then every category the catalogue currently uses.
+   *
+   * The field takes free text, so this list is only a shortcut. A category
+   * can also reach the URL without being in it — an old link, or a skill
+   * that has since been unlisted — so the active one rides along and stays
+   * visible and pickable instead of reading as text the user typed.
+   */
+  const categoryOptions: ComboboxOption[] = [
+    { value: '', label: t('全部分类', 'All categories') },
+    ...filters.map((value) => ({ value, label: value })),
+    ...(category !== '' && !filters.includes(category)
+      ? [{ value: category, label: category }]
+      : []),
+  ]
+
   const setSort = (next: string) => {
     setPages(1)
     onSearchChange({ sort: next, category: search.category, q: search.q })
@@ -122,39 +140,19 @@ export function CataloguePage({
 
         <div className="skills-layout">
           <aside className="skills-sidebar">
-            <div className="skills-sidebar-title">{t('分类', 'Categories')}</div>
-            <nav className="skills-cat-list">
-              <button
-                type="button"
-                className={`skills-cat-btn${category === '' ? ' active' : ''}`}
-                onClick={() => setCategory('')}
-              >
-                {t('全部分类', 'All categories')}
-              </button>
-              {filters.map((slug) => (
-                <button
-                  key={slug}
-                  type="button"
-                  className={`skills-cat-btn${category === slug ? ' active' : ''}`}
-                  onClick={() => setCategory(slug)}
-                >
-                  {slug}
-                </button>
-              ))}
-              {/* A category can reach the URL without being in the list — an old
-                  link, or a skill that has since been unlisted. Keep it on screen
-                  so the active filter stays visible instead of silently
-                  resetting the "all" button while results are still filtered. */}
-              {category !== '' && !filters.includes(category) && (
-                <button
-                  type="button"
-                  className="skills-cat-btn active"
-                  onClick={() => setCategory(category)}
-                >
-                  {category}
-                </button>
-              )}
-            </nav>
+            <label className="skills-sidebar-title" htmlFor="catalogue-category">
+              {t('分类', 'Categories')}
+            </label>
+            <Combobox
+              id="catalogue-category"
+              value={category}
+              options={categoryOptions}
+              onChange={setCategory}
+              placeholder={t('选择或输入分类', 'Pick or type a category')}
+              listLabel={t('已有分类', 'Existing categories')}
+              emptyLabel={t('没有匹配的分类', 'No matching categories')}
+              allowCustom
+            />
           </aside>
 
           <div className="skills-main">
