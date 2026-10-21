@@ -98,7 +98,7 @@
   HTML 只能用页面已有 class（`table`/`note`），每段写 zh+en 两个 span
 
 ## 交付前必跑
-`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 366 条断言）
+`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 375 条断言）
 - **改了源码必须重新 build 再 smoke**，否则验证的是旧 dist（曾因此误判）
 
 ## 本机环境坑

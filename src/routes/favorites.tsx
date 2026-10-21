@@ -34,8 +34,8 @@ function FavoritesPage() {
         <PageHeader
           title={t('收藏', 'Favorites')}
           subtitle={t(
-            '这里汇集了您收藏的技能，随时可以回来取用。',
-            'Every skill you have starred, ready when you need it.',
+            '这里汇集了您收藏的技能与知识库，随时可以回来取用。',
+            'Every skill and knowledge base you have starred, ready when you need it.',
           )}
         />
 
@@ -44,7 +44,7 @@ function FavoritesPage() {
         ) : !user ? (
           <div className="favorites-empty">
             <p className="detail-summary">
-              {t('登录后即可查看收藏的技能。', 'Sign in to see the skills you have favourited.')}
+              {t('登录后即可查看收藏的技能与知识库。', 'Sign in to see the skills and knowledge bases you have favourited.')}
             </p>
             <a className="btn btn-primary" href="/login?redirect=%2Ffavorites">
               {t('登录', 'Log in')}
@@ -60,12 +60,12 @@ function FavoritesPage() {
           <div className="favorites-empty">
             <p className="detail-summary">
               {t(
-                '还没有收藏任何技能。浏览时点击卡片上的星标即可收藏。',
-                'Nothing favourited yet. Tap the star on any skill card to collect it here.',
+                '还没有收藏任何技能与知识库。浏览时点击卡片上的星标即可收藏。',
+                'Nothing favourited yet. Tap the star on any skill or knowledge base card to collect it here.',
               )}
             </p>
-            <Link to="/skills" className="btn btn-secondary">
-              {t('去浏览技能', 'Browse skills')}
+            <Link to="/" className="btn btn-secondary">
+              {t('去浏览技能与知识库', 'Browse skills & knowledge bases')}
             </Link>
           </div>
         ) : (

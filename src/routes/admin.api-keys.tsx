@@ -12,8 +12,8 @@ export const Route = createFileRoute('/admin/api-keys')({ component: ApiKeysPage
 
 const SCOPE_COPY: Record<ApiKeyScope, { title: [string, string]; hint: [string, string] }> = {
   'skills:read': {
-    title: ['读取技能', 'Read skills'],
-    hint: ['搜索、列表、详情、文件与下载', 'Search, lists, details, files and downloads'],
+    title: ['读取技能与知识库', 'Read skills & knowledge bases'],
+    hint: ['搜索、列表、详情、文件与下载，可按类型筛选', 'Search, lists, details, files and downloads — filterable by type'],
   },
   'skills:publish': {
     title: ['发布与更新', 'Publish & update'],
@@ -21,11 +21,11 @@ const SCOPE_COPY: Record<ApiKeyScope, { title: [string, string]; hint: [string, 
   },
   'skills:delete': {
     title: ['删除与恢复', 'Delete & restore'],
-    hint: ['删除技能、恢复、彻底清除', 'Delete, restore and purge skills'],
+    hint: ['删除技能或知识库、恢复、彻底清除', 'Delete, restore and purge skills or knowledge bases'],
   },
   'skills:moderate': {
     title: ['上下架与版本标记', 'Listing & version flags'],
-    hint: ['技能上下架、将某个版本标记为下架或弃用、转移归属', 'List or unlist skills, yank or deprecate a version, transfer ownership'],
+    hint: ['技能或知识库上下架、将某个版本标记为下架或弃用、转移归属', 'List or unlist skills or knowledge bases, yank or deprecate a version, transfer ownership'],
   },
   'users:moderate': {
     title: ['审核注册用户', 'Review sign-ups'],
@@ -93,7 +93,7 @@ const API_EXAMPLES: ApiExample[] = [
     scope: 'skills:publish',
     label: ['发布知识库', 'Publish a knowledge base'],
     command: (o, k) =>
-      `curl -X POST -H "Authorization: Bearer ${k}" \\\n  -F slug=<slug> -F version=1.0.0 -F type=knowledge_base \\\n  ${o}/api/v1/skills`,
+      `curl -X POST -H "Authorization: Bearer ${k}" \\\n  -F slug=<slug> -F version=1.0.0 -F type=knowledge_base \\\n  -F "files=@<package>" \\\n  ${o}/api/v1/skills`,
   },
   {
     scope: 'skills:publish',
@@ -256,8 +256,8 @@ function ApiKeysPage() {
     <PageHeader
       title={t('API Keys', 'API Keys')}
       subtitle={t(
-        `签发用于通过接口管理技能的密钥，可按需限制用途与生效范围。当前 ${activeCount} 个可用。`,
-        `Issue keys that manage skills over the API, limited to the uses you choose. ${activeCount} active.`,
+        `签发用于通过接口管理技能与知识库的密钥，可按需限制用途与生效范围。当前 ${activeCount} 个可用。`,
+        `Issue keys that manage skills and knowledge bases over the API, limited to the uses you choose. ${activeCount} active.`,
       )}
       actions={<button className="btn btn-primary" type="button" onClick={() => setShowForm((value) => !value)}>{showForm ? t('收起表单', 'Hide form') : t('创建 API Key', 'Create API key')}</button>}
     />
@@ -306,7 +306,7 @@ function ApiKeysPage() {
             <button className="btn btn-danger btn-small" disabled={statusOf(key) !== 'active' || revoke.isPending} type="button" onClick={() => handleRevoke(key, t, () => revoke.mutate(key.id))}>{statusOf(key) === 'active' ? t('撤销', 'Revoke') : t('已失效', 'Disabled')}</button>
           </div></td>
         </tr>)}
-        {rows.length === 0 && <tr><td colSpan={7} className="admin-empty">{t('还没有 API Key，创建一个即可通过接口管理技能。', 'No API keys yet — create one to manage skills over the API.')}</td></tr>}
+        {rows.length === 0 && <tr><td colSpan={7} className="admin-empty">{t('还没有 API Key，创建一个即可通过接口管理技能与知识库。', 'No API keys yet — create one to manage skills and knowledge bases over the API.')}</td></tr>}
       </tbody></table>
     </div>}
 

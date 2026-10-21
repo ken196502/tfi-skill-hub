@@ -191,7 +191,7 @@ function ContentPage() {
       <AdminNav active="content" />
       <PageHeader
         title={t('内容管理', 'Content management')}
-        subtitle={t('维护技能的展示信息与详情内容，可随时上架、下架或删除。', 'Maintain skill details and rich content; list, unlist or remove a skill at any time.')}
+        subtitle={t('维护技能与知识库的展示信息与详情内容，可随时上架、下架或删除。', 'Maintain skill and knowledge base details and rich content; list, unlist or remove them at any time.')}
       />
 
       <div className="admin-toolbar admin-toolbar-spaced">
@@ -249,7 +249,7 @@ function ContentPage() {
       {list.isLoading
         ? <Loading />
         : list.isError
-          ? <ErrorBox message={t('加载技能列表失败，请稍后重试。', 'Could not load the skill list. Please try again later.')} />
+          ? <ErrorBox message={t('加载技能与知识库列表失败，请稍后重试。', 'Could not load the skills and knowledge bases list. Please try again later.')} />
           : (
             <SkillTable
               rows={rows}
@@ -545,7 +545,7 @@ function SkillDialog({
       {isEdit && detail.isLoading
         ? <Loading />
         : detail.isError
-          ? <ErrorBox message={t('读取技能内容失败，请重试。', 'Could not read this skill. Please try again.')} />
+          ? <ErrorBox message={t('读取内容失败，请重试。', 'Could not read the content. Please try again.')} />
           : (
             <form
               onSubmit={(event) => {

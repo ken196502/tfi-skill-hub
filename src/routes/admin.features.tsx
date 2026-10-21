@@ -40,8 +40,8 @@ function FeaturesPage() {
   return <div className="container page-container">
     <AdminNav active="features" />
     <PageHeader
-      title={t('首页精选', 'Featured skills')}
-      subtitle={t('选择首页展示的精选技能，最多 12 个；顺序按勾选顺序保存。', 'Choose the skills featured on the homepage, up to 12; the order follows your selection.')}
+      title={t('首页精选', 'Featured')}
+      subtitle={t('选择首页展示的精选内容（技能与知识库），最多 12 个；顺序按勾选顺序保存。', 'Choose the entries (skills and knowledge bases) featured on the homepage, up to 12; the order follows your selection.')}
     />
     <div className="admin-toolbar admin-toolbar-spaced">
       <div className="admin-filter-group">

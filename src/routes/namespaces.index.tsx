@@ -60,8 +60,8 @@ function NamespacesPage() {
       <PageHeader
         title={t('命名空间', 'Namespaces')}
         subtitle={t(
-          '团队协作空间：成员、技能归属与团队 Token 都在这里管理。',
-          'Team workspaces: members, skill ownership, and team tokens are managed here.',
+          '团队协作空间：成员、技能与知识库的归属，以及团队 Token，都在这里管理。',
+          'Team workspaces: members, ownership of skills and knowledge bases, and team tokens are managed here.',
         )}
         actions={
           <button className="btn btn-primary" type="button" onClick={() => setShowForm((v) => !v)}>

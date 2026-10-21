@@ -68,7 +68,7 @@ export function LoginPage() {
           </svg>
         </div>
         <h1 className="login-title">{t('登录', 'Log in')}</h1>
-        <p className="login-subtitle">{t('登录以发布和管理技能。', 'Log in to publish and manage skills.')}</p>
+        <p className="login-subtitle">{t('登录以发布和管理技能与知识库。', 'Log in to publish and manage skills and knowledge bases.')}</p>
 
         <form className="login-form" onSubmit={onSubmit}>
           {error && <ErrorBox message={error} />}

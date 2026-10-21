@@ -52,16 +52,16 @@ function HomePage() {
       <div className="container home-container">
         <section className="home-hero">
           <h1 className="home-title">
-            {t('为智能体打造金融技能', 'Build with AGENT Skills')}
+            {t('为智能体打造金融技能与知识库', 'Build financial skills & knowledge bases for your agents')}
           </h1>
-          <p className="home-subtitle">{t('赋予你的AI智能体专业金融技能', 'Discover powerful capabilities for your AI agents.')}</p>
+          <p className="home-subtitle">{t('赋予你的AI智能体专业的金融技能与知识库', 'Discover powerful skills and knowledge bases for your AI agents.')}</p>
 
           <form className="home-search" onSubmit={onSearch} role="search">
             <input
               className="home-search-input"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={t('搜索技能、能力等...', 'Search skills, capabilities, and more...')}
+              placeholder={t('搜索技能、知识库、能力等...', 'Search skills, knowledge bases, capabilities, and more...')}
               aria-label="Search skills"
             />
             <button className="home-search-button" type="submit" aria-label="Search">

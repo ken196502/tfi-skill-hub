@@ -61,9 +61,9 @@ function SkillDetailPage() {
   if (skill.isError || !skill.data) {
     return (
       <div className="container" style={{ paddingTop: 60 }}>
-        <PageTitle title={t('技能未找到', 'Skill not found')} />
-        <Link to="/skills" className="btn btn-secondary">
-          {t('返回技能列表', 'Back to skills')}
+        <PageTitle title={t('未找到内容', 'Content not found')} />
+        <Link to="/" className="btn btn-secondary">
+          {t('返回首页', 'Back to home')}
         </Link>
       </div>
     )
@@ -100,7 +100,7 @@ function SkillDetailPage() {
           ) : readme.isLoading ? (
             <Loading />
           ) : readme.isError ? (
-            <ErrorBox message={t('无法读取该技能的 SKILL.md。', 'Unable to read this skill\'s SKILL.md.')} />
+            <ErrorBox message={t('无法读取该内容的说明文档。', 'Unable to read this entry\'s documentation.')} />
           ) : (
             <Markdown source={readme.data ?? ''} />
           )}

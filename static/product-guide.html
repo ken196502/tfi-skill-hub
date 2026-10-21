@@ -79,7 +79,7 @@
       <li><a href="#s2"><span class="zh">用户能做什么</span><span class="en">What users can do</span></a></li>
       <li><a href="#s3"><span class="zh">注册账号</span><span class="en">Register</span></a></li>
       <li><a href="#s4"><span class="zh">收藏 / 取消收藏</span><span class="en">Favorite / unfavorite</span></a></li>
-      <li><a href="#s5"><span class="zh">下载技能</span><span class="en">Download</span></a></li>
+      <li><a href="#s5"><span class="zh">下载内容</span><span class="en">Download</span></a></li>
       <li><a href="#s6"><span class="zh">管理员功能（仅 admin）</span><span class="en">Admin functions (admin only)</span></a></li>
       <li><a href="#s7"><span class="zh">给测试人员的注意点</span><span class="en">Notes for testers</span></a></li>
     </ol>
@@ -101,8 +101,8 @@
     <p><span class="zh">普通注册用户只能进行以下三类操作：</span><span class="en">A regular registered user can only do these three things:</span></p>
     <ol>
       <li><span class="zh"><strong>注册账号</strong></span><span class="en"><strong>Register an account</strong></span></li>
-      <li><span class="zh"><strong>收藏 / 取消收藏</strong>技能</span><span class="en"><strong>Favorite / unfavorite</strong> a skill</span></li>
-      <li><span class="zh"><strong>下载技能</strong></span><span class="en"><strong>Download</strong> a skill</span></li>
+      <li><span class="zh"><strong>收藏 / 取消收藏</strong>技能与知识库</span><span class="en"><strong>Favorite / unfavorite</strong> skills and knowledge bases</span></li>
+      <li><span class="zh"><strong>下载技能与知识库</strong></span><span class="en"><strong>Download</strong> skills and knowledge bases</span></li>
     </ol>
   </section>
 
@@ -200,15 +200,15 @@
   <section id="s4">
     <h2><span class="zh">4. 收藏 / 取消收藏</span><span class="en">4. Favorite / unfavorite</span></h2>
     <ul>
-      <li><span class="zh">在技能详情页（或技能卡片）点击<strong>收藏</strong>按钮即可收藏该技能；收藏后按钮显示<strong>已收藏</strong>，再次点击即<strong>取消收藏</strong>。</span><span class="en">On a skill detail page (or a skill card), click the <strong>Favorite</strong> button to favorite it; once favorited the button shows <strong>Favorited</strong>, and clicking again <strong>removes it from favorites</strong>.</span></li>
-      <li><span class="zh">收藏状态仅对当前登录账号生效，可在顶部「收藏」页（<code>/favorites</code>）查看已收藏的技能列表。</span><span class="en">The favorite state applies only to the signed-in account; view the list on the top "Favorites" page (<code>/favorites</code>).</span></li>
+      <li><span class="zh">在内容详情页（或内容卡片）点击<strong>收藏</strong>按钮即可收藏；收藏后按钮显示<strong>已收藏</strong>，再次点击即<strong>取消收藏</strong>。</span><span class="en">On a content detail page (or a content card), click the <strong>Favorite</strong> button to favorite it; once favorited the button shows <strong>Favorited</strong>, and clicking again <strong>removes it from favorites</strong>.</span></li>
+      <li><span class="zh">收藏状态仅对当前登录账号生效，可在顶部「收藏」页（<code>/favorites</code>）查看已收藏的内容列表。</span><span class="en">The favorite state applies only to the signed-in account; view the list on the top "Favorites" page (<code>/favorites</code>).</span></li>
     </ul>
   </section>
 
   <section id="s5">
-    <h2><span class="zh">5. 下载技能</span><span class="en">5. Download</span></h2>
+    <h2><span class="zh">5. 下载内容</span><span class="en">5. Download</span></h2>
     <ul>
-      <li><span class="zh">打开任意技能详情页，点击<strong>「下载 ZIP」</strong>按钮，即可把该技能的文件打包下载到本地。</span><span class="en">Open any skill detail page and click the <strong>"Download ZIP"</strong> button to download the skill's files as a package.</span></li>
+      <li><span class="zh">打开任意内容详情页，点击<strong>「下载 ZIP」</strong>按钮，即可把该内容的文件打包下载到本地。</span><span class="en">Open any content detail page and click the <strong>"Download ZIP"</strong> button to download the entry's files as a package.</span></li>
       <li><span class="zh">下载需要登录账号；未登录时按钮会提示「登录后下载」。</span><span class="en">Downloading requires sign-in; when signed out the button prompts "Log in to download".</span></li>
     </ul>
   </section>
@@ -219,7 +219,7 @@
     <table>
       <thead><tr><th><span class="zh">模块</span><span class="en">Module</span></th><th><span class="zh">功能</span><span class="en">What it does</span></th></tr></thead>
       <tbody>
-        <tr><td><span class="zh">总览</span><span class="en">Overview</span></td><td><span class="zh">展示用户 / 技能 / 首页精选的数量统计。</span><span class="en">Counts of users / skills / featured skills.</span></td></tr>
+        <tr><td><span class="zh">总览</span><span class="en">Overview</span></td><td><span class="zh">展示用户 / 技能与知识库 / 首页精选的数量统计。</span><span class="en">Counts of users / skills & knowledge bases / featured content.</span></td></tr>
         <tr><td><span class="zh">用户管理</span><span class="en">Users</span></td><td><span class="zh">创建用户、调整角色（普通用户 / 管理员）、封禁账号；按状态（待审核 / 已通过 / 已驳回）筛选，逐条通过或驳回注册申请（驳回可填理由）；<strong>待审核</strong>的账号会<strong>自动展开</strong>注册资料（姓名、邮箱、所在国家或地区、机构名称、岗位、办公地区、关注市场、研究需求），其余账号点「查看资料」展开。<strong>已通过的账号不能再驳回</strong>——如需收回其访问权，请使用「封禁」。</span><span class="en">Create users, change roles (user / admin), ban accounts; filter by status (pending / approved / rejected) and approve or reject each sign-up (rejection may include a reason); accounts <strong>awaiting review</strong> <strong>open their details automatically</strong> (name, email, country or region, institution, job title, office location, markets, research needs) — for any other account, click "View details". <strong>An approved account cannot be rejected</strong> — use Ban to revoke its access.</span></td></tr>
         <tr><td><span class="zh">内容管理</span><span class="en">Content management</span></td><td><span class="zh">增删内容，维护展示信息（名称 / 简介 / 分类 / 标签）与详情正文（富文本）；名称、简介、正文都分中英文两份，用表单里的「编辑语言」开关切换填写；用表单里的「类型」选择这条内容是技能还是知识库（知识库的简介写在详情正文里，上传的资料包无需包含 SKILL.md；技能的上传文件夹仍须包含 SKILL.md）；弹窗内可直接上传文件（编辑时上传的文件会发布为新版本，不传则文件保持不变）；可随时上架 / 下架，或删除（删除不可恢复）；列表按 全部 / 已上架 / 已下架 与 全部类型 / 技能 / 知识库 筛选并分页。</span><span class="en">Add and remove catalogue entries, maintain their details (name / summary / category / tags) and rich body (rich text). Name, summary and body each exist in Chinese and English — use the "editing language" switch in the form to fill them in. Use the "Type" field to say whether an entry is a skill or a knowledge base (a knowledge base carries its introduction in the rich body, and its package needs no SKILL.md; a skill's uploaded folder still must include SKILL.md). Files can be uploaded straight from the dialog: files uploaded while editing are published as a new version (leave the picker empty to keep the current files). List or unlist an entry, or delete it for good (deletion is irreversible). The list filters by all / listed / unlisted and by all types / skills / knowledge bases, and is paged.</span></td></tr>
         <tr><td><span class="zh">首页精选</span><span class="en">Featured</span></td><td><span class="zh">选择首页展示的精选内容，最多 12 个，顺序按勾选保存；首页按类型分成「精选技能」与「精选知识库」两栏。</span><span class="en">Pick up to 12 entries for the homepage; order follows your selection. The homepage splits them into "featured skills" and "featured knowledge bases" by type.</span></td></tr>
@@ -232,8 +232,8 @@
   <section id="s7">
     <h2><span class="zh">7. 给测试人员的注意点</span><span class="en">7. Notes for testers</span></h2>
     <ul>
-      <li><span class="zh"><strong>收藏不影响下载</strong>：收藏只是把技能加入你的收藏列表，不改变技能本身，也不影响下载。</span><span class="en"><strong>Favoriting does not affect downloading</strong>: it only adds the skill to your list; it does not change the skill or block downloads.</span></li>
-      <li><span class="zh"><strong>下载得到压缩包</strong>：下载会把该技能当前文件打包成一个 ZIP 压缩文件保存到本地。</span><span class="en"><strong>Download returns a ZIP</strong>: the skill's current files are packaged into a ZIP saved locally.</span></li>
+      <li><span class="zh"><strong>收藏不影响下载</strong>：收藏只是把内容加入你的收藏列表，不改变内容本身，也不影响下载。</span><span class="en"><strong>Favoriting does not affect downloading</strong>: it only adds the content to your list; it does not change the content or block downloads.</span></li>
+      <li><span class="zh"><strong>下载得到压缩包</strong>：下载会把该内容当前文件打包成一个 ZIP 压缩文件保存到本地。</span><span class="en"><strong>Download returns a ZIP</strong>: the entry's current files are packaged into a ZIP saved locally.</span></li>
       <li><span class="zh"><strong>管理员功能与上述无关</strong>：第 6 节的管理后台仅 <code>admin</code> 账号可用，普通测试账号无需使用；若以普通账号访问 <code>/admin</code> 会被跳转到登录页。</span><span class="en"><strong>Admin functions are separate</strong>: the admin console in section 6 is for <code>admin</code> accounts only; a regular test account does not need it, and visiting <code>/admin</code> as a normal user redirects to sign-in.</span></li>
     </ul>
   </section>

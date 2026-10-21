@@ -127,7 +127,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
       <footer className="footer">
         <div className="container">
-          {t('TFI SKILL HUB — AI 智能体技能注册中心。', 'TFI SKILL HUB — the agent skill registry.')}
+          {t('TFI SKILL HUB — AI 智能体技能与知识库注册中心。', 'TFI SKILL HUB — the agent skill and knowledge base registry.')}
         </div>
       </footer>
     </>

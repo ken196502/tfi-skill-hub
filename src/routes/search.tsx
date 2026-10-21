@@ -40,8 +40,8 @@ function SearchPage() {
       <PageHeader
         title={t('搜索', 'Search')}
         subtitle={t(
-          '按名称、摘要、标签或 SKILL.md 内容检索技能。',
-          'Search skills by name, summary, tags, or SKILL.md content.',
+          '按名称、摘要、标签或内容检索技能与知识库。',
+          'Search skills and knowledge bases by name, summary, tags, or content.',
         )}
       />
 
@@ -50,8 +50,8 @@ function SearchPage() {
           className="search-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={t('搜索技能...', 'Search skills...')}
-          aria-label={t('搜索技能', 'Search skills')}
+          placeholder={t('搜索技能与知识库...', 'Search skills & knowledge bases...')}
+          aria-label={t('搜索技能与知识库', 'Search skills & knowledge bases')}
         />
         <button className="btn btn-primary" type="submit">
           {t('搜索', 'Search')}
@@ -59,7 +59,7 @@ function SearchPage() {
       </form>
 
       {submitted.trim() === '' ? (
-        <p className="detail-summary">{t('输入关键词搜索技能。', 'Enter keywords to search skills.')}</p>
+        <p className="detail-summary">{t('输入关键词搜索技能与知识库。', 'Enter keywords to search skills and knowledge bases.')}</p>
       ) : query.isLoading ? (
         <Loading />
       ) : query.isError ? (

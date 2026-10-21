@@ -31,7 +31,7 @@ function AdminPage() {
     <PageHeader title={t('管理后台', 'Admin')} subtitle={`${t('欢迎回来', 'Welcome back')}，${user.displayName || user.handle}。`} />
     <div className="admin-stats">
       <div className="admin-stat"><strong>{users.data?.data.length ?? 0}</strong><span>{t('用户', 'Users')}</span></div>
-      <div className="admin-stat"><strong>{skills.data?.data.length ?? 0}</strong><span>{t('技能', 'Skills')}</span></div>
+      <div className="admin-stat"><strong>{skills.data?.data.length ?? 0}</strong><span>{t('技能与知识库', 'Skills & knowledge bases')}</span></div>
       <div className="admin-stat"><strong>{features.data?.data.length ?? 0}</strong><span>{t('首页精选', 'Featured')}</span></div>
       <div className="admin-stat">
         <strong>{keyTotal}</strong>
@@ -42,7 +42,7 @@ function AdminPage() {
     <div className="admin-module-grid">
       <Link className="admin-module-card" to="/admin/features">
         <span className="admin-module-icon">✦</span>
-        <span><strong>{t('首页精选', 'Featured')}</strong><small>{t('配置首页精选技能及展示顺序', 'Curate the homepage featured skills and their order')}</small></span>
+        <span><strong>{t('首页精选', 'Featured')}</strong><small>{t('配置首页精选内容与展示顺序', 'Curate the homepage featured content and its order')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
       <Link className="admin-module-card" to="/admin/users">
@@ -52,7 +52,7 @@ function AdminPage() {
       </Link>
       <Link className="admin-module-card" to="/admin/content">
         <span className="admin-module-icon admin-module-icon-hue-meta">◇</span>
-        <span><strong>{t('内容管理', 'Content management')}</strong><small>{t('增删技能，维护展示信息与详情内容', 'Add and remove skills, and maintain their details')}</small></span>
+        <span><strong>{t('内容管理', 'Content management')}</strong><small>{t('增删技能与知识库，维护展示信息与详情内容', 'Add and remove skills and knowledge bases, and maintain their details')}</small></span>
         <span className="admin-module-arrow">→</span>
       </Link>
       <Link className="admin-module-card" to="/admin/api-keys">

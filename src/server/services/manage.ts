@@ -22,7 +22,7 @@ import {
   resolveSkillRef,
   type Viewer,
 } from './shared'
-import { publishVersion, setDetailHtml } from './skills'
+import { publishVersion, setDetailHtml, stubSkillMd } from './skills'
 import type { SkillRef } from '../../lib/types'
 import {
   COUNTRIES,
@@ -499,25 +499,14 @@ const FIRST_VERSION = '1.0.0'
  * bundle fall back to that version's `SKILL.md` when no rich body has been
  * saved. The stub is deliberately thin — the console's editor is where the real
  * content goes.
+ *
+ * Knowledge bases get theirs from `publishVersion` instead, so the rule lives in
+ * one place and the publishing API behaves the same way as this form.
  */
-function skillMdStub(input: SkillFormInput): string {
-  const name = input.displayName.trim() || input.slug.trim()
-  const description = input.summary.trim()
-  // Frontmatter values are stored verbatim, but quoting keeps a colon or a `#`
-  // inside a name from turning into YAML structure downstream.
-  const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-  return [
-    '---',
-    `name: ${quote(name)}`,
-    `description: ${quote(description)}`,
-    '---',
-    '',
-    `# ${name}`,
-    '',
-    description,
-    '',
-  ].join('\n')
-}
+const skillMdStub = (input: SkillFormInput): string =>
+  new TextDecoder().decode(
+    stubSkillMd({ displayName: input.displayName, summary: input.summary, slug: input.slug }),
+  )
 
 function checkedListing(raw: string): ListingStatus {
   if (raw !== 'listed' && raw !== 'unlisted') fail("listing must be 'listed' or 'unlisted'")
@@ -566,18 +555,6 @@ function nullable(value: string): string | null {
  */
 function assertSkillMd(files: FileMap): void {
   if (!files.has('SKILL.md')) fail('SKILL.md is required')
-}
-
-/**
- * The manifest for an entry that was uploaded without one.
- *
- * A skill always brings its own `SKILL.md` — that file is what an agent
- * reads. A knowledge base is a corpus of reference material instead, and its
- * introduction lives in the rich body, so the manifest is synthesised from
- * the name and summary rather than demanded of the publisher.
- */
-function stubSkillMd(input: SkillFormInput): Uint8Array {
-  return new TextEncoder().encode(skillMdStub(input))
 }
 
 /**
@@ -642,14 +619,14 @@ export function createSkillFromForm(
   const uploaded = uploads && uploads.size > 0
   if (uploaded && type === 'skill') assertSkillMd(uploads!)
 
-  const files: FileMap = new Map(uploaded ? uploads! : [['SKILL.md', stubSkillMd(input)]])
-  // A knowledge base is a body of reference material: its introduction lives
-  // in the rich body, so a package without a manifest is legitimate. The
-  // manifest is still written — the page and the download bundle fall back to
-  // it — but it comes from the form rather than from the upload.
-  if (uploaded && type === 'knowledge_base' && !files.has('SKILL.md')) {
-    files.set('SKILL.md', stubSkillMd(input))
-  }
+  // Uploaded files win: a package brought its own SKILL.md, and replacing the
+  // stub with it is the whole point of uploading. With no upload at all the
+  // entry is still created — metadata-only is a legitimate first step. A
+  // knowledge base uploaded without a manifest gets one written for it by
+  // `publishVersion`, so the rule does not have to be restated here.
+  const files: FileMap = uploaded
+    ? uploads!
+    : new Map([['SKILL.md', new TextEncoder().encode(skillMdStub(input))]])
 
   const { skill } = publishVersion(actor, {
     slug,
@@ -713,12 +690,9 @@ export function updateSkillFromForm(
   if (uploads && uploads.size > 0) {
     const current = currentVersionOf(skill)
     const files = mergedVersionFiles(skill, uploads)
-    // A knowledge base uploaded without a manifest gets the synthesised one,
-    // the same way a create does. A skill keeps the rule that its package
-    // must bring its own.
-    if (type === 'knowledge_base' && !files.has('SKILL.md')) {
-      files.set('SKILL.md', stubSkillMd(input))
-    }
+    // A knowledge base uploaded without a manifest gets one written for it by
+    // `publishVersion`, the same way a create does. A skill keeps the rule that
+    // its package must bring its own.
     publishVersion(actor, {
       slug: skill.slug,
       version: nextPatch(current),

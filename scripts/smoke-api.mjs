@@ -1695,6 +1695,74 @@ try {
     JSON.stringify(r.body?.categories),
   )
 
+  // The publishing API takes the same `type` the console form does. This is a
+  // separate write path from the console, and the two must agree: the console
+  // used to be the only one that wrote a manifest for a knowledge base
+  // uploaded without one, so publishing one over the API produced a version
+  // with no files at all — undownloadable, and nothing for the page to render.
+  r = await req('POST', '/api/v1/skills', {
+    body: multipart(
+      { slug: 'smoke-kb-api', version: '1.0.0', listing: 'listed', type: 'knowledge_base', category: 'research' },
+      { 'notes/overview.md': '# overview' },
+    ),
+  })
+  check(
+    'publishing a knowledge base over the API → 200',
+    r.status === 200 && r.body?.skill?.type === 'knowledge_base',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  r = await req('GET', '/api/v1/skills/smoke-kb-api/versions')
+  check(
+    'the API-published knowledge base carries a manifest alongside its files',
+    r.status === 200 &&
+      (r.body?.versions?.[0]?.files ?? []).some((f) => f.path === 'SKILL.md') &&
+      (r.body?.versions?.[0]?.files ?? []).some((f) => f.path === 'notes/overview.md'),
+    JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  // A knowledge base with no files at all is still publishable — the manifest
+  // is synthesised from the request rather than demanded of the caller.
+  r = await req('POST', '/api/v1/skills', {
+    body: multipart(
+      { slug: 'smoke-kb-api-bare', version: '1.0.0', listing: 'listed', type: 'knowledge_base', displayName: '空知识库' },
+      {},
+    ),
+  })
+  check(
+    'a knowledge base published with no files → 200',
+    r.status === 200 && r.body?.skill?.type === 'knowledge_base',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('GET', '/api/v1/skills/smoke-kb-api-bare/versions')
+  check(
+    'and it still has a manifest to fall back on',
+    (r.body?.versions?.[0]?.files ?? []).length === 1 &&
+      r.body.versions[0].files[0].path === 'SKILL.md',
+    JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  // A skill published over the API keeps the old behaviour: whatever it brings
+  // is what ships, and nothing is invented for it.
+  r = await req('POST', '/api/v1/skills', {
+    body: multipart(
+      { slug: 'smoke-skill-api', version: '1.0.0', listing: 'listed', category: 'general' },
+      { 'SKILL.md': skillMd('smoke-skill-api'), 'run.py': 'print(1)' },
+    ),
+  })
+  check(
+    'a skill published over the API → 200',
+    r.status === 200 && r.body?.skill?.type === 'skill',
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('GET', '/api/v1/skills/smoke-skill-api/versions')
+  check(
+    'and its file set is exactly what was uploaded',
+    JSON.stringify((r.body?.versions?.[0]?.files ?? []).map((f) => f.path).sort()) ===
+      JSON.stringify(['SKILL.md', 'run.py']),
+    JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
   // The featured pool is one list the console curates; the homepage splits it
   // by type, so the endpoint has to be able to answer one kind at a time. The
   // pool is set to a known pair here — one of each kind — so each filter has
@@ -1764,7 +1832,14 @@ try {
     `${r.status} ${r.text.slice(0, 200)}`,
   )
 
-  for (const slug of ['smoke-kb', 'smoke-plain', 'smoke-kb-files']) {
+  for (const slug of [
+    'smoke-kb',
+    'smoke-plain',
+    'smoke-kb-files',
+    'smoke-kb-api',
+    'smoke-kb-api-bare',
+    'smoke-skill-api',
+  ]) {
     r = await req('DELETE', `/api/v1/skills/${slug}/purge`)
     check(`purging ${slug} → 200`, r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
   }

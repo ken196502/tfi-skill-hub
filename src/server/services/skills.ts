@@ -329,6 +329,44 @@ function validateDependencies(deps: SkillDependency[], slug: string): void {
   }
 }
 
+/**
+ * The manifest written for an entry that arrived without one.
+ *
+ * A skill always brings its own `SKILL.md` — that file is what an agent reads.
+ * A knowledge base is a corpus of reference material instead, and its
+ * introduction lives in the rich body, so a package without a manifest is
+ * legitimate. The manifest is still written, because both the detail page and
+ * the download bundle fall back to it; it is synthesised from the request
+ * rather than demanded of the publisher.
+ *
+ * Deliberately thin: the console's editor, or the publisher's own files, are
+ * where the real content goes.
+ */
+export function stubSkillMd(input: {
+  displayName?: string
+  summary?: string
+  slug: string
+}): Uint8Array {
+  const name = (input.displayName ?? '').trim() || input.slug.trim()
+  const description = (input.summary ?? '').trim()
+  // Frontmatter values are stored verbatim, but quoting keeps a colon or a `#`
+  // inside a name from turning into YAML structure downstream.
+  const quote = (value: string) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+  return new TextEncoder().encode(
+    [
+      '---',
+      `name: ${quote(name)}`,
+      `description: ${quote(description)}`,
+      '---',
+      '',
+      `# ${name}`,
+      '',
+      description,
+      '',
+    ].join('\n'),
+  )
+}
+
 export function publishVersion(
   user: UserRecord,
   req: PublishRequest,
@@ -362,16 +400,30 @@ export function publishVersion(
   }
   const type = (typeRaw === '' ? 'skill' : typeRaw) as SkillType
 
-  // 6. version
+  // 6. files
+  // A knowledge base is a body of reference material, so a package that arrives
+  // without a manifest is legitimate — its introduction lives in the rich body.
+  // The manifest is still written, because the detail page and the download
+  // bundle both fall back to it, and a version with no files at all cannot be
+  // downloaded. Synthesising it here rather than in each caller is what keeps
+  // the console form and the publishing API from disagreeing: the console used
+  // to do this itself, and a knowledge base published over the API came out
+  // with an empty, undownloadable version.
+  const files: FileMap =
+    type === 'knowledge_base' && !req.files.has('SKILL.md')
+      ? new Map([...req.files, ['SKILL.md', stubSkillMd(req)]])
+      : req.files
+
+  // 7. version
   if (!isValidSemver(req.version)) {
     fail(`invalid version '${req.version}': must be valid semver (e.g. 1.0.0)`)
   }
 
-  // 7. dependencies
+  // 8. dependencies
   const dependencies = req.dependencies ?? []
   validateDependencies(dependencies, req.slug)
 
-  // 8. namespace resolution
+  // 9. namespace resolution
   let namespace = null as ReturnType<typeof namespaces.getBySlug>
   if (req.namespaceSlug && req.namespaceSlug !== '') {
     namespace = namespaces.getBySlug(req.namespaceSlug)
@@ -386,7 +438,7 @@ export function publishVersion(
     namespace = ensurePersonalNamespace(user)
   }
 
-  // 9. team-token / namespace agreement
+  // 10. team-token / namespace agreement
   if (req.tokenNamespaceId && namespace.id !== req.tokenNamespaceId) {
     forbidden('team token can only publish to its bound namespace')
   }
@@ -395,7 +447,7 @@ export function publishVersion(
     includeDeleted: true,
   })
 
-  // 10. namespace skill quota (new skills only)
+  // 11. namespace skill quota (new skills only)
   if (!existing && namespace.maxSkills > 0) {
     const count = skillRepo.countByNamespace(namespace.id)
     if (count >= namespace.maxSkills) {
@@ -403,7 +455,7 @@ export function publishVersion(
     }
   }
 
-  // 11. listing
+  // 12. listing
   const rawListing = req.listing ?? ''
   if (rawListing !== '' && rawListing !== 'listed' && rawListing !== 'unlisted') {
     fail("listing must be 'listed' or 'unlisted'")
@@ -411,7 +463,7 @@ export function publishVersion(
   const listing: ListingStatus =
     rawListing === '' ? namespace.defaultListing : (rawListing as ListingStatus)
 
-  // 12. create or authorize
+  // 13. create or authorize
   let skill: Skill
   if (!existing) {
     if (req.overwrite === false) {
@@ -446,22 +498,22 @@ export function publishVersion(
     skill = skillRepo.getById(existing.id)!
   }
 
-  // 13. duplicate version
+  // 14. duplicate version
   if (versionRepo.exists(skill.id, req.version)) {
     conflict(`version ${req.version} already exists`)
   }
 
-  // 14. version must exceed the current latest
+  // 15. version must exceed the current latest
   const latest = versionRepo.getLatest(skill.id)
   if (latest && compareSemver(req.version, latest.version) <= 0) {
     fail(`version ${req.version} must be greater than current latest ${latest.version}`)
   }
 
   // ── commit ────────────────────────────────────────────────────────────────
-  const fingerprint = computeContentFingerprint(req.files)
+  const fingerprint = computeContentFingerprint(files)
   const fileList: VersionFile[] = []
   const stored: Array<{ path: string; content: Uint8Array; contentType: string }> = []
-  for (const [path, content] of req.files.entries()) {
+  for (const [path, content] of files.entries()) {
     fileList.push({
       path,
       size: content.byteLength,
@@ -473,7 +525,7 @@ export function publishVersion(
   fileList.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
   stored.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 
-  const skillMd = req.files.get('SKILL.md')
+  const skillMd = files.get('SKILL.md')
   const parsed = skillMd ? parseSkillMdFrontmatter(skillMd) : {}
 
   const version = tx(() => {

@@ -359,7 +359,13 @@ v14 里从 `sessions` 回填了历史值，所以升级后老账号不是 0（�
   - `skill`：上传包**必须**含 `SKILL.md`（`assertSkillMd`），缺了 → 400。
   - `knowledge_base`：知识库是资料集合，简介写在富文本正文里，**上传包不必带 `SKILL.md`**；
     服务端用表单里的名称/简介**合成**一份 manifest 补上（页面与下载包都要回落读它）。
-    合成走 `stubSkillMd`（`manage.ts`）。
+  - ⚠️ 合成规则在 **`publishVersion` 里**（`services/skills.ts` 校验步骤 6「files」：
+    `type === 'knowledge_base' && !req.files.has('SKILL.md')` ⇒ 合成），
+    导出的 `stubSkillMd({displayName, summary, slug})` 也住在那里，`manage.ts` 只是 import 它。
+    **不要**再在 `createSkillFromForm` / `updateSkillFromForm` 里各写一遍 ——
+    2026-10-21 修过这个坑：当时只有控制台路径合成、`POST /api/v1/skills` 不合成，
+    API 发布的知识库**版本 0 个文件、下载 404、详情页无内容**。
+  - 技能路径**行为不变**：API 发布技能仍是「给什么存什么」，不会凭空造文件（smoke 有反向断言）。
   - 前端 `FileDropzone` 的 `requireSkillMd` 传 `!isEdit && type !== 'knowledge_base'`。
 - **前端**：
   - 顶部导航多一个「知识库」入口 → 新路由 `/knowledge-bases`（`src/routes/knowledge-bases.index.tsx`）。
@@ -384,6 +390,19 @@ v14 里从 `sessions` 回填了历史值，所以升级后老账号不是 0（�
   知识库是参考资料，不是给智能体执行的东西。
 - ⚠️ **agent API（`/api/agent/*`）的 `type` 字段是 `kind` 小写**（既有发布契约），
   **不要**改成新的 type。`toItem` 显式读 `row.kind`，与新列无关。
+
+## 交付习惯（踩过的坑）
+
+- **放宽某个约束时，每条写入路径都要过一遍。** 2026-10-21 的教训：知识库免 `SKILL.md`
+  的规则只在控制台表单路径实现了，`POST /api/v1/skills` 漏了 ⇒ API 发布的知识库
+  能创建但**版本 0 个文件、下载 404、详情页无内容**。凡「按类型分叉」的规则，
+  先在纸上列出所有写入口（控制台表单 / 发布 API / agent API / bootstrap）再动手。
+- **文档里的 curl 示例属于交付物，要当代码一样跑一遍。** 上面那个 bug 的暴露点
+  就是使用说明里那条示例——它是坏的，而且 smoke 里**没有一条**覆盖
+  `POST /api/v1/skills` + `type=knowledge_base`。已补 6 条断言钉住。
+- `publishVersion` 的校验步骤注释是 **1..15 顺序编号**，往中间插一步时**整段都要重排**。
+  上一轮插「type」时就留成了 #7 重复 / #8 缺失，这一轮又叠出一层重复 #10。
+  改完用 `grep -n "^  // [0-9]*\. "` 核一遍连续性。
 
 ## 本机环境坑
 
