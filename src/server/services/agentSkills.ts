@@ -9,11 +9,12 @@
 
 import crypto from 'node:crypto'
 import type { RequestContext } from '../http'
-import { json } from '../http'
+import { contentDisposition, json } from '../http'
 import { query, type Row } from '../db'
 import { versions as versionRepo, versionFiles, skills as skillRepo } from '../repo/skills'
 import { namespaces } from '../repo/core'
 import { canViewSkill, isUuidLike, type Viewer } from './shared'
+import { uploadedZip } from './skills'
 import { createZip } from '../zip'
 
 const MAX_ARCHIVE_BYTES = 20 << 20
@@ -206,12 +207,18 @@ export function archive(ctx: RequestContext, rawId: string): Response {
   const files = versionFiles.listAll(version.id)
   if (files.length === 0) return agentError(ctx, 'BACKEND_ERROR', 'read archive failed', 502)
 
+  // Same rule as the public download: a version that is one uploaded zip
+  // streams those bytes, rather than a second wrapper around them.
+  const singleZip = uploadedZip(files)
+
   let zip: Uint8Array
   try {
-    zip = createZip(
-      files.map((f) => ({ path: f.path, content: f.content })),
-      new Date(version.createdAt),
-    )
+    zip = singleZip
+      ? singleZip.content
+      : createZip(
+          files.map((f) => ({ path: f.path, content: f.content })),
+          new Date(version.createdAt),
+        )
   } catch {
     return agentError(ctx, 'BACKEND_ERROR', 'read archive failed', 502)
   }
@@ -220,11 +227,13 @@ export function archive(ctx: RequestContext, rawId: string): Response {
     return agentError(ctx, 'ARCHIVE_TOO_LARGE', 'archive too large', 413)
   }
 
+  const fileName = singleZip?.name ?? `${skill.slug}-${version.version}.zip`
+
   return new Response(zip as unknown as BodyInit, {
     status: 200,
     headers: {
       'Content-Type': 'application/zip',
-      'Content-Disposition': `attachment; filename="${skill.slug}-${version.version}.zip"`,
+      'Content-Disposition': contentDisposition(fileName, `${skill.slug}-${version.version}.zip`),
       'X-Content-SHA256': crypto.createHash('sha256').update(zip).digest('hex'),
     },
   })

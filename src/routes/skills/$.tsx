@@ -100,7 +100,16 @@ function SkillDetailPage() {
           ) : readme.isLoading ? (
             <Loading />
           ) : readme.isError ? (
-            <ErrorBox message={t('无法读取该内容的说明文档。', 'Unable to read this entry\'s documentation.')} />
+            // A knowledge base package need not carry a SKILL.md, and a missing
+            // one is not a failure: the summary is what the page has to show.
+            // Anything other than a 404 is a genuine read error.
+            readme.error instanceof api.ApiError && readme.error.status === 404 ? (
+              <p className="detail-summary">
+                {localizedSummary(s, lang) || t('暂无描述', 'No description yet')}
+              </p>
+            ) : (
+              <ErrorBox message={t('无法读取该内容的说明文档。', 'Unable to read this entry\'s documentation.')} />
+            )
           ) : (
             <Markdown source={readme.data ?? ''} />
           )}

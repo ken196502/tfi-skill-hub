@@ -74,7 +74,11 @@
 - 读接口 `?type=skill|knowledge_base`（不传 = 两种都返回）：
   `/api/v1/skills`、`/namespaces/:slug/skills`、`/features`、`/categories/in-use`、`/admin/skills`
 - 写接口 `type` 字段：控制台表单缺省 skill、非法值 400；发布 API 空串 = 不改已有条目
-- **SKILL.md 规则按类型分**：skill 必须带；knowledge_base 不必带（服务端按表单合成一份 manifest）
+- **SKILL.md 规则按类型分**（2026-10-22 修正）：skill 必须带；knowledge_base 不必带——
+  **上传了什么就存什么，下载包就是上传的附件本身**；只有**一个文件都没上传**时服务端才
+  按表单合成一份 manifest（否则空版本下载 404）。三条「文件进版本」的路径
+  （`publishVersion` 合成口径 / `mergedVersionFiles` 编辑合并 / `updateFile` 单文件写）
+  都用 `isSynthesizedStub()` 把合成存根挡在外面，不让它蒙混进下载包
 - 导航多「知识库」入口 → `/knowledge-bases`（只列知识库）；`/skills` 只列技能；
   首页四段：精选技能 / 精选知识库 / 热门技能 / 热门知识库（精选是**同一个池子**按 type 分流）
 - ⚠️ runtime API **排除知识库**（`type='skill'`）；agent API 的 `type` 字段是 `kind` 小写，**别动**
@@ -98,8 +102,11 @@
   HTML 只能用页面已有 class（`table`/`note`），每段写 zh+en 两个 span
 
 ## 交付前必跑
-`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 375 条断言）
+`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 399 条断言）
 - **改了源码必须重新 build 再 smoke**，否则验证的是旧 dist（曾因此误判）
+- 下载相关硬规则：上传单个 `.zip` ⇒ 原样返回该 zip 不二次打包（`uploadedZip()`，
+  `download()` + agent `archive()` 都用）；文件名进响应头必须走 `http.ts` 的
+  `contentDisposition()`（头值只能 Latin-1，中文名直接插值会让整个下载 404）
 
 ## 本机环境坑
 - 沙箱单 turn 拦截 >50 文件批量删除（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）⇒ `vite build` 清 outDir 会失败，

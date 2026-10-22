@@ -12,7 +12,7 @@
  */
 
 import type { RequestContext } from '../http'
-import { empty, errorJson, json, text } from '../http'
+import { contentDisposition, empty, errorJson, json, text } from '../http'
 import { errorBody, httpStatusFor, isServiceError, ServiceError } from '../errors'
 import { getConfig } from '../config'
 import {
@@ -568,11 +568,15 @@ export const skillRead: Record<string, Handler> = {
       const result = skillSvc.download(ref, version, viewerOf(ctx), identityHashOf(ctx))
       if ('error' in result) return errorJson(result.error, 404)
 
+      // A bundle that is a single uploaded zip keeps that file's name; every
+      // other bundle is named after the entry and the version it came from.
+      const fileName = result.fileName ?? `${result.slug}-${result.version}.zip`
+
       return new Response(result.zip as unknown as BodyInit, {
         status: 200,
         headers: {
           ETag: `"${result.fingerprint}"`,
-          'Content-Disposition': `attachment; filename="${result.slug}-${result.version}.zip"`,
+          'Content-Disposition': contentDisposition(fileName, `${result.slug}-${result.version}.zip`),
           'Content-Type': 'application/zip',
           'X-Skill-Version': result.version,
           'X-Skill-Fingerprint': result.fingerprint,

@@ -199,6 +199,112 @@ function skillMd(name, extra = '') {
   return `---\nname: ${name}\ndescription: smoke test skill\n---\n\n# ${name}\n\nA skill used by the smoke test.\n${extra}\n`
 }
 
+/**
+ * Entry names inside a ZIP, read straight from the local file headers — enough
+ * to prove what a download bundle actually contains without unzipping it. The
+ * writer always records the compressed size in the local header (no streaming
+ * data descriptors), so walking the entries is exact.
+ */
+function zipEntryNames(buf) {
+  const names = []
+  let offset = 0
+  while (offset + 30 <= buf.length && buf.readUInt32LE(offset) === 0x04034b50) {
+    const compressedSize = buf.readUInt32LE(offset + 18)
+    const nameLength = buf.readUInt16LE(offset + 26)
+    const extraLength = buf.readUInt16LE(offset + 28)
+    names.push(buf.toString('utf8', offset + 30, offset + 30 + nameLength))
+    offset += 30 + nameLength + extraLength + compressedSize
+  }
+  return names
+}
+
+/** Downloads a bundle as the current identity and lists the entries it carries. */
+async function downloadEntries(slug, namespace = '') {
+  const res = await downloadRaw(slug, namespace)
+  return { status: res.status, names: res.buf ? zipEntryNames(res.buf) : [] }
+}
+
+/** Downloads a bundle as the current identity, keeping status, headers and bytes. */
+async function downloadRaw(slug, namespace = '') {
+  const res = await req(
+    'GET',
+    `/api/v1/download?slug=${slug}&version=latest${namespace ? `&namespace=${namespace}` : ''}`,
+    { raw: true },
+  )
+  if (res.status !== 200) return { status: res.status, headers: res.headers, buf: null }
+  return { status: res.status, headers: res.headers, buf: Buffer.from(await res.arrayBuffer()) }
+}
+
+const CRC_TABLE = (() => {
+  const table = new Uint32Array(256)
+  for (let n = 0; n < 256; n += 1) {
+    let c = n
+    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    table[n] = c >>> 0
+  }
+  return table
+})()
+
+function crc32(buf) {
+  let c = 0xffffffff
+  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+
+/**
+ * A store-only ZIP, so the smoke can upload a real package as a single file.
+ * Built here rather than shelled out to `zip` because the suite must run
+ * wherever Node runs.
+ */
+function makeZip(entries) {
+  const local = []
+  const central = []
+  let offset = 0
+  for (const [name, text] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(name, 'utf8')
+    const data = Buffer.from(text, 'utf8')
+    const crc = crc32(data)
+    const header = Buffer.alloc(30)
+    header.writeUInt32LE(0x04034b50, 0) // local file header signature
+    header.writeUInt16LE(20, 4)
+    header.writeUInt16LE(0x0800, 6) // UTF-8 names
+    header.writeUInt16LE(0, 8) // stored
+    header.writeUInt16LE(0, 10) // 00:00:00
+    header.writeUInt16LE(0x21, 12) // 1980-01-01
+    header.writeUInt32LE(crc, 14)
+    header.writeUInt32LE(data.length, 18)
+    header.writeUInt32LE(data.length, 22)
+    header.writeUInt16LE(nameBytes.length, 26)
+    header.writeUInt16LE(0, 28)
+    local.push(header, nameBytes, data)
+    const dir = Buffer.alloc(46)
+    dir.writeUInt32LE(0x02014b50, 0) // central directory header signature
+    dir.writeUInt16LE(20, 4)
+    dir.writeUInt16LE(20, 6)
+    dir.writeUInt16LE(0x0800, 8)
+    dir.writeUInt16LE(0, 10)
+    dir.writeUInt16LE(0, 12)
+    dir.writeUInt16LE(0x21, 14)
+    dir.writeUInt32LE(crc, 16)
+    dir.writeUInt32LE(data.length, 20)
+    dir.writeUInt32LE(data.length, 24)
+    dir.writeUInt16LE(nameBytes.length, 28)
+    dir.writeUInt16LE(0, 30)
+    dir.writeUInt16LE(0, 32)
+    dir.writeUInt32LE(offset, 42)
+    central.push(dir, nameBytes)
+    offset += 30 + nameBytes.length + data.length
+  }
+  const centralBuf = Buffer.concat(central)
+  const eocd = Buffer.alloc(22)
+  eocd.writeUInt32LE(0x06054b50, 0) // end of central directory signature
+  eocd.writeUInt16LE(Object.keys(entries).length, 8)
+  eocd.writeUInt16LE(Object.keys(entries).length, 10)
+  eocd.writeUInt32LE(centralBuf.length, 12)
+  eocd.writeUInt32LE(offset, 16)
+  return Buffer.concat([...local, centralBuf, eocd])
+}
+
 /** Signs an account in and returns its bare `session_token` cookie. */
 async function loginCookie(handle, password = ADMIN_PASSWORD) {
   const res = await fetch(`${base}/login`, {
@@ -1625,7 +1731,9 @@ try {
   )
 
   // A knowledge base is reference material: its package needs no manifest,
-  // because the introduction lives in the rich body instead.
+  // because the introduction lives in the rich body instead. What was uploaded
+  // is what gets stored — the download bundle is the uploaded attachment
+  // itself, so nothing is synthesised next to the real files.
   r = await req('POST', '/api/v1/admin/skills', {
     body: multipart(
       { slug: 'smoke-kb-files', displayName: '带资料的知识库', type: 'knowledge_base', listing: 'listed', category: 'research' },
@@ -1640,9 +1748,20 @@ try {
 
   r = await req('GET', '/api/v1/skills/smoke-kb-files/versions')
   check(
-    'the knowledge base still has a manifest, written from the form',
-    r.status === 200 && (r.body?.versions?.[0]?.files ?? []).some((f) => f.path === 'SKILL.md'),
+    'and the version stores exactly the uploaded files',
+    r.status === 200 &&
+      JSON.stringify((r.body?.versions?.[0]?.files ?? []).map((f) => f.path).sort()) ===
+        JSON.stringify(['notes.md', 'papers/overview.pdf']),
     JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  const kbFilesBundle = await downloadEntries('smoke-kb-files')
+  check(
+    'its download bundle is the uploaded attachment, nothing synthesised',
+    kbFilesBundle.status === 200 &&
+      JSON.stringify([...kbFilesBundle.names].sort()) ===
+        JSON.stringify(['notes.md', 'papers/overview.pdf']),
+    JSON.stringify(kbFilesBundle.names),
   )
 
   // The list endpoints answer with one kind or the other.
@@ -1714,11 +1833,18 @@ try {
 
   r = await req('GET', '/api/v1/skills/smoke-kb-api/versions')
   check(
-    'the API-published knowledge base carries a manifest alongside its files',
+    'the API-published knowledge base stores exactly its uploaded files',
     r.status === 200 &&
-      (r.body?.versions?.[0]?.files ?? []).some((f) => f.path === 'SKILL.md') &&
-      (r.body?.versions?.[0]?.files ?? []).some((f) => f.path === 'notes/overview.md'),
+      JSON.stringify((r.body?.versions?.[0]?.files ?? []).map((f) => f.path).sort()) ===
+        JSON.stringify(['notes/overview.md']),
     JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  const kbApiBundle = await downloadEntries('smoke-kb-api')
+  check(
+    'and its download bundle is the uploaded attachment too',
+    kbApiBundle.status === 200 && JSON.stringify(kbApiBundle.names) === JSON.stringify(['notes/overview.md']),
+    JSON.stringify(kbApiBundle.names),
   )
 
   // A knowledge base with no files at all is still publishable — the manifest
@@ -1740,6 +1866,161 @@ try {
     (r.body?.versions?.[0]?.files ?? []).length === 1 &&
       r.body.versions[0].files[0].path === 'SKILL.md',
     JSON.stringify(r.body?.versions?.[0]?.files?.map((f) => f.path)),
+  )
+
+  const bareBundle = await downloadEntries('smoke-kb-api-bare')
+  check(
+    'a knowledge base published with no files still downloads that manifest',
+    bareBundle.status === 200 && JSON.stringify(bareBundle.names) === JSON.stringify(['SKILL.md']),
+    JSON.stringify(bareBundle.names),
+  )
+
+  // The other way files arrive at a knowledge base: the entry is created with
+  // nothing at all, and the package is uploaded later. The manifest written for
+  // the empty first version is not publisher content, so it must not ride along
+  // into the new one — the download stays the uploaded attachment either way.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: {
+      slug: 'smoke-kb-merge',
+      displayName: '后补资料的知识库',
+      summary: '合并自检',
+      listing: 'listed',
+      type: 'knowledge_base',
+    },
+  })
+  check('a knowledge base can be created with no files', r.status === 201, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('PUT', '/api/v1/admin/skills/smoke-kb-merge', {
+    body: multipart(
+      {
+        slug: 'smoke-kb-merge',
+        displayName: '后补资料的知识库',
+        summary: '合并自检',
+        listing: 'listed',
+        type: 'knowledge_base',
+      },
+      { 'notes/late.md': '# late' },
+    ),
+  })
+  check('uploading files to it publishes a new version → 200', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('GET', '/api/v1/skills/smoke-kb-merge/versions')
+  check(
+    'the synthesised manifest does not ride into the new version',
+    r.status === 200 &&
+      JSON.stringify((r.body?.versions?.[0]?.files ?? []).map((f) => f.path)) ===
+        JSON.stringify(['notes/late.md']),
+    JSON.stringify((r.body?.versions ?? []).map((v) => v.files?.map((f) => f.path))),
+  )
+
+  const mergeBundle = await downloadEntries('smoke-kb-merge')
+  check(
+    'and the later upload downloads as the attachment it was',
+    mergeBundle.status === 200 && JSON.stringify(mergeBundle.names) === JSON.stringify(['notes/late.md']),
+    JSON.stringify(mergeBundle.names),
+  )
+
+  // The single-file endpoint is the third way files arrive, and it reads the
+  // latest version first — the same rule applies there.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: {
+      slug: 'smoke-kb-file',
+      displayName: '单文件知识库',
+      summary: '单文件自检',
+      listing: 'listed',
+      type: 'knowledge_base',
+    },
+  })
+  check('a knowledge base for the single-file write exists', r.status === 201, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('PUT', '/api/v1/skills/smoke-kb-file/file', {
+    body: { path: 'notes/via-api.md', content: '# via api', changelog: 'added a note' },
+  })
+  check('writing one file publishes the next version → 200', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+
+  r = await req('GET', '/api/v1/skills/smoke-kb-file/versions')
+  check(
+    'the synthesised manifest does not survive the single-file write either',
+    r.status === 200 &&
+      JSON.stringify((r.body?.versions?.[0]?.files ?? []).map((f) => f.path)) ===
+        JSON.stringify(['notes/via-api.md']),
+    JSON.stringify((r.body?.versions ?? []).map((v) => v.files?.map((f) => f.path))),
+  )
+
+  // A package that is one uploaded zip downloads as that zip: the bytes the
+  // publisher sent, not a second wrapper around them (which would make the
+  // downloader unpack twice).
+  const uploadedZipBytes = makeZip({ 'readme.md': '# zip 里的说明', 'data.csv': 'a,b\n1,2\n' })
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-kb-zip', displayName: '整包上传的知识库', listing: 'listed', type: 'knowledge_base' },
+      { 'bundle.zip': uploadedZipBytes },
+    ),
+  })
+  check('a knowledge base can be uploaded as a single zip → 201', r.status === 201, `${r.status} ${r.text.slice(0, 200)}`)
+
+  const zipDownload = await downloadRaw('smoke-kb-zip')
+  check(
+    'downloading it returns the uploaded zip bytes unchanged',
+    zipDownload.status === 200 &&
+      crypto.createHash('sha256').update(zipDownload.buf).digest('hex') ===
+        crypto.createHash('sha256').update(uploadedZipBytes).digest('hex'),
+    zipDownload.buf ? `${zipDownload.buf.length} bytes` : `status ${zipDownload.status}`,
+  )
+  check(
+    'and the bundle still holds the zip’s own entries, not a wrapper',
+    JSON.stringify([...zipEntryNames(zipDownload.buf)].sort()) === JSON.stringify(['data.csv', 'readme.md']),
+    JSON.stringify(zipEntryNames(zipDownload.buf)),
+  )
+  check(
+    'the download keeps the uploaded file name',
+    (zipDownload.headers.get('content-disposition') ?? '').includes('bundle.zip'),
+    zipDownload.headers.get('content-disposition'),
+  )
+
+  // Several files are still packed together, zip or not: the passthrough is
+  // about a version that is one zip and nothing else.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-kb-zip-mixed', displayName: '混合包知识库', listing: 'listed', type: 'knowledge_base' },
+      { 'bundle.zip': uploadedZipBytes, 'notes.md': '# notes' },
+    ),
+  })
+  check('a package with a zip among other files uploads → 201', r.status === 201, `${r.status} ${r.text.slice(0, 200)}`)
+
+  const mixedDownload = await downloadRaw('smoke-kb-zip-mixed')
+  check(
+    'and it is packed as one bundle, the zip inside it',
+    mixedDownload.status === 200 &&
+      JSON.stringify([...zipEntryNames(mixedDownload.buf)].sort()) ===
+        JSON.stringify(['bundle.zip', 'notes.md']),
+    JSON.stringify(zipEntryNames(mixedDownload.buf)),
+  )
+
+  // A non-ASCII file name cannot travel raw inside a header, so it rides in
+  // the RFC 5987 form with an ASCII fallback — the download must not die on it.
+  r = await req('POST', '/api/v1/admin/skills', {
+    body: multipart(
+      { slug: 'smoke-kb-zip-cn', displayName: '中文名知识库', listing: 'listed', type: 'knowledge_base' },
+      { '研究资料包.zip': uploadedZipBytes },
+    ),
+  })
+  check('a zip with a non-ASCII name uploads → 201', r.status === 201, `${r.status} ${r.text.slice(0, 200)}`)
+
+  const cnDownload = await downloadRaw('smoke-kb-zip-cn')
+  check(
+    'and it downloads with the name carried in the RFC 5987 form',
+    cnDownload.status === 200 &&
+      (cnDownload.headers.get('content-disposition') ?? '').includes("filename*=UTF-8''") &&
+      (cnDownload.headers.get('content-disposition') ?? '').includes(encodeURIComponent('研究资料包.zip')),
+    cnDownload.headers.get('content-disposition'),
+  )
+  check(
+    'the non-ASCII-named zip still comes back byte for byte',
+    cnDownload.status === 200 &&
+      crypto.createHash('sha256').update(cnDownload.buf).digest('hex') ===
+        crypto.createHash('sha256').update(uploadedZipBytes).digest('hex'),
+    cnDownload.buf ? `${cnDownload.buf.length} bytes` : `status ${cnDownload.status}`,
   )
 
   // A skill published over the API keeps the old behaviour: whatever it brings
@@ -1838,6 +2119,11 @@ try {
     'smoke-kb-files',
     'smoke-kb-api',
     'smoke-kb-api-bare',
+    'smoke-kb-merge',
+    'smoke-kb-file',
+    'smoke-kb-zip',
+    'smoke-kb-zip-mixed',
+    'smoke-kb-zip-cn',
     'smoke-skill-api',
   ]) {
     r = await req('DELETE', `/api/v1/skills/${slug}/purge`)

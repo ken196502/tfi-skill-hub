@@ -358,15 +358,32 @@ v14 里从 `sessions` 回填了历史值，所以升级后老账号不是 0（�
 - **SKILL.md 规则按类型分**（这是唯一的行为差异）：
   - `skill`：上传包**必须**含 `SKILL.md`（`assertSkillMd`），缺了 → 400。
   - `knowledge_base`：知识库是资料集合，简介写在富文本正文里，**上传包不必带 `SKILL.md`**；
-    服务端用表单里的名称/简介**合成**一份 manifest 补上（页面与下载包都要回落读它）。
-  - ⚠️ 合成规则在 **`publishVersion` 里**（`services/skills.ts` 校验步骤 6「files」：
-    `type === 'knowledge_base' && !req.files.has('SKILL.md')` ⇒ 合成），
+    上传了什么就存什么，**下载包就是上传的附件本身**，不会把简介合成的 manifest 混进去
+    （2026-10-22 用户反馈修正：此前 `publishVersion` 会给每个缺 manifest 的知识库上传
+    合成一份 `SKILL.md`，下载包里因此多出「简介变成的说明文件」）。
+  - ⚠️ 合成只在**一个文件都没上传**时发生（`services/skills.ts` 校验步骤 6「files」：
+    `type === 'knowledge_base' && req.files.size === 0` ⇒ 合成），
     导出的 `stubSkillMd({displayName, summary, slug})` 也住在那里，`manage.ts` 只是 import 它。
-    **不要**再在 `createSkillFromForm` / `updateSkillFromForm` 里各写一遍 ——
-    2026-10-21 修过这个坑：当时只有控制台路径合成、`POST /api/v1/skills` 不合成，
-    API 发布的知识库**版本 0 个文件、下载 404、详情页无内容**。
+    空条目仍然要有 manifest：版本 0 个文件下载会 404，详情页也没有可回落的内容
+    （2026-10-21 修过这个坑：当时只有控制台路径合成、`POST /api/v1/skills` 不合成，
+    API 发布的知识库版本 0 个文件、下载 404、详情页无内容）。
+  - ⚠️ **继承文件的地方不继承合成 manifest**：`services/skills.ts` 导出
+    `isSynthesizedStub(skill, content)`（逐字节等于「当前元数据算出的存根」即为服务端合成），
+    `manage.ts` 的 `mergedVersionFiles`（控制台编辑上传）和 `skills.ts` 的 `updateFile`
+    （单文件写入口）都用它把合成存根挡在新版本之外——那是服务端写的，不是发布者的内容，
+    不能蒙混进下载包。发布者真写过的 `SKILL.md` 一律保留。
   - 技能路径**行为不变**：API 发布技能仍是「给什么存什么」，不会凭空造文件（smoke 有反向断言）。
   - 前端 `FileDropzone` 的 `requireSkillMd` 传 `!isEdit && type !== 'knowledge_base'`。
+  - 详情页回落链：`detailHtml` → 版本里的 `SKILL.md` → **404 时展示简介**
+    （`skills/$.tsx` 用 `api.ApiError.status === 404` 区分「包裡没有 manifest」和真读取失败）。
+- **上传的是单个 zip ⇒ 下载就原样给这个 zip**（2026-10-22 用户追加要求）：
+  `services/skills.ts` 导出 `uploadedZip(files)`——版本**只有这一个 `.zip` 文件**时返回它，
+  `download()` 与 agent `archive()` 都不再 `createZip` 二次打包（否则用户要解压两次），
+  `Content-Disposition` 用上传时的文件名；多文件（含 zip 混在其中）照旧打成一个包。
+  ⚠️ **文件名进响应头必须走 `http.ts` 的 `contentDisposition(name, fallback)`**：
+  头值只能 Latin-1，中文名直接插值会让 `new Response` 抛错、整个下载 404
+  （`Cannot convert argument to a ByteString…`）。该 helper 对 ASCII 名维持原样
+  （`filename="…"`），非 ASCII 名走 RFC 5987 `filename*=UTF-8''…` + ASCII 回落名。
 - **前端**：
   - 顶部导航多一个「知识库」入口 → 新路由 `/knowledge-bases`（`src/routes/knowledge-bases.index.tsx`）。
   - `/skills` **只列技能**，`/knowledge-bases` **只列知识库**（两者共用
@@ -400,6 +417,14 @@ v14 里从 `sessions` 回填了历史值，所以升级后老账号不是 0（�
 - **文档里的 curl 示例属于交付物，要当代码一样跑一遍。** 上面那个 bug 的暴露点
   就是使用说明里那条示例——它是坏的，而且 smoke 里**没有一条**覆盖
   `POST /api/v1/skills` + `type=knowledge_base`。已补 6 条断言钉住。
+- **服务端合成的内容不是发布者的内容，别让它混进交付物。** 2026-10-22 的教训：
+  为「空条目可下载」合成的 `SKILL.md` 存根被写进了每个缺 manifest 的知识库版本，
+  下载包于是变成「上传的附件 + 一份简介变成的说明文件」。修正口径：合成只发生在
+  **一个文件都没上传**时，且**继承文件的每一处**（`mergedVersionFiles` 的版本合并）
+  都不能把合成存根带进新版本。改这类规则先在纸上列出「谁在写文件、谁在继承文件」。
+- **验证下载内容要看 zip 里真有什么。** smoke 的 `zipEntryNames()` 直接走 ZIP 本地头
+  列出条目名（写入方总是把 compressed size 写进本地头，没有 data descriptor，所以精确），
+  `downloadEntries()` 包一层。断言「版本文件列表」不够——下载包是另一步。
 - `publishVersion` 的校验步骤注释是 **1..15 顺序编号**，往中间插一步时**整段都要重排**。
   上一轮插「type」时就留成了 #7 重复 / #8 缺失，这一轮又叠出一层重复 #10。
   改完用 `grep -n "^  // [0-9]*\. "` 核一遍连续性。

@@ -22,7 +22,7 @@ import {
   resolveSkillRef,
   type Viewer,
 } from './shared'
-import { publishVersion, setDetailHtml, stubSkillMd } from './skills'
+import { publishVersion, setDetailHtml, stubSkillMd, isSynthesizedStub } from './skills'
 import type { SkillRef } from '../../lib/types'
 import {
   COUNTRIES,
@@ -564,12 +564,24 @@ function assertSkillMd(files: FileMap): void {
  * Mirrors `updateFile` in `services/skills.ts` — file changes are never written
  * in place, they become a new patch version, which is what the version history
  * and the download bundle expect.
+ *
+ * One exception. A `SKILL.md` this server synthesised for a knowledge base
+ * published with no files at all is not publisher content, so when an upload
+ * brings its own package the stub must not ride along into the new version —
+ * the download would otherwise ship a manifest made from the summary next to
+ * the real files. See `isSynthesizedStub`: anything a publisher actually wrote
+ * is kept, even if it happens to be called `SKILL.md`.
  */
 function mergedVersionFiles(skill: SkillWithOwner, uploads: FileMap): FileMap {
   const merged: FileMap = new Map()
   const latestId = skill.latestVersionId
   if (latestId) {
-    for (const file of versionFiles.listAll(latestId)) merged.set(file.path, file.content)
+    for (const file of versionFiles.listAll(latestId)) {
+      if (file.path === 'SKILL.md' && !uploads.has('SKILL.md') && isSynthesizedStub(skill, file.content)) {
+        continue
+      }
+      merged.set(file.path, file.content)
+    }
   }
   for (const [path, content] of uploads) merged.set(path, content)
   return merged

@@ -8,6 +8,7 @@
  */
 
 import crypto from 'node:crypto'
+import path from 'node:path'
 import { conflict, fail, forbidden, notFound } from '../errors'
 import type {
   Skill,
@@ -25,6 +26,7 @@ import {
   computeContentFingerprint,
   contentTypeFor,
   parseSkillMdFrontmatter,
+  sha256Of,
   MAX_UPLOAD_FILES,
   MAX_SKILL_FILE_READ,
   type FileMap,
@@ -330,14 +332,16 @@ function validateDependencies(deps: SkillDependency[], slug: string): void {
 }
 
 /**
- * The manifest written for an entry that arrived without one.
+ * The manifest written for an entry that arrived with no files at all.
  *
  * A skill always brings its own `SKILL.md` — that file is what an agent reads.
  * A knowledge base is a corpus of reference material instead, and its
  * introduction lives in the rich body, so a package without a manifest is
- * legitimate. The manifest is still written, because both the detail page and
- * the download bundle fall back to it; it is synthesised from the request
- * rather than demanded of the publisher.
+ * legitimate: what was uploaded is stored as-is, and the download bundle is
+ * that attachment itself. Only an entry published with nothing at all gets a
+ * manifest written for it, because a version with zero files cannot be
+ * downloaded and the detail page falls back to it; it is synthesised from the
+ * request rather than demanded of the publisher.
  *
  * Deliberately thin: the console's editor, or the publisher's own files, are
  * where the real content goes.
@@ -365,6 +369,30 @@ export function stubSkillMd(input: {
       '',
     ].join('\n'),
   )
+}
+
+/**
+ * Whether a stored `SKILL.md` is the manifest this server synthesised for an
+ * entry published with no files at all — recognised by being byte-identical to
+ * the stub the entry's current metadata would produce.
+ *
+ * A synthesised manifest is not publisher content, so code that carries files
+ * forward into a new version must not let one ride along: the download bundle
+ * is the uploaded attachment, and a summary turned into a manifest next to real
+ * files is exactly what a publisher never asked for. Content a human actually
+ * wrote is never matched, even when it is called `SKILL.md`.
+ */
+export function isSynthesizedStub(
+  skill: Pick<SkillWithOwner, 'type' | 'displayName' | 'summary' | 'slug'>,
+  content: Uint8Array,
+): boolean {
+  if (skill.type !== 'knowledge_base') return false
+  const stub = stubSkillMd({
+    displayName: skill.displayName ?? undefined,
+    summary: skill.summary ?? undefined,
+    slug: skill.slug,
+  })
+  return sha256Of(content) === sha256Of(stub)
 }
 
 export function publishVersion(
@@ -403,15 +431,19 @@ export function publishVersion(
   // 6. files
   // A knowledge base is a body of reference material, so a package that arrives
   // without a manifest is legitimate — its introduction lives in the rich body.
-  // The manifest is still written, because the detail page and the download
-  // bundle both fall back to it, and a version with no files at all cannot be
-  // downloaded. Synthesising it here rather than in each caller is what keeps
-  // the console form and the publishing API from disagreeing: the console used
-  // to do this itself, and a knowledge base published over the API came out
-  // with an empty, undownloadable version.
+  // What was uploaded is what gets stored: the download bundle *is* the
+  // uploaded attachment, so a manifest synthesised from the summary must never
+  // ride along inside it.
+  //
+  // An entry published with no files at all still gets a manifest written for
+  // it, because a version with zero files cannot be downloaded and the detail
+  // page falls back to it. Synthesising it here rather than in each caller is
+  // what keeps the console form and the publishing API from disagreeing: the
+  // console used to do this itself, and a knowledge base published over the API
+  // came out with an empty, undownloadable version.
   const files: FileMap =
-    type === 'knowledge_base' && !req.files.has('SKILL.md')
-      ? new Map([...req.files, ['SKILL.md', stubSkillMd(req)]])
+    type === 'knowledge_base' && req.files.size === 0
+      ? new Map([['SKILL.md', stubSkillMd(req)]])
       : req.files
 
   // 7. version
@@ -757,6 +789,13 @@ export function updateFile(
   const latestId = skill.latestVersionId
   if (latestId) {
     for (const f of versionFiles.listAll(latestId)) {
+      // A manifest synthesised for a file-less knowledge base is not publisher
+      // content: once this write puts a real file next to it, the stub serves
+      // neither purpose it was written for and must not ride into the new
+      // version — see `isSynthesizedStub`.
+      if (f.path === 'SKILL.md' && target !== 'SKILL.md' && isSynthesizedStub(skill, f.content)) {
+        continue
+      }
       files.set(f.path, f.content)
     }
   }
@@ -778,11 +817,37 @@ export function updateFile(
 // Download & resolve
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The one uploaded zip of a version, when a zip is all it carries.
+ *
+ * A publisher who hands over a single `.zip` package gets exactly that file
+ * back: the bytes they sent, not a second wrapper around them (a zip inside a
+ * zip, which the downloader would have to unpack twice). Anything else —
+ * several files, or a single file of another kind — is packed from its files
+ * as usual.
+ *
+ * The name travels inside a `Content-Disposition` header, so it is stripped of
+ * what would break that framing; a stored path is a sanitised relative path
+ * already, and only its last segment is used.
+ */
+export function uploadedZip(
+  files: Array<{ path: string; content: Uint8Array }>,
+): { name: string; content: Uint8Array } | null {
+  if (files.length !== 1) return null
+  const only = files[0]
+  if (!only.path.toLowerCase().endsWith('.zip')) return null
+  const name = path.posix.basename(only.path).replace(/["\\\u0000-\u001f\u007f]/g, '')
+  if (name === '') return null
+  return { name, content: only.content }
+}
+
 export interface DownloadResult {
   zip: Uint8Array
   fingerprint: string
   version: string
   slug: string
+  /** Set when the bundle is the uploaded zip itself, for the download name. */
+  fileName?: string
 }
 
 /**
@@ -805,12 +870,18 @@ export function download(
   const files = versionFiles.listAll(resolved.version.id)
   if (files.length === 0) return { error: 'create archive: no files in version' }
 
+  // A version that carries nothing but one uploaded zip downloads as that zip —
+  // see `uploadedZip`.
+  const singleZip = uploadedZip(files)
+
   let zip: Uint8Array
   try {
-    zip = createZip(
-      files.map((f) => ({ path: f.path, content: f.content })),
-      new Date(resolved.version.createdAt),
-    )
+    zip = singleZip
+      ? singleZip.content
+      : createZip(
+          files.map((f) => ({ path: f.path, content: f.content })),
+          new Date(resolved.version.createdAt),
+        )
   } catch (e) {
     return { error: `create archive: ${(e as Error).message}` }
   }
@@ -840,6 +911,7 @@ export function download(
     fingerprint: resolved.version.fingerprint,
     version: resolved.version.version,
     slug: skill.slug,
+    ...(singleZip ? { fileName: singleZip.name } : {}),
   }
 }
 

@@ -394,6 +394,26 @@ export function errorJson(message: string, status: number): Response {
   return json({ error: message }, status)
 }
 
+/**
+ * A `Content-Disposition` value naming a downloadable file.
+ *
+ * Header values must be Latin-1, so a name carrying non-ASCII characters
+ * cannot simply be interpolated — the `Headers` API throws and the whole
+ * response dies. Such a name goes in the standard `filename*` form (RFC 5987),
+ * with a plain ASCII `filename` beside it for clients that ignore it. A name
+ * that is printable ASCII already travels as before, so existing downloads are
+ * byte-for-byte unchanged.
+ */
+export function contentDisposition(name: string, fallback: string): string {
+  if (/^[\x20-\x7e]*$/.test(name) && !/["\\;]/.test(name)) {
+    return `attachment; filename="${name}"`
+  }
+  // The fallback is what a client without `filename*` support will save as, so
+  // it must stay ASCII and free of anything that breaks the header framing.
+  const safe = fallback.replace(/[^\x20-\x7e]/g, '').replace(/["\\;]/g, '')
+  return `attachment; filename="${safe}"; filename*=UTF-8''${encodeURIComponent(name)}`
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dispatch
 // ─────────────────────────────────────────────────────────────────────────────
