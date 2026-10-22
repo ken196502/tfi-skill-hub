@@ -14,6 +14,7 @@ import {
 import { notifications, type UserRecord } from '../repo/core'
 import {
   auditLog,
+  auditResourceType,
   canViewSkill,
   reindexSkill,
   resolveSkillRef,
@@ -87,7 +88,7 @@ export function createComment(
   auditLog({
     actorId: user.id,
     action: 'comment_create',
-    resourceType: 'skill',
+    resourceType: auditResourceType(skill.type, 'skill'),
     resourceId: skill.id,
   })
 

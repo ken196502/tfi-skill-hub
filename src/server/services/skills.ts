@@ -44,6 +44,7 @@ import {
 } from '../repo/skills'
 import {
   auditLog,
+  auditResourceType,
   authorizeSkillWrite,
   ensurePersonalNamespace,
   notifyNamespacePublish,
@@ -197,7 +198,7 @@ export function setDetailHtml(
   auditLog({
     actorId: user.id,
     action: 'update_detail_html',
-    resourceType: 'skill',
+    resourceType: auditResourceType(skill.type, 'skill'),
     resourceId: skill.id,
     details: touched.join(','),
   })
@@ -603,7 +604,7 @@ export function publishVersion(
   auditLog({
     actorId: user.id,
     action: 'publish',
-    resourceType: 'skill_version',
+    resourceType: auditResourceType(fresh.type, 'skill_version'),
     resourceId: version.id,
     details: `@${namespace.slug}/${req.slug} v${req.version}`,
   })
@@ -627,7 +628,7 @@ export function softDelete(user: UserRecord, ref: SkillRef, tokenNamespaceId: st
   if (!skill) fail('skill not found')
   authorizeSkillWrite(skill, user, tokenNamespaceId)
   skillRepo.softDelete(skill.id)
-  auditLog({ actorId: user.id, action: 'delete', resourceType: 'skill', resourceId: skill.id })
+  auditLog({ actorId: user.id, action: 'delete', resourceType: auditResourceType(skill.type, 'skill'), resourceId: skill.id })
   reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
 }
 
@@ -636,7 +637,7 @@ export function undelete(user: UserRecord, ref: SkillRef, tokenNamespaceId: stri
   if (!skill) fail('skill not found')
   authorizeSkillWrite(skill, user, tokenNamespaceId)
   skillRepo.undelete(skill.id)
-  auditLog({ actorId: user.id, action: 'undelete', resourceType: 'skill', resourceId: skill.id })
+  auditLog({ actorId: user.id, action: 'undelete', resourceType: auditResourceType(skill.type, 'skill'), resourceId: skill.id })
   reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
 }
 
@@ -647,7 +648,7 @@ export function purge(user: UserRecord, ref: SkillRef): void {
   if (user.role !== 'admin') fail('admin required')
   unindexTarget(skill.id)
   skillRepo.purge(skill.id)
-  auditLog({ actorId: user.id, action: 'purge', resourceType: 'skill', resourceId: skill.id })
+  auditLog({ actorId: user.id, action: 'purge', resourceType: auditResourceType(skill.type, 'skill'), resourceId: skill.id })
 }
 
 export function yankVersion(
@@ -675,7 +676,7 @@ export function yankVersion(
   auditLog({
     actorId: user.id,
     action: 'yank',
-    resourceType: 'skill_version',
+    resourceType: auditResourceType(skill.type, 'skill_version'),
     resourceId: target.id,
     details: reason || null,
   })
@@ -701,7 +702,7 @@ export function unyankVersion(
     const next = versionRepo.getLatestNonYanked(skill.id)
     skillRepo.repointLatest(skill.id, next?.id ?? null)
   })
-  auditLog({ actorId: user.id, action: 'unyank', resourceType: 'skill_version', resourceId: target.id })
+  auditLog({ actorId: user.id, action: 'unyank', resourceType: auditResourceType(skill.type, 'skill_version'), resourceId: target.id })
 }
 
 export function deprecateVersion(
@@ -763,7 +764,7 @@ export function transferSkill(
   }
   skillRepo.setNamespace(skill.id, target.id)
   reindexSkill(skillRepo.getWithOwnerById(skill.id)!)
-  auditLog({ actorId: user.id, action: 'transfer', resourceType: 'skill', resourceId: skill.id })
+  auditLog({ actorId: user.id, action: 'transfer', resourceType: auditResourceType(skill.type, 'skill'), resourceId: skill.id })
 }
 
 /**

@@ -1360,6 +1360,16 @@ try {
   r = await req('GET', '/api/v1/skills/unlisted-skill')
   check('the skill is now in the catalogue', r.status === 200, `${r.status}`)
 
+  // The shelf action is shared between skills and knowledge bases — one
+  // endpoint, one action name. The audit row's resource is what tells the two
+  // kinds apart, so a skill's listing stays recorded as a skill.
+  r = await req('GET', '/api/v1/admin/audit-logs?action=list_skill&resource_type=skill&limit=200')
+  check(
+    'listing a skill is audited as skill, not knowledge_base',
+    r.status === 200 && (r.body?.data ?? []).some((l) => (l.details ?? '').includes('unlisted-skill')),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
   r = await req('POST', '/api/v1/admin/skills/unlisted-skill/listing', { body: { listing: 'bogus' } })
   check(
     "an invalid listing → 400 \"must be 'listed' or 'unlisted'\"",
@@ -1707,7 +1717,9 @@ try {
     r.status === 201 && r.body?.skill?.type === 'knowledge_base',
     `${r.status} ${r.text.slice(0, 200)}`,
   )
-  const knowledgeBaseId = r.body?.skill?.id
+  const knowledgeBase = r.body?.skill
+  const knowledgeBaseId = knowledgeBase?.id
+  const knowledgeBaseVersionId = knowledgeBase?.latestVersionId
 
   // A form that has not heard of knowledge bases still files a skill — the
   // column is NOT NULL with a default, so nothing has to send it.
@@ -1719,7 +1731,9 @@ try {
     r.status === 201 && r.body?.skill?.type === 'skill',
     `${r.status} ${r.text.slice(0, 200)}`,
   )
-  const plainSkillId = r.body?.skill?.id
+  const plainSkill = r.body?.skill
+  const plainSkillId = plainSkill?.id
+  const plainSkillVersionId = plainSkill?.latestVersionId
 
   r = await req('POST', '/api/v1/admin/skills', {
     body: { slug: 'smoke-bad-type', displayName: 'x', type: 'plugin' },
@@ -1727,6 +1741,28 @@ try {
   check(
     "an unknown type → 400",
     r.status === 400 && /type must be/.test(r.body?.error ?? ''),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  // The audit log tells the two kinds of entry apart. The publish action is
+  // shared; the resource it names is what separates a knowledge base from a
+  // skill — in the log itself and in the console's resource filter.
+  r = await req('GET', '/api/v1/admin/audit-logs?action=publish&resource_type=knowledge_base_version&limit=200')
+  check(
+    'publishing a knowledge base is audited as knowledge_base_version',
+    r.status === 200 && (r.body?.data ?? []).some((l) => l.resourceId === knowledgeBaseVersionId),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('GET', '/api/v1/admin/audit-logs?action=publish&resource_type=skill_version&limit=200')
+  check(
+    'and publishing a skill stays audited as skill_version',
+    r.status === 200 && (r.body?.data ?? []).some((l) => l.resourceId === plainSkillVersionId),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('GET', '/api/v1/admin/audit-logs?action=update_detail_html&resource_type=knowledge_base&limit=200')
+  check(
+    'the rich-body edit on it is audited against the knowledge base',
+    r.status === 200 && (r.body?.data ?? []).some((l) => l.resourceId === knowledgeBaseId),
     `${r.status} ${r.text.slice(0, 200)}`,
   )
 
@@ -1903,6 +1939,44 @@ try {
     ),
   })
   check('uploading files to it publishes a new version → 200', r.status === 200, `${r.status} ${r.text.slice(0, 120)}`)
+  const kbMergeId = r.body?.skill?.id
+
+  // A console edit on a knowledge base is audited against the knowledge base,
+  // not the skill it shares a table with.
+  r = await req('GET', '/api/v1/admin/audit-logs?action=update_skill_content&resource_type=knowledge_base&limit=200')
+  check(
+    'editing a knowledge base in the console is audited as knowledge_base',
+    r.status === 200 && (r.body?.data ?? []).some((l) => l.resourceId === kbMergeId),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+
+  // The shelf toggle is one endpoint for both kinds of entry, so the audit row
+  // is what tells them apart: the action stays `list_skill` / `unlist_skill`,
+  // the resource names the knowledge base.
+  r = await req('POST', '/api/v1/admin/skills/smoke-kb-merge/listing', { body: { listing: 'unlisted' } })
+  check(
+    'a knowledge base can be taken off the shelf → 200',
+    r.status === 200 && r.body?.message === 'skill unlisted',
+    `${r.status} ${r.text.slice(0, 120)}`,
+  )
+  r = await req('GET', '/api/v1/admin/audit-logs?action=unlist_skill&resource_type=knowledge_base&limit=200')
+  check(
+    'and unlisting it is audited as knowledge_base',
+    r.status === 200 && (r.body?.data ?? []).some((l) => (l.details ?? '').includes('smoke-kb-merge')),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
+  r = await req('POST', '/api/v1/admin/skills/smoke-kb-merge/listing', { body: { listing: 'listed' } })
+  check(
+    'and put back on → 200',
+    r.status === 200 && r.body?.message === 'skill listed',
+    `${r.status} ${r.text.slice(0, 120)}`,
+  )
+  r = await req('GET', '/api/v1/admin/audit-logs?action=list_skill&resource_type=knowledge_base&limit=200')
+  check(
+    'relisting it is audited as knowledge_base too',
+    r.status === 200 && (r.body?.data ?? []).some((l) => (l.details ?? '').includes('smoke-kb-merge')),
+    `${r.status} ${r.text.slice(0, 200)}`,
+  )
 
   r = await req('GET', '/api/v1/skills/smoke-kb-merge/versions')
   check(

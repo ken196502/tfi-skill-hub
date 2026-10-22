@@ -83,6 +83,14 @@
   首页四段：精选技能 / 精选知识库 / 热门技能 / 热门知识库（精选是**同一个池子**按 type 分流）
 - ⚠️ runtime API **排除知识库**（`type='skill'`）；agent API 的 `type` 字段是 `kind` 小写，**别动**
 - 控制台内容管理页：类型下拉 + 表格「类型」列（`colSpan` 5→6）+ 工具栏类型筛选
+- **审计日志按类型区分**（2026-10-22）：`audit_logs.resource_type` 不再一律 `skill`——
+  知识库记 `knowledge_base`、其版本记 `knowledge_base_version`。入口收口在
+  `shared.ts` 的 `auditResourceType(type, 'skill'|'skill_version')`，skills.ts（8 处：
+  publish/delete/undelete/purge/yank/unyank/transfer/update_detail_html）、manage.ts
+  （update_skill_content、list_skill/unlist_skill）、social.ts（comment_create）都走它。
+  **action 名不变**（list_skill/unlist_skill 是共享端点）；前端 `admin.audit-logs.tsx`
+  的动作标签按 resourceType 变体显示「上架/下架知识库」，RESOURCE_LABELS 补了
+  knowledge_base(_version)/skill_version；`?resource_type=` 筛选天然区分两类
 
 ## 界面
 - 全站双语：`src/lib/i18n.tsx` 的 `useT()` **内联双语字面量**，不建中央 key 表；默认 en
@@ -102,13 +110,18 @@
   HTML 只能用页面已有 class（`table`/`note`），每段写 zh+en 两个 span
 
 ## 交付前必跑
-`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 399 条断言）
+`npm run typecheck`（0 报错）→ `npm run build` → `npm run smoke`（当前 408 条断言）
 - **改了源码必须重新 build 再 smoke**，否则验证的是旧 dist（曾因此误判）
 - 下载相关硬规则：上传单个 `.zip` ⇒ 原样返回该 zip 不二次打包（`uploadedZip()`，
   `download()` + agent `archive()` 都用）；文件名进响应头必须走 `http.ts` 的
   `contentDisposition()`（头值只能 Latin-1，中文名直接插值会让整个下载 404）
 
 ## 本机环境坑
+- **git 推送**：钥匙串写入被沙箱拦（`failed to store: 100001`）⇒ 凭据助手不可用，
+  remote URL 带 token 是唯一可用方式：`git remote set-url origin https://<user>:<pat>@github.com/...`
+  （token 会以明文留在 .git/config，用户已知悉）。⚠️ 公开仓库 + 只读 token 时，
+  API 读接口返回的是**账号**的权限（admin:true），会误判——验证 token 能否推送要实测一次写
+  （`POST /repos/<o>/<r>/git/blobs` 返回 403 就是缺 Contents:Read and write）
 - 沙箱单 turn 拦截 >50 文件批量删除（`SAFE_DELETE_BULK_CONFIRM_REQUIRED`）⇒ `vite build` 清 outDir 会失败，
   用 `mv dist /tmp/...` 把目录移出工作区再构建
 - Bash 每次独立进程，`&` 起的后台服务会被回收 ⇒ `run_in_background: true` + TaskStop（TaskStop 是 deferred 工具，
@@ -118,4 +131,7 @@
   带 SVG 的按钮用 `elementFromPoint` 判 `button.contains(at)` 而不是 `at === button`；
   截图是 `agent-browser screenshot "<path>"`（`--path` 会报元素找不到）；
   **`open` 后先 `get url` 确认真的导航了**（daemon 刚起时可能停在 about:blank，`wait --load networkidle` 也救不回）；
-  本项目登录框是 `#handle`/`#password`（**没有 name 属性**），提交用 `button[type="submit"]`
+  本项目登录框是 `#handle`/`#password`（**没有 name 属性**），提交用 `button[type="submit"]`；
+  **原生 `<select>`（如审计页的筛选下拉）点 option 会报 CDP `getBoxModel`**，改用 eval：
+  `Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(sel, v)` +
+  `dispatchEvent(new Event('change',{bubbles:true}))`（React 受控组件生效）

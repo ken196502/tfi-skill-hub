@@ -46,8 +46,8 @@ node scripts/create-admin.mjs --handle alice --password newsecret --set-password
 npm run smoke          # 端到端自检：临时库 + 真实 HTTP
 ```
 
-自检脚本会自己拉起一份服务（独立临时数据库、独立端口），走真实 HTTP 覆盖 **269 项断言**，
-逐项输出 ✓/✗，并以退出码 0/1 表示结果。最近一次运行：**269 passed, 0 failed**。
+自检脚本会自己拉起一份服务（独立临时数据库、独立端口），走真实 HTTP 覆盖 **408 项断言**，
+逐项输出 ✓/✗，并以退出码 0/1 表示结果。最近一次运行：**408 passed, 0 failed**。
 
 覆盖范围包括：发现类接口、登录/会话/API Key 鉴权、发布与版本管理、文件读取、ZIP 下载与 ETag/304、
 指纹反查、全文搜索（含中文）、收藏/评分/评论、命名空间与成员/邀请、

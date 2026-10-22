@@ -17,6 +17,7 @@ import { nextPatch } from '../semver'
 import { hashPassword, MIN_PASSWORD_LENGTH } from '../auth'
 import {
   auditLog,
+  auditResourceType,
   ensurePersonalNamespace,
   reindexSkill,
   resolveSkillRef,
@@ -739,7 +740,7 @@ export function updateSkillFromForm(
   auditLog({
     actorId: actor.id,
     action: 'update_skill_content',
-    resourceType: 'skill',
+    resourceType: auditResourceType(type, 'skill'),
     resourceId: skill.id,
     details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug},listing=${input.listing},type=${type}${uploads && uploads.size > 0 ? `,files=${uploads.size}` : ''}`,
   })
@@ -807,7 +808,7 @@ export function setSkillListing(ref: SkillRef, listing: string, actorId = ''): v
   auditLog({
     actorId: actorId || null,
     action: listing === 'listed' ? 'list_skill' : 'unlist_skill',
-    resourceType: 'skill',
+    resourceType: auditResourceType(skill.type, 'skill'),
     resourceId: skill.id,
     details: `ref=${ref.namespace ? `@${ref.namespace}/` : ''}${ref.slug}`,
   })

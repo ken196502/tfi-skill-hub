@@ -8,7 +8,7 @@
 
 import { asNumber, nowIso, query, type Row } from '../db'
 import { ambiguousSlug, forbidden, notFound, ServiceError } from '../errors'
-import type { SkillRef, SkillWithOwner, Skill, ListingStatus } from '../../lib/types'
+import type { SkillRef, SkillWithOwner, Skill, ListingStatus, SkillType } from '../../lib/types'
 import { members, namespaces, users, type UserRecord } from '../repo/core'
 import { skills as skillRepo, versions as versionRepo } from '../repo/skills'
 import { searchIndex, type SearchDoc } from '../repo/search'
@@ -181,6 +181,20 @@ export function auditLog(input: {
   } catch {
     // Auditing must never break the operation it is recording.
   }
+}
+
+/**
+ * The `resource_type` an audit row records for a catalogue write.
+ *
+ * Skills and knowledge bases share every column and every endpoint, so the
+ * action alone cannot tell them apart — a listing toggle on a knowledge base
+ * is the same `list_skill` action a skill gets. Naming the resource after what
+ * the entry actually *is* keeps the two apart in the log, and in the console's
+ * `resource_type` filter, without a second column.
+ */
+export function auditResourceType(type: SkillType, base: 'skill' | 'skill_version'): string {
+  if (type !== 'knowledge_base') return base
+  return base === 'skill' ? 'knowledge_base' : 'knowledge_base_version'
 }
 
 /**
