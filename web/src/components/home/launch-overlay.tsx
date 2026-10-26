@@ -58,7 +58,7 @@ function makeParticles() {
       tx: Math.cos(angle) * distance * 1.35,
       ty: Math.sin(angle) * distance * 0.8,
       size: 4 + Math.random() * 10,
-      duration: 900 + Math.random() * 900,
+      duration: 1200 + Math.random() * 1200,
       delay: Math.random() * 70,
       round: Math.random() > 0.18,
       color: PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)],
