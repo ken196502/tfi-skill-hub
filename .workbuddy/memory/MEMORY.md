@@ -76,12 +76,24 @@
 - ⚠️ `web/scripts/build-standalone.mjs`（package.json 引用）**仓库里不存在**，生产打包需按 Dockerfile 手工组装
   standalone（`.next/standalone` + `.next/static` → `.next/static` + `public` → 与 server.js 同级）
 
+## 首页问答打字机演示（chat-demo，2026-10-26）
+- 入口**只在首页 `#home`**：hero「示例问题」区的**第一个**预设「湖北光通信产业的上游主要涉及哪些核心环节？」（带 `data-chat-demo`）
+  ⇒ `#assistant` 路由**没有**该按钮，去了那边看不到动画；其余 3 个预设仍走旧 `answerFor` 静态回复
+- 流程：`thinking`（三步逐字 + ✓/· 标记 + 呼吸点）→ 第二轮自动往输入框**逐字敲字** → `answering`（段末光标流式吐字）
+  文件：`chat-demo.js`（脚本+状态机）/ `chat-demo.css`（动效）/ `prototype.js`（6 个钩子）/ `index.html`（挂载）
+- 播放中输入框 `readOnly`、发送按钮 disabled；Esc 可中断；`render()`/`renderAnswer()`/切导览都会 `stopChatDemo()`
+- ⚠️ 工作树曾回退成**旧快照**（无 chat-demo、`prototype.js?v=20261026-5`）而 git status 不报错 ⇒ 改完必须
+  `git diff HEAD -- web/public/hubei-knowledge` 核对，别只信 git status
+
 ## 界面
 - 全站双语：`src/lib/i18n.tsx` 的 `useT()` **内联双语字面量**，不建中央 key 表；默认 en
 - 不写实现说明 / 运营视角文案；品牌色 `#004123`、Helvetica，改这些只动 `global.css` 变量
 - `src/components/Combobox.tsx`：选项 `onMouseDown`、Escape 在 document **捕获**阶段拦、外部点击判 `pointerdown`；`openList()` 要 `select()`
 - 首页彩蛋 `components/home/launch-overlay.tsx`：按 `0` 出黑幕「即将发布」+ 手印（滚轮缩放 / ↑↓平移），
   回车 5→1 倒计时后爆炸淡出漏出首页；样式集中在 globals.css 的 `Home teaser curtain` 段
+- 手印是**真实掌印剪影**（素材 `~/Downloads/leftpalm.svg` → `components/home/handprint.tsx`，
+  单 path + 收紧 viewBox `88 90 1070 1100`）；左 3 右手 / 右 3 左手（左半 `scaleX(-1)`），
+  默认 `--hand-base: clamp(9px,1.56vw,19px)`（≈旧版的 30%）；动画挂在外层 span、倾斜镜像在内层 svg
 
 ## 管理员 API Key（唯一程序化凭证）
 - 凭证判定：`isApiKey` 否则按 `SKILLHUB_SESSION_PREFIX`（默认 `sess_`）查 sessions；**Bearer 优先于会话 Cookie**

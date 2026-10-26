@@ -486,7 +486,40 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(1.8rem, 5vh, 3.4rem);
+}
+
+/* Brand mark above the headline. White so it reads on the black curtain. */
+.launch-brand {
+  --logo-color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: clamp(24px, 3.8vw, 46px);
+  margin-bottom: clamp(1.2rem, 3vh, 2.2rem);
+  transition: opacity 240ms ease;
+  animation: launch-brand-in 900ms cubic-bezier(0.16, 0.84, 0.28, 1) backwards;
+}
+
+.launch-brand > svg {
+  height: 100%;
+  width: auto;
+}
+
+.launch-brand-muted {
+  opacity: 0;
+}
+
+@keyframes launch-brand-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translateY(-10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* Holds the word and — later — the digit, so the prints below never shift. */
@@ -534,16 +567,17 @@
 .launch-hands {
   --hand-base: clamp(9px, 1.56vw, 19px);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  gap: clamp(4px, 0.72vw, 9px);
+  gap: clamp(28px, 4.8vw, 68px);
+  margin-top: clamp(2.6rem, 8vh, 5rem);
   transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
 }
 
-/* Split the row into two trios — right hands | left hands. */
+/* Split the row into two trios — left hands | right hands. */
 .launch-hand:nth-child(3) {
-  margin-right: clamp(6px, 1.1vw, 14px);
+  margin-right: clamp(36px, 6vw, 88px);
 }
 
 .launch-hand {
@@ -564,7 +598,7 @@
 @keyframes launch-hand-in {
   from {
     opacity: 0;
-    transform: translateY(28px) scale(0.7);
+    transform: translateY(10px) scale(0.75);
   }
   to {
     opacity: 1;
@@ -686,23 +720,27 @@
   );
   -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 58%);
   mask-image: radial-gradient(circle, #000 0%, transparent 58%);
-  animation: launch-rays 900ms cubic-bezier(0.15, 0.75, 0.3, 1) forwards;
+  animation: launch-rays 3000ms cubic-bezier(0.15, 0.75, 0.3, 1) forwards;
 }
 
+/* Long afterglow: bursts open fast, then keeps drifting outward for ~3s. */
 @keyframes launch-rays {
   0% {
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.12) rotate(0deg);
   }
-  12% {
+  6% {
     opacity: 0.9;
   }
-  58% {
-    opacity: 0.55;
+  30% {
+    opacity: 0.62;
+  }
+  65% {
+    opacity: 0.26;
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.8) rotate(18deg);
+    transform: translate(-50%, -50%) scale(2.4) rotate(14deg);
   }
 }
 
@@ -721,7 +759,7 @@
     rgba(255, 255, 255, 0.28) 36%,
     rgba(255, 255, 255, 0) 64%
   );
-  animation: launch-core 900ms cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
+  animation: launch-core 2300ms cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
 }
 
 @keyframes launch-core {
@@ -729,15 +767,18 @@
     opacity: 0;
     transform: translate(-50%, -50%) scale(0.12);
   }
-  10% {
+  8% {
     opacity: 1;
   }
-  42% {
-    opacity: 0.8;
+  32% {
+    opacity: 0.78;
+  }
+  65% {
+    opacity: 0.38;
   }
   100% {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(1.4);
+    transform: translate(-50%, -50%) scale(1.9);
   }
 }
 
@@ -749,7 +790,7 @@
   height: 110vmax;
   border-radius: 9999px;
   border: 3px solid rgba(255, 255, 255, 0.85);
-  animation: launch-shockwave 900ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+  animation: launch-shockwave 1400ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 
 .launch-ring-late {
@@ -792,11 +833,12 @@
   }
 }
 
-/* Curtain lift: shake, then fade the black field out to expose the page. */
+/* Curtain lift: shake, hold the black while the glow burns down (~2.1s),
+   then fade out over the last 0.9s — the glow and the reveal overlap. */
 .launch-boom-out {
   animation:
     launch-shake 460ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both,
-    launch-veil-out 640ms cubic-bezier(0.4, 0, 0.6, 1) 470ms forwards;
+    launch-veil-out 900ms cubic-bezier(0.4, 0, 0.6, 1) 2100ms forwards;
 }
 
 @keyframes launch-shake {

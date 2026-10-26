@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { BrandLogo } from "@/components/common/brand-logo";
 import { Handprint } from "@/components/home/handprint";
 import { useI18n } from "@/i18n";
 
@@ -16,25 +17,15 @@ type Stage = "hidden" | "title" | "countdown" | "boom";
 const COUNTDOWN_FROM = 5;
 /** One beat per digit. */
 const TICK_MS = 800;
-/** Flash + shockwave + particles + curtain lift; keep in sync with the CSS. */
-const BOOM_MS = 1180;
+/** Flash + shockwave + particles + curtain lift; keep in sync with the CSS.
+ *  The glow burns down over ~3s, so the curtain holds black until 2.1s. */
+const BOOM_MS = 3250;
 
-/**
- * Six prints, mirrored about the centre: right hands on the left half, left
- * hands on the right. The source art is a left hand, so the left trio is
- * flipped; tilt and drift mirror across so the row reads as one gesture.
- */
-const HAND_SHAPES = [
-  { rotate: -8, mirror: true, dy: 5 },
-  { rotate: -2, mirror: true, dy: -4 },
-  { rotate: 6, mirror: true, dy: 2 },
-  { rotate: 6, mirror: false, dy: 2 },
-  { rotate: -2, mirror: false, dy: -4 },
-  { rotate: -8, mirror: false, dy: 5 },
-];
+/** Three prints per side, mirrored about the centre — right hands | left hands. */
+const HANDS_PER_SIDE = 3;
 
-/** Print box is 1070 × 1100, so height follows width at this ratio. */
-const HAND_RATIO = 1100 / 1070;
+/** Print box is 1250 × 1290, so height follows width at this ratio. */
+const HAND_RATIO = 1290 / 1250;
 
 /** Mostly white embers with a few warm brand sparks. */
 const PARTICLE_COLORS = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#fdf898", "#fae752"];
@@ -67,7 +58,7 @@ function makeParticles() {
       tx: Math.cos(angle) * distance * 1.35,
       ty: Math.sin(angle) * distance * 0.8,
       size: 4 + Math.random() * 10,
-      duration: 820 + Math.random() * 560,
+      duration: 900 + Math.random() * 900,
       delay: Math.random() * 70,
       round: Math.random() > 0.18,
       color: PARTICLE_COLORS[Math.floor(Math.random() * PARTICLE_COLORS.length)],
@@ -214,6 +205,12 @@ export function LaunchOverlay() {
         // Title and countdown share one slot: the handprints stay mounted and
         // untouched, only the word above them swaps for the digit.
         <div className="launch-center">
+          {/* Brand mark sits above the word and bows out with it at countdown. */}
+          <div
+            className={stage === "countdown" ? "launch-brand launch-brand-muted" : "launch-brand"}
+          >
+            <BrandLogo />
+          </div>
           <div className="launch-word">
             <h2
               className={stage === "countdown" ? "launch-title launch-title-muted" : "launch-title"}
@@ -230,26 +227,25 @@ export function LaunchOverlay() {
             ) : null}
           </div>
           <div className="launch-hands" style={{ transform: `translateY(${shift}px)` }}>
-            {HAND_SHAPES.map((shape, index) => (
-              <span
-                key={index}
-                className="launch-hand"
-                style={
-                  {
-                    width: `calc(var(--hand-base) * ${scale})`,
-                    height: `calc(var(--hand-base) * ${scale} * ${HAND_RATIO})`,
-                    marginTop: shape.dy,
-                    "--i": index,
-                  } as CSSProperties
-                }
-              >
-                <Handprint
-                  style={{
-                    transform: `rotate(${shape.rotate}deg) scaleX(${shape.mirror ? -1 : 1})`,
-                  }}
-                />
-              </span>
-            ))}
+            {Array.from({ length: HANDS_PER_SIDE * 2 }, (_, index) => {
+              // Left trio is the source art (left hand); right trio is mirrored.
+              const mirror = index >= HANDS_PER_SIDE;
+              return (
+                <span
+                  key={index}
+                  className="launch-hand"
+                  style={
+                    {
+                      width: `calc(var(--hand-base) * ${scale})`,
+                      height: `calc(var(--hand-base) * ${scale} * ${HAND_RATIO})`,
+                      "--i": index,
+                    } as CSSProperties
+                  }
+                >
+                  <Handprint style={{ transform: `scaleX(${mirror ? -1 : 1})` }} />
+                </span>
+              );
+            })}
           </div>
         </div>
       )}

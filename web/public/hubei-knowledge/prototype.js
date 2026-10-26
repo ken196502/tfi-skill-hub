@@ -339,7 +339,7 @@ function renderHome(){
   const prompts=['湖北人工智能产业链上游有哪些方向？','武汉有哪些人工智能产业布局？','黑芝麻智能是什么企业？'];
   const heroEyebrow=language==='en'?'HUBEI INDUSTRY ATLAS':'产业 · 城市 · 企业';
   const heroCore=language==='en'?'<span>HUBEI</span><b>Industry<br>Atlas</b>':'<span>湖北</span><b>产业<br>脉络</b>';
-  const promptButtons=renderChatDemoPrompt()+prompts.map(prompt=>`<button type="button" data-question="${prompt}">${prompt}</button>`).join('');
+  const promptButtons=renderChatDemoPrompt()+prompts.map(prompt=>renderChatDemoPromptFor(prompt)).join('');
   const heroForm=`<form class="${homeChatExpanded?'chat-composer hero-chat-composer':'hero-ask'}" id="askForm"><label class="visually-hidden" for="questionInput">输入产业问题</label><input id="questionInput" name="question" placeholder="${homeChatExpanded?'输入你想了解的产业问题…':'例如：湖北人工智能产业链有哪些重点方向？'}" autocomplete="off"><button type="submit" aria-label="${homeChatExpanded?'发送问题':'开始提问'}"><span>${homeChatExpanded?'发送':'开始提问'}</span><b aria-hidden="true">↑</b></button></form>`;
   const chatSection=homeChatExpanded?`<div class="hero-chat-shell"><div class="chat-header"><span class="chat-assistant-icon">✦</span><span class="chat-title"><b>智能AI</b><small>站内知识库 · 来源可追溯</small></span></div><div class="chat-messages hero-chat-messages" id="chatMessages" role="log" aria-live="polite">${chatHistory.map(renderChatExchange).join('')}</div>${heroForm}</div>`:`${heroForm}<div class="hero-suggestions" aria-label="${language==='en'?'Example questions':'示例问题'}">${promptButtons}</div>`;
   const heroTitle=homeChatExpanded?`<div class="hero-chat-title"><span class="hero-eyebrow">${heroEyebrow}</span><h1>湖北产业知识库</h1></div>`:`<span class="hero-eyebrow">${heroEyebrow}</span><h1>湖北产业知识库</h1><p class="hero-slogan">发现湖北产业脉络，连接城市与企业</p>`;
@@ -1233,7 +1233,8 @@ document.addEventListener('submit',event=>{
   renderAnswer(new FormData(event.target).get('question')||'');
 });
 document.addEventListener('click',event=>{
-  if(event.target.closest('[data-chat-demo]')){startChatDemo();return}
+  const chatDemoTrigger=event.target.closest('[data-chat-demo]');
+  if(chatDemoTrigger){startChatDemo(chatDemoTrigger);return}
   const aboutTarget=event.target.closest('[data-about-target]');
   if(aboutTarget){
     event.preventDefault();

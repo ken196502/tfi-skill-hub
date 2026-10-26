@@ -19,6 +19,13 @@ const chatDemoScript = [
   }
 ];
 
+// The remaining sample questions answer from the material the demo already
+// ships, so they reuse the same typing rhythm without a scripted script.
+const chatDemoGenericSteps = {
+  zh: ['识别问题主题：提问涉及的产业环节。', '整理内容范围：站内知识库与已收录档案。', '组织回答结构：结合站内资料作答并标注来源。'],
+  en: ['Identifying the topic: the industry segment behind the question.', 'Organizing the scope: the knowledge base and collected records.', 'Structuring the answer from the collected material and citing its sources.']
+};
+
 let activeChatDemo = null;
 let chatDemoSequence = 0;
 
@@ -30,14 +37,24 @@ function renderChatDemoPrompt() {
   return `<button type="button" data-chat-demo data-preserve-text>${escapeText(chatDemoScript[0].question)}</button>`;
 }
 
+// The other sample questions keep their own wording and answer from the demo
+// content. `data-demo-question` stays untranslated so both languages can be
+// prepared from the same original question.
+function renderChatDemoPromptFor(prompt) {
+  return `<button type="button" data-chat-demo="generic" data-demo-question="${escapeText(prompt)}">${escapeText(prompt)}</button>`;
+}
+
 function renderChatDemoReply(demo) {
   if (demo.state === 'thinking') {
     const steps = demo.thinking.map((text, index) => `<li class="${index === demo.thinking.length - 1 ? 'is-current' : 'is-complete'}"><span class="chat-demo-step-marker" aria-hidden="true">${index === demo.thinking.length - 1 ? '·' : '✓'}</span><span>${escapeText(text)}</span></li>`).join('');
     return `<div class="chat-demo-thinking-process"><div class="chat-demo-thinking"><span class="chat-demo-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>${chatDemoLabel('正在思考…', 'Thinking…')}</span></div><ol class="chat-demo-thinking-steps">${steps}</ol></div>`;
   }
   const paragraphs = demo.text.split('\n\n').filter(Boolean).map(paragraph => `<p>${escapeText(paragraph)}</p>`).join('');
+  const result = demo.answers ? (demo.answers[language] || demo.answers.zh) : null;
+  const sources = result ? `<div class="chat-sources">${result.sources.map(source => `<a href="#${source[1]}">${chatDemoLabel('来源：', 'Source: ')}${escapeText(source[0])}</a>`).join('')}</div>` : '';
+  const note = result ? `<small class="reply-note">${chatDemoLabel('演示回复 · 基于本站迁入资料', 'Demo reply · Based on migrated site content')}</small>` : '';
   const interrupted = demo.state === 'stopped' ? `<small class="reply-note">${chatDemoLabel('回复已中止', 'Response interrupted')}</small>` : '';
-  return `<div class="chat-demo-answer ${demo.state === 'answering' ? 'is-streaming' : ''}">${paragraphs}</div>${interrupted}`;
+  return `<div class="chat-demo-answer ${demo.state === 'answering' ? 'is-streaming' : ''}">${paragraphs}</div>${sources}${note}${interrupted}`;
 }
 
 function renderChatDemoExchange(exchange) {
@@ -117,60 +134,31 @@ function createChatDemoExchange(run, round) {
   return exchange;
 }
 
+// A sample question answered from the demo content: both language variants are
+// prepared up front so a language switch mid-answer still matches the source.
+function createGenericChatDemoExchange(run, sourceQuestion, displayQuestion) {
+  const exchange = {
+    question: displayQuestion || sourceQuestion,
+    demo: {
+      id: `${run.id}-generic`,
+      state: 'thinking',
+      thinking: [],
+      text: '',
+      answers: {
+        zh: answerFor(sourceQuestion, 'zh'),
+        en: answerFor(sourceQuestion, 'en')
+      }
+    }
+  };
+  chatHistory.push(exchange);
+  run.exchange = exchange;
+  return exchange;
+}
+
 async function playChatDemo(run) {
   try {
-    for (let round = 1; round <= chatDemoScript.length; round++) {
-      if (round === 2) {
-        setChatDemoPhase(run, 'reading');
-        await waitForChatDemo(run, 1800);
-        setChatDemoPhase(run, 'typing');
-        const input = document.querySelector('#questionInput');
-        input.focus({ preventScroll: true });
-        for (const character of chatDemoScript[1].question) {
-          await waitForChatDemo(run, /[，、“”？]/u.test(character) ? 210 : 65 + Math.random() * 65);
-          input.value += character;
-          input.setSelectionRange(input.value.length, input.value.length);
-          input.scrollLeft = input.scrollWidth;
-        }
-        await waitForChatDemo(run, 700);
-        setChatDemoPhase(run, 'sending');
-        await waitForChatDemo(run, 280);
-        input.value = '';
-        const exchange = createChatDemoExchange(run, round);
-        const messages = document.querySelector('#chatMessages');
-        messages.insertAdjacentHTML('beforeend', renderChatDemoExchange(exchange));
-        messages.scrollTop = messages.scrollHeight;
-      }
-      setChatDemoPhase(run, 'thinking');
-      const exchange = run.exchange;
-      await waitForChatDemo(run, 600);
-      const thinkingSteps = language === 'en' ? chatDemoScript[round - 1].thinkingStepsEn : chatDemoScript[round - 1].thinkingSteps;
-      for (const step of thinkingSteps) {
-        exchange.demo.thinking.push('');
-        for (const character of step) {
-          exchange.demo.thinking[exchange.demo.thinking.length - 1] += character;
-          updateChatDemoReply(exchange);
-          await waitForChatDemo(run, 24);
-        }
-        await waitForChatDemo(run, 550);
-      }
-      await waitForChatDemo(run, 900);
-      exchange.demo.state = 'answering';
-      setChatDemoPhase(run, 'answering');
-      const answer = Array.from(chatDemoScript[round - 1].answer);
-      let cursor = 0;
-      while (cursor < answer.length) {
-        const count = 1 + Math.floor(Math.random() * 3);
-        exchange.demo.text += answer.slice(cursor, cursor + count).join('');
-        cursor += count;
-        updateChatDemoReply(exchange);
-        const lastCharacter = exchange.demo.text.slice(-1);
-        const outputDelay = /[。；：\n]/u.test(lastCharacter) ? 220 : /[，、]/u.test(lastCharacter) ? 110 : 45 + Math.random() * 35;
-        await waitForChatDemo(run, outputDelay / 2);
-      }
-      exchange.demo.state = 'complete';
-      updateChatDemoReply(exchange);
-    }
+    if (run.mode === 'generic') await playGenericChatDemo(run);
+    else await playScriptedChatDemo(run);
     finishChatDemo(run, false);
   } catch (error) {
     finishChatDemo(run, true);
@@ -178,12 +166,101 @@ async function playChatDemo(run) {
   }
 }
 
-function startChatDemo() {
+// One question, answered from the demo content with the same thinking rhythm.
+async function playGenericChatDemo(run) {
+  const exchange = run.exchange;
+  setChatDemoPhase(run, 'thinking');
+  await waitForChatDemo(run, 600);
+  const thinkingSteps = language === 'en' ? chatDemoGenericSteps.en : chatDemoGenericSteps.zh;
+  for (const step of thinkingSteps) {
+    exchange.demo.thinking.push('');
+    for (const character of step) {
+      exchange.demo.thinking[exchange.demo.thinking.length - 1] += character;
+      updateChatDemoReply(exchange);
+      await waitForChatDemo(run, 24);
+    }
+    await waitForChatDemo(run, 550);
+  }
+  await waitForChatDemo(run, 900);
+  const result = exchange.demo.answers[language] || exchange.demo.answers.zh;
+  exchange.demo.state = 'answering';
+  setChatDemoPhase(run, 'answering');
+  await streamChatDemoText(run, exchange, result.body);
+  exchange.demo.state = 'complete';
+  updateChatDemoReply(exchange);
+}
+
+// The scripted demo: the first question is sent right away, the second one is
+// typed into the composer before it goes out.
+async function playScriptedChatDemo(run) {
+  for (let round = 1; round <= chatDemoScript.length; round++) {
+    if (round === 2) {
+      setChatDemoPhase(run, 'reading');
+      await waitForChatDemo(run, 1800);
+      setChatDemoPhase(run, 'typing');
+      const input = document.querySelector('#questionInput');
+      input.focus({ preventScroll: true });
+      for (const character of chatDemoScript[1].question) {
+        await waitForChatDemo(run, /[，、“”？]/u.test(character) ? 210 : 65 + Math.random() * 65);
+        input.value += character;
+        input.setSelectionRange(input.value.length, input.value.length);
+        input.scrollLeft = input.scrollWidth;
+      }
+      await waitForChatDemo(run, 700);
+      setChatDemoPhase(run, 'sending');
+      await waitForChatDemo(run, 280);
+      input.value = '';
+      const exchange = createChatDemoExchange(run, round);
+      const messages = document.querySelector('#chatMessages');
+      messages.insertAdjacentHTML('beforeend', renderChatDemoExchange(exchange));
+      messages.scrollTop = messages.scrollHeight;
+    }
+    setChatDemoPhase(run, 'thinking');
+    const exchange = run.exchange;
+    await waitForChatDemo(run, 600);
+    const thinkingSteps = language === 'en' ? chatDemoScript[round - 1].thinkingStepsEn : chatDemoScript[round - 1].thinkingSteps;
+    for (const step of thinkingSteps) {
+      exchange.demo.thinking.push('');
+      for (const character of step) {
+        exchange.demo.thinking[exchange.demo.thinking.length - 1] += character;
+        updateChatDemoReply(exchange);
+        await waitForChatDemo(run, 24);
+      }
+      await waitForChatDemo(run, 550);
+    }
+    await waitForChatDemo(run, 900);
+    exchange.demo.state = 'answering';
+    setChatDemoPhase(run, 'answering');
+    await streamChatDemoText(run, exchange, chatDemoScript[round - 1].answer);
+    exchange.demo.state = 'complete';
+    updateChatDemoReply(exchange);
+  }
+}
+
+// Reveals the answer character by character, pausing longer on sentence marks.
+async function streamChatDemoText(run, exchange, text) {
+  const answer = Array.from(text);
+  let cursor = 0;
+  while (cursor < answer.length) {
+    const count = 1 + Math.floor(Math.random() * 3);
+    exchange.demo.text += answer.slice(cursor, cursor + count).join('');
+    cursor += count;
+    updateChatDemoReply(exchange);
+    const lastCharacter = exchange.demo.text.slice(-1);
+    const outputDelay = /[。；：\n]/u.test(lastCharacter) ? 220 : /[，、]/u.test(lastCharacter) ? 110 : 45 + Math.random() * 35;
+    await waitForChatDemo(run, outputDelay / 2);
+  }
+}
+
+function startChatDemo(trigger) {
   if (activeChatDemo) return;
-  const run = { id: ++chatDemoSequence, controller: new AbortController(), phase: 'thinking', exchange: null, placeholder: '' };
+  const button = trigger || document.querySelector('[data-chat-demo]');
+  const generic = Boolean(button && button.dataset.chatDemo === 'generic');
+  const run = { id: ++chatDemoSequence, controller: new AbortController(), phase: 'thinking', exchange: null, placeholder: '', mode: generic ? 'generic' : 'script' };
   activeChatDemo = run;
   homeChatExpanded = true;
-  createChatDemoExchange(run, 1);
+  if (generic) createGenericChatDemoExchange(run, button.dataset.demoQuestion, button.textContent.trim());
+  else createChatDemoExchange(run, 1);
   root.innerHTML = renderHome();
   applyLanguage();
   const input = document.querySelector('#questionInput');

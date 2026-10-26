@@ -21,7 +21,7 @@ export function Handprint({
 }) {
   return (
     <svg
-      viewBox="88 90 1070 1100"
+      viewBox="10 20 1250 1290"
       className={className}
       style={style}
       fill="currentColor"
