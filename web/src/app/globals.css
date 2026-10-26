@@ -446,9 +446,10 @@
 
 /* ── Home teaser curtain ───────────────────────────────────────────────────
    Press `0` on the landing page: a black curtain with 「即将发布」 and a row
-   of handprints; wheel resizes the prints, ↑/↓ slides them, Enter runs the
-   countdown that detonates and lifts the curtain off the page. Every layer is
-   transform/opacity only so the blast stays on the compositor. */
+   of handprints; edit mode can move each print independently, toggle each one,
+   or resize the shared hand scale. Enter runs the countdown that detonates and
+   lifts the curtain off the page. Every layer is transform/opacity only so the
+   blast stays on the compositor. */
 
 .launch-root {
   position: fixed;
@@ -487,11 +488,11 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 130vmax;
-  height: 130vmax;
+  width: 260vmax;
+  height: 260vmax;
   border-radius: 9999px;
   pointer-events: none;
-  opacity: 0.1;
+  opacity: 0.08;
   background: repeating-conic-gradient(
     from 0deg,
     rgba(255, 255, 255, 0.95) 0deg 0.55deg,
@@ -511,9 +512,10 @@
   }
 }
 
-/* Both blocks are placed by viewport percentage, so a layout tuned on a laptop
-   lands the same way on a smaller venue screen. `--block-scale` zooms the art;
-   the editor chrome counter-scales with `--block-inverse` to stay readable. */
+/* The title and each hand are placed by viewport percentage, so a layout tuned
+   on a laptop lands the same way on a smaller venue screen. `--block-scale`
+   zooms the art; the editor chrome counter-scales with `--block-inverse` to
+   stay readable. */
 .launch-stage {
   position: absolute;
   inset: 0;
@@ -620,6 +622,23 @@
   gap: 8px;
 }
 
+.launch-cfg-selection-row {
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: min(92vw, 760px);
+}
+
+.launch-cfg-group-label {
+  margin-left: 2px;
+}
+
+.launch-cfg-hand-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .launch-cfg button {
   appearance: none;
   height: 28px;
@@ -649,6 +668,34 @@
   background: rgba(255, 255, 255, 0.92);
   border-color: transparent;
   color: #0b0b0b;
+}
+
+.launch-cfg-hand-chip {
+  min-width: 28px;
+  padding: 0 7px !important;
+  font-variant-numeric: tabular-nums;
+}
+
+.launch-cfg-hand-chip[data-hidden="true"] {
+  opacity: 0.52;
+  text-decoration: line-through;
+}
+
+.launch-cfg-visibility {
+  display: inline-flex;
+  width: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+}
+
+.launch-cfg-visibility[data-hidden="true"] {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.launch-cfg-visibility > svg {
+  width: 14px;
+  height: 14px;
 }
 
 .launch-cfg-step {
@@ -753,8 +800,10 @@
   white-space: nowrap;
   color: #fff;
   text-shadow:
-    0 0 40px rgba(255, 255, 255, 0.32),
-    0 0 130px rgba(255, 255, 255, 0.14);
+    0 0 5px rgba(250, 231, 82, 0.95),
+    0 0 22px rgba(250, 231, 82, 0.72),
+    0 0 70px rgba(250, 231, 82, 0.36),
+    0 0 130px rgba(250, 231, 82, 0.16);
   animation: launch-title-in 900ms cubic-bezier(0.16, 0.84, 0.28, 1) backwards;
 }
 
@@ -778,29 +827,23 @@
   }
 }
 
-.launch-hands {
-  --hand-base: clamp(9px, 1.56vw, 19px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(28px, 4.8vw, 68px);
-}
-
-/* Split the row into two trios — left hands | right hands. */
-.launch-hand:nth-child(3) {
-  margin-right: clamp(36px, 6vw, 88px);
-}
-
 .launch-hand {
+  --hand-base: clamp(9px, 1.56vw, 19px);
   display: block;
-  flex: none;
+  box-sizing: content-box;
   color: #fff;
   filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.38));
+}
+
+.launch-hand-art {
+  display: block;
+  width: 100%;
+  height: 100%;
   animation: launch-hand-in 640ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
   animation-delay: calc(var(--i) * 60ms + 240ms);
 }
 
-.launch-hand > svg {
+.launch-hand-art > svg {
   display: block;
   width: 100%;
   height: 100%;
@@ -821,53 +864,39 @@
    prints underneath keeps the exact position it had before Enter. */
 .launch-count-slot {
   position: absolute;
-  inset: 0;
+  inset: -12% -8%;
   display: flex;
   align-items: center;
   justify-content: center;
   /* Nudged up so the digit keeps clear air above the prints. */
-  padding-bottom: 40px;
+  padding-bottom: 1.5rem;
+  overflow: visible;
 }
 
 .launch-count {
-  font-size: clamp(5rem, 15vw, 12rem);
+  display: block;
+  box-sizing: content-box;
+  max-width: 90vw;
+  padding: 0.08em 0.12em 0.16em;
+  font-size: clamp(5rem, 12vw, 10rem);
   font-weight: 800;
-  line-height: 0.82;
+  line-height: 1;
   letter-spacing: -0.05em;
   font-variant-numeric: tabular-nums;
-  /* Rainbow fill that keeps sliding while each digit holds. */
-  background-image: linear-gradient(
-    100deg,
-    #ff5f6d,
-    #ffc371,
-    #7af5c8,
-    #4d9dff,
-    #c471ed,
-    #ff5f6d
-  );
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation:
-    launch-count-beat 800ms cubic-bezier(0.2, 0.85, 0.24, 1) both,
-    launch-count-flow 2400ms linear infinite;
-}
-
-@keyframes launch-count-flow {
-  from {
-    background-position: 0% 50%;
-  }
-  to {
-    background-position: 220% 50%;
-  }
+  color: #fff;
+  text-shadow:
+    0 0 5px rgba(250, 231, 82, 0.95),
+    0 0 22px rgba(250, 231, 82, 0.72),
+    0 0 70px rgba(250, 231, 82, 0.36),
+    0 0 130px rgba(250, 231, 82, 0.16);
+  animation: launch-count-beat 800ms cubic-bezier(0.2, 0.85, 0.24, 1) both;
 }
 
 @keyframes launch-count-beat {
   0% {
     opacity: 0;
     filter: blur(18px);
-    transform: scale(2.2);
+    transform: scale(1.45);
   }
   16% {
     opacity: 1;
@@ -882,7 +911,7 @@
   100% {
     opacity: 0;
     filter: blur(6px);
-    transform: scale(0.82);
+    transform: scale(0.9);
   }
 }
 

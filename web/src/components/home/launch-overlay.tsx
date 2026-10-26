@@ -14,6 +14,7 @@ import { BrandLogo } from "@/components/common/brand-logo";
 import { Handprint } from "@/components/home/handprint";
 import { playBoom, playTick } from "@/components/home/launch-audio";
 import { useI18n } from "@/i18n";
+import { Eye, EyeOff } from "lucide-react";
 
 /**
  * Home-page teaser (easter egg).
@@ -22,13 +23,15 @@ import { useI18n } from "@/i18n";
  * handprints, Enter runs a 5-4-1 countdown that detonates and lifts the
  * curtain off the page.
  *
- * `1` opens the layout editor: drag either block to move it, scroll to resize,
- * arrows to nudge. Positions are stored as fractions of the viewport, so a
- * layout tuned on a laptop lands the same way on a smaller venue screen.
+ * `1` opens the layout editor: drag the title or any individual hand to move
+ * it, scroll to resize, and use the eye buttons to toggle individual hands.
+ * All hands share one scale value. Positions are stored as fractions of the
+ * viewport, so a layout tuned on a laptop lands the same way on a smaller
+ * venue screen.
  */
 
 type Stage = "hidden" | "title" | "countdown" | "boom";
-type BlockId = "title" | "hands";
+type Selection = "title" | number;
 
 interface BlockLayout {
   /** Centre of the block, as a fraction of the viewport (0–1). */
@@ -38,11 +41,27 @@ interface BlockLayout {
   scale: number;
 }
 
-type Layout = Record<BlockId, BlockLayout>;
+interface HandLayout {
+  /** Centre of this hand, as a fraction of the viewport (0–1). */
+  x: number;
+  y: number;
+  visible: boolean;
+}
+
+interface HandsLayout {
+  /** One shared multiplier for all handprints. */
+  scale: number;
+  items: HandLayout[];
+}
+
+interface Layout {
+  title: BlockLayout;
+  hands: HandsLayout;
+}
 
 interface DragState {
   kind: "move" | "size";
-  block: BlockId;
+  selection: Selection;
   /** Screen start point, and the block centre it started from. */
   startX: number;
   startY: number;
@@ -59,8 +78,8 @@ const TICK_MS = 800;
  *  The glow burns down over ~3s, so the curtain holds black until 2.1s. */
 const BOOM_MS = 3250;
 
-/** Three prints per side, mirrored about the centre — right hands | left hands. */
-const HANDS_PER_SIDE = 3;
+/** Five prints per side, mirrored about the centre — left hands | right hands. */
+const HANDS_PER_SIDE = 5;
 
 /** Print box is 1250 × 1290, so height follows width at this ratio. */
 const HAND_RATIO = 1290 / 1250;
@@ -69,13 +88,22 @@ const HAND_RATIO = 1290 / 1250;
 const PARTICLE_COLORS = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#fdf898", "#fae752"];
 
 /** Autosaved layout. Bump the suffix if the shape ever changes. */
-const STORAGE_KEY = "tfi.launch.layout.v1";
+const STORAGE_KEY = "tfi.launch.layout.v3";
+const LEGACY_STORAGE_KEYS = ["tfi.launch.layout.v2", "tfi.launch.layout.v1"];
 
 /** Matches the composition the curtain had before it became editable. */
-const DEFAULT_LAYOUT: Layout = {
-  title: { x: 0.5, y: 0.44, scale: 1 },
-  hands: { x: 0.5, y: 0.68, scale: 1 },
-};
+const DEFAULT_HAND_X = [0.24, 0.3, 0.36, 0.42, 0.47, 0.53, 0.58, 0.64, 0.7, 0.76];
+const LEGACY_HANDS_POSITION = { x: 0.5, y: 0.68 };
+
+function makeDefaultLayout(): Layout {
+  return {
+    title: { x: 0.5, y: 0.44, scale: 1 },
+    hands: {
+      scale: 1,
+      items: DEFAULT_HAND_X.map((x) => ({ x, y: LEGACY_HANDS_POSITION.y, visible: true })),
+    },
+  };
+}
 
 const SCALE_MIN = 0.25;
 const SCALE_MAX = 3.5;
@@ -107,19 +135,90 @@ function readBlock(value: unknown, fallback: BlockLayout): BlockLayout {
   };
 }
 
+function readHand(value: unknown, fallback: HandLayout): HandLayout {
+  if (!value || typeof value !== "object") return fallback;
+  const raw = value as Record<string, unknown>;
+  const num = (candidate: unknown, byDefault: number) =>
+    typeof candidate === "number" && Number.isFinite(candidate) ? candidate : byDefault;
+  return {
+    x: clamp(num(raw.x, fallback.x), 0, 1),
+    y: clamp(num(raw.y, fallback.y), 0, 1),
+    visible: typeof raw.visible === "boolean" ? raw.visible : fallback.visible,
+  };
+}
+
+function readHands(value: unknown, fallback: HandsLayout): HandsLayout {
+  if (!value || typeof value !== "object") return fallback;
+  const raw = value as Record<string, unknown>;
+  const num = (candidate: unknown, byDefault: number) =>
+    typeof candidate === "number" && Number.isFinite(candidate) ? candidate : byDefault;
+  const scale = clamp(num(raw.scale, fallback.scale), SCALE_MIN, SCALE_MAX);
+
+  if (Array.isArray(raw.items)) {
+    const items = raw.items as unknown[];
+    if (items.length < fallback.items.length) {
+      // The v2 editor had three hands per side. Keep those hands on their
+      // original side, then use the new five-per-side defaults for the rest.
+      const migrated = [...fallback.items];
+      const legacyPerSide = Math.floor(items.length / 2);
+      items.forEach((item, index) => {
+        const target =
+          index < legacyPerSide ? index : HANDS_PER_SIDE + (index - legacyPerSide);
+        if (target < migrated.length) migrated[target] = readHand(item, migrated[target]);
+      });
+      return { scale, items: migrated };
+    }
+    return {
+      scale,
+      items: fallback.items.map((hand, index) => readHand(items[index], hand)),
+    };
+  }
+
+  // Migrate the original grouped-hand layout. Its x/y moved the whole row,
+  // so apply that same offset to the new individual hand positions.
+  const legacyX = num(raw.x, LEGACY_HANDS_POSITION.x);
+  const legacyY = num(raw.y, LEGACY_HANDS_POSITION.y);
+  const offsetX = legacyX - LEGACY_HANDS_POSITION.x;
+  const offsetY = legacyY - LEGACY_HANDS_POSITION.y;
+  return {
+    scale,
+    items: fallback.items.map((hand) => ({
+      ...hand,
+      x: clamp(hand.x + offsetX, 0, 1),
+      y: clamp(hand.y + offsetY, 0, 1),
+    })),
+  };
+}
+
 function readLayout(): Layout {
-  if (typeof window === "undefined") return DEFAULT_LAYOUT;
+  const fallback = makeDefaultLayout();
+  if (typeof window === "undefined") return fallback;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_LAYOUT;
+    const raw = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS]
+      .map((key) => window.localStorage.getItem(key))
+      .find((value): value is string => Boolean(value));
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
-      title: readBlock(parsed?.title, DEFAULT_LAYOUT.title),
-      hands: readBlock(parsed?.hands, DEFAULT_LAYOUT.hands),
+      title: readBlock(parsed?.title, fallback.title),
+      hands: readHands(parsed?.hands, fallback.hands),
     };
   } catch {
-    return DEFAULT_LAYOUT;
+    return fallback;
   }
+}
+
+function getSelectionLayout(layout: Layout, selection: Selection): BlockLayout {
+  if (selection === "title") return layout.title;
+  const hand = layout.hands.items[selection] ?? layout.hands.items[0];
+  return { x: hand.x, y: hand.y, scale: layout.hands.scale };
+}
+
+function parseSelection(value: string | null): Selection | null {
+  if (value === "title") return "title";
+  if (!value?.startsWith("hand-")) return null;
+  const index = Number(value.slice("hand-".length));
+  return Number.isInteger(index) && index >= 0 && index < HANDS_PER_SIDE * 2 ? index : null;
 }
 
 function makeParticles() {
@@ -161,10 +260,10 @@ export function LaunchOverlay() {
   const [editing, setEditing] = useState(false);
   const [count, setCount] = useState(COUNTDOWN_FROM);
   const [layout, setLayout] = useState<Layout>(readLayout);
-  const [selected, setSelected] = useState<BlockId>("title");
+  const [selected, setSelected] = useState<Selection>("title");
   const timers = useRef<number[]>([]);
   const drag = useRef<DragState | null>(null);
-  const hovered = useRef<BlockId | null>(null);
+  const hovered = useRef<Selection | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
 
   const clearTimers = useCallback(() => {
@@ -211,19 +310,60 @@ export function LaunchOverlay() {
     setStage("title");
   }, [clearTimers]);
 
-  const updateBlock = useCallback((block: BlockId, patch: Partial<BlockLayout>) => {
-    setLayout((prev) => ({ ...prev, [block]: { ...prev[block], ...patch } }));
+  const updateSelection = useCallback((selection: Selection, patch: Partial<BlockLayout>) => {
+    setLayout((prev) => {
+      if (selection === "title") {
+        return { ...prev, title: { ...prev.title, ...patch } };
+      }
+      const item = prev.hands.items[selection];
+      if (!item) return prev;
+      const { scale, ...handPatch } = patch;
+      return {
+        ...prev,
+        hands: {
+          ...prev.hands,
+          // A hand's resize handle still updates the one shared scale.
+          scale: scale === undefined ? prev.hands.scale : clamp(scale, SCALE_MIN, SCALE_MAX),
+          items: prev.hands.items.map((hand, index) =>
+            index === selection ? { ...hand, ...handPatch } : hand,
+          ),
+        },
+      };
+    });
+  }, []);
+
+  const toggleHand = useCallback((index: number) => {
+    setLayout((prev) => ({
+      ...prev,
+      hands: {
+        ...prev.hands,
+        items: prev.hands.items.map((hand, handIndex) =>
+          handIndex === index ? { ...hand, visible: !hand.visible } : hand,
+        ),
+      },
+    }));
   }, []);
 
   const scaleBy = useCallback(
     (factor: number) => {
-      setLayout((prev) => ({
-        ...prev,
-        [selected]: {
-          ...prev[selected],
-          scale: clamp(prev[selected].scale * factor, SCALE_MIN, SCALE_MAX),
-        },
-      }));
+      setLayout((prev) => {
+        if (selected === "title") {
+          return {
+            ...prev,
+            title: {
+              ...prev.title,
+              scale: clamp(prev.title.scale * factor, SCALE_MIN, SCALE_MAX),
+            },
+          };
+        }
+        return {
+          ...prev,
+          hands: {
+            ...prev.hands,
+            scale: clamp(prev.hands.scale * factor, SCALE_MIN, SCALE_MAX),
+          },
+        };
+      });
     },
     [selected],
   );
@@ -292,14 +432,10 @@ export function LaunchOverlay() {
         const dy = key === "ArrowUp" ? -step : key === "ArrowDown" ? step : 0;
         if (!dx && !dy) return;
         event.preventDefault();
-        setLayout((prev) => ({
-          ...prev,
-          [selected]: {
-            ...prev[selected],
-            x: clamp(prev[selected].x + dx, 0, 1),
-            y: clamp(prev[selected].y + dy, 0, 1),
-          },
-        }));
+        updateSelection(selected, {
+          x: clamp(getSelectionLayout(layout, selected).x + dx, 0, 1),
+          y: clamp(getSelectionLayout(layout, selected).y + dy, 0, 1),
+        });
         return;
       }
 
@@ -311,7 +447,7 @@ export function LaunchOverlay() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [stage, editing, selected, close, detonate, open]);
+  }, [stage, editing, selected, layout, close, detonate, open, updateSelection]);
 
   // Wheel over a block resizes it. React's own wheel listener is passive, so
   // the browser cannot be stopped from scrolling unless we add ours natively.
@@ -324,25 +460,37 @@ export function LaunchOverlay() {
 
     const onWheel = (event: WheelEvent) => {
       event.preventDefault();
-      let block = hovered.current;
+      let selection = hovered.current;
       if (event.clientX || event.clientY) {
         const under = document
           .elementFromPoint(event.clientX, event.clientY)
           ?.closest("[data-block]");
-        const id = under?.getAttribute("data-block") as BlockId | null;
-        if (id) block = id;
+        const underSelection = parseSelection(under?.getAttribute("data-block") ?? null);
+        if (underSelection !== null) selection = underSelection;
       }
-      block ??= selected;
+      selection ??= selected;
 
       const factor = Math.exp(-event.deltaY * 0.0015);
-      setSelected(block);
-      setLayout((prev) => ({
-        ...prev,
-        [block]: {
-          ...prev[block],
-          scale: clamp(prev[block].scale * factor, SCALE_MIN, SCALE_MAX),
-        },
-      }));
+      setSelected(selection);
+      setLayout((prev) => {
+        if (selection === "title") {
+          return {
+            ...prev,
+            title: {
+              ...prev.title,
+              scale: clamp(prev.title.scale * factor, SCALE_MIN, SCALE_MAX),
+            },
+          };
+        }
+        return {
+          ...prev,
+          hands: {
+            ...prev.hands,
+            // Hovering any hand adjusts this one shared scale.
+            scale: clamp(prev.hands.scale * factor, SCALE_MIN, SCALE_MAX),
+          },
+        };
+      });
     };
 
     node.addEventListener("wheel", onWheel, { passive: false });
@@ -361,41 +509,43 @@ export function LaunchOverlay() {
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  const beginDrag = (block: BlockId) => (event: ReactPointerEvent<HTMLElement>) => {
+  const beginDrag = (selection: Selection) => (event: ReactPointerEvent<HTMLElement>) => {
     if (!editing) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setSelected(block);
+    const state = getSelectionLayout(layout, selection);
+    setSelected(selection);
     drag.current = {
       kind: "move",
-      block,
+      selection,
       startX: event.clientX,
       startY: event.clientY,
-      originX: layout[block].x,
-      originY: layout[block].y,
-      startScale: layout[block].scale,
+      originX: state.x,
+      originY: state.y,
+      startScale: state.scale,
       startDistance: 0,
     };
   };
 
-  const beginResize = (block: BlockId) => (event: ReactPointerEvent<HTMLElement>) => {
+  const beginResize = (selection: Selection) => (event: ReactPointerEvent<HTMLElement>) => {
     if (!editing) return;
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setSelected(block);
+    const state = getSelectionLayout(layout, selection);
+    setSelected(selection);
 
-    const centreX = layout[block].x * (window.innerWidth || 1);
-    const centreY = layout[block].y * (window.innerHeight || 1);
+    const centreX = state.x * (window.innerWidth || 1);
+    const centreY = state.y * (window.innerHeight || 1);
     drag.current = {
       kind: "size",
-      block,
+      selection,
       startX: event.clientX,
       startY: event.clientY,
-      originX: layout[block].x,
-      originY: layout[block].y,
-      startScale: layout[block].scale,
+      originX: state.x,
+      originY: state.y,
+      startScale: state.scale,
       // Floored so a grab right on the centre does not explode the scale.
       startDistance: Math.max(
         24,
@@ -412,7 +562,7 @@ export function LaunchOverlay() {
     if (state.kind === "move") {
       const viewportWidth = window.innerWidth || 1;
       const viewportHeight = window.innerHeight || 1;
-      updateBlock(state.block, {
+      updateSelection(state.selection, {
         x: clamp(state.originX + (event.clientX - state.startX) / viewportWidth, 0, 1),
         y: clamp(state.originY + (event.clientY - state.startY) / viewportHeight, 0, 1),
       });
@@ -422,7 +572,7 @@ export function LaunchOverlay() {
     const centreX = state.originX * (window.innerWidth || 1);
     const centreY = state.originY * (window.innerHeight || 1);
     const distance = Math.hypot(event.clientX - centreX, event.clientY - centreY);
-    updateBlock(state.block, {
+    updateSelection(state.selection, {
       scale: clamp((state.startScale * distance) / state.startDistance, SCALE_MIN, SCALE_MAX),
     });
   };
@@ -441,8 +591,8 @@ export function LaunchOverlay() {
 
   if (stage === "hidden") return null;
 
-  const block = (id: BlockId, label: string, content: ReactNode) => {
-    const state = layout[id];
+  const block = (id: "title", label: string, content: ReactNode) => {
+    const state = layout.title;
     const classes = [
       "launch-block",
       editing ? "launch-block-editing" : "",
@@ -493,6 +643,69 @@ export function LaunchOverlay() {
     );
   };
 
+  const hand = (index: number) => {
+    const state = layout.hands.items[index];
+    if (!state.visible) return null;
+
+    const selectedHand = selected === index;
+    const classes = [
+      "launch-block",
+      "launch-hand",
+      editing ? "launch-block-editing" : "",
+      editing && selectedHand ? "launch-block-selected" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const label = t("home.launchCfgHand", { index: index + 1 });
+
+    return (
+      <span
+        key={index}
+        data-block={`hand-${index}`}
+        className={classes}
+        style={
+          {
+            left: `${state.x * 100}%`,
+            top: `${state.y * 100}%`,
+            width: "var(--hand-base)",
+            height: `calc(var(--hand-base) * ${HAND_RATIO})`,
+            // All handprints deliberately read from the same scale value.
+            "--block-scale": layout.hands.scale,
+            "--block-inverse": 1 / layout.hands.scale,
+          } as CSSProperties
+        }
+        onPointerDown={beginDrag(index)}
+        onPointerEnter={() => {
+          hovered.current = index;
+        }}
+        onPointerMove={onDragMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+      >
+        <span className="launch-hand-art" style={{ "--i": index } as CSSProperties}>
+          <Handprint style={{ transform: `scaleX(${index >= HANDS_PER_SIDE ? -1 : 1})` }} />
+        </span>
+        {editing ? (
+          <>
+            <span className="launch-block-label">{label}</span>
+            <span
+              className="launch-block-handle"
+              role="presentation"
+              onPointerDown={beginResize(index)}
+              onPointerMove={onDragMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+            >
+              <ResizeGlyph />
+            </span>
+          </>
+        ) : null}
+      </span>
+    );
+  };
+
+  const selectedScale = selected === "title" ? layout.title.scale : layout.hands.scale;
+
   return (
     <div
       className={
@@ -534,7 +747,7 @@ export function LaunchOverlay() {
       ) : (
         <>
           <div className="launch-stage" ref={stageRef}>
-            {/* Title and countdown share one slot: the handprints stay mounted
+            {/* Title and countdown share one slot; the handprints stay mounted
                 and untouched, only the word above them swaps for the digit. */}
             {block(
               "title",
@@ -567,37 +780,12 @@ export function LaunchOverlay() {
               </div>,
             )}
 
-            {block(
-              "hands",
-              t("home.launchCfgBlockHands"),
-              <div className="launch-hands">
-                {Array.from({ length: HANDS_PER_SIDE * 2 }, (_, index) => {
-                  // Left trio is the source art (left hand); right trio is mirrored.
-                  const mirror = index >= HANDS_PER_SIDE;
-                  return (
-                    <span
-                      key={index}
-                      className="launch-hand"
-                      style={
-                        {
-                          // Base size only — the block's own scale does the zooming.
-                          width: "var(--hand-base)",
-                          height: `calc(var(--hand-base) * ${HAND_RATIO})`,
-                          "--i": index,
-                        } as CSSProperties
-                      }
-                    >
-                      <Handprint style={{ transform: `scaleX(${mirror ? -1 : 1})` }} />
-                    </span>
-                  );
-                })}
-              </div>,
-            )}
+            {Array.from({ length: HANDS_PER_SIDE * 2 }, (_, index) => hand(index))}
           </div>
 
           {editing ? (
             <div className="launch-cfg">
-              <div className="launch-cfg-row">
+              <div className="launch-cfg-row launch-cfg-selection-row">
                 <button
                   type="button"
                   className="launch-cfg-chip"
@@ -606,14 +794,48 @@ export function LaunchOverlay() {
                 >
                   {t("home.launchCfgBlockTitle")}
                 </button>
-                <button
-                  type="button"
-                  className="launch-cfg-chip"
-                  data-on={selected === "hands" ? "true" : "false"}
-                  onClick={() => setSelected("hands")}
-                >
+                <span className="launch-cfg-label launch-cfg-group-label">
                   {t("home.launchCfgBlockHands")}
-                </button>
+                </span>
+                {layout.hands.items.map((item, index) => {
+                  const label = t("home.launchCfgHand", { index: index + 1 });
+                  return (
+                    <span key={index} className="launch-cfg-hand-control">
+                      <button
+                        type="button"
+                        className="launch-cfg-chip launch-cfg-hand-chip"
+                        data-on={selected === index ? "true" : "false"}
+                        data-hidden={item.visible ? "false" : "true"}
+                        aria-pressed={selected === index}
+                        aria-label={label}
+                        title={label}
+                        onClick={() => setSelected(index)}
+                      >
+                        {index + 1}
+                      </button>
+                      <button
+                        type="button"
+                        className="launch-cfg-visibility"
+                        data-hidden={item.visible ? "false" : "true"}
+                        aria-pressed={item.visible}
+                        aria-label={t(
+                          item.visible ? "home.launchCfgHideHand" : "home.launchCfgShowHand",
+                          { index: index + 1 },
+                        )}
+                        title={t(
+                          item.visible ? "home.launchCfgHideHand" : "home.launchCfgShowHand",
+                          { index: index + 1 },
+                        )}
+                        onClick={() => {
+                          setSelected(index);
+                          toggleHand(index);
+                        }}
+                      >
+                        {item.visible ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
 
               <div className="launch-cfg-row">
@@ -627,7 +849,7 @@ export function LaunchOverlay() {
                   −
                 </button>
                 <span className="launch-cfg-value">
-                  {Math.round(layout[selected].scale * 100)}%
+                  {Math.round(selectedScale * 100)}%
                 </span>
                 <button
                   type="button"
@@ -638,7 +860,13 @@ export function LaunchOverlay() {
                   +
                 </button>
                 <span className="launch-cfg-divider" />
-                <button type="button" onClick={() => setLayout(DEFAULT_LAYOUT)}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLayout(makeDefaultLayout());
+                    setSelected("title");
+                  }}
+                >
                   {t("home.launchCfgReset")}
                 </button>
                 <button
