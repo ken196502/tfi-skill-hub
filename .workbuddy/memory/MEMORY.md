@@ -64,8 +64,8 @@
 - ⚠️ runtime API **排除知识库**（`type='skill'`）；agent API 的 `type` 字段是 `kind` 小写，**别动**
 - 审计日志按类型区分：`audit_logs.resource_type` 知识库记 `knowledge_base`、其版本记 `knowledge_base_version`，收口在 `shared.ts` 的 `auditResourceType(type,'skill'|'skill_version')`；前端 `admin.audit-logs.tsx` 动作标签按 resourceType 显示「上架/下架知识库」
 
-## 导航 tab：湖北产业知识库demo（2026-10-26）
-- 顶部导航「知识库」已换成「湖北产业知识库demo」（en: `Hubei Industry KB Demo`），i18n key `nav.hubeiDemo`
+## 导航 tab：湖北产业知识库（2026-10-26）
+- 顶部导航「知识库」已换成「湖北产业知识库」（en: `Hubei Industry KB Demo`），i18n key `nav.hubeiDemo`
 - demo 是**打包的独立静态站**，放在 `web/public/hubei-knowledge/`（36 文件 / 6.6MB），由 Next public 托管，**零后端改动**
   - 只含运行必需文件：index.html / *.css / *.js / assets / 品牌图；**不含** admin.html、content-archive(10MB)、scripts
   - demo 内 hash 路由（`#home` / `#company/xxx`）是纯前端行为，不受托管方式影响

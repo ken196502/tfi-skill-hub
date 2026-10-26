@@ -40,7 +40,7 @@ const zh = {
   nav: {
     home: "首页",
     skills: "技能库",
-    hubeiDemo: "湖北产业知识库demo",
+    hubeiDemo: "湖北产业知识库",
     favorites: "我的收藏",
     admin: "管理控制台",
     backToSite: "返回站点",

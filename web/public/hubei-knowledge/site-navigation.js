@@ -29,7 +29,7 @@
     const isEnglish = currentLanguage === 'en';
     const labels = isEnglish
       ? { home: 'Home', skills: 'Skills', knowledge: 'Hubei Industry KB Demo', favorites: 'Favorites', login: 'Sign in', light: 'Light', dark: 'Dark', system: 'System', rights: 'All rights reserved.' }
-      : { home: '首页', skills: '技能库', knowledge: '湖北产业知识库demo', favorites: '我的收藏', login: '登录', light: '浅色', dark: '深色', system: '跟随系统', rights: '保留所有权利。' };
+      : { home: '首页', skills: '技能库', knowledge: '湖北产业知识库', favorites: '我的收藏', login: '登录', light: '浅色', dark: '深色', system: '跟随系统', rights: '保留所有权利。' };
     document.querySelectorAll('[data-hub-label]').forEach(element => { element.textContent = labels[element.dataset.hubLabel]; });
     document.querySelector('#hubNavigation').setAttribute('aria-label', isEnglish ? 'Skill Hub navigation' : 'Skill Hub 主导航');
     menuTrigger.setAttribute('aria-label', isEnglish ? 'Menu' : '菜单');

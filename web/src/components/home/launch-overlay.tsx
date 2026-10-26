@@ -1,7 +1,7 @@
 "use client";
 
-import { Hand } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Handprint } from "@/components/home/handprint";
 import { useI18n } from "@/i18n";
 
 /**
@@ -19,24 +19,28 @@ const TICK_MS = 800;
 /** Flash + shockwave + particles + curtain lift; keep in sync with the CSS. */
 const BOOM_MS = 1180;
 
-const HANDS = 7;
-
-/** Per-print tilt and drift so the row reads as prints rather than copies. */
+/**
+ * Six prints, mirrored about the centre: right hands on the left half, left
+ * hands on the right. The source art is a left hand, so the left trio is
+ * flipped; tilt and drift mirror across so the row reads as one gesture.
+ */
 const HAND_SHAPES = [
+  { rotate: -8, mirror: true, dy: 5 },
+  { rotate: -2, mirror: true, dy: -4 },
+  { rotate: 6, mirror: true, dy: 2 },
+  { rotate: 6, mirror: false, dy: 2 },
+  { rotate: -2, mirror: false, dy: -4 },
   { rotate: -8, mirror: false, dy: 5 },
-  { rotate: 5, mirror: true, dy: -3 },
-  { rotate: -4, mirror: false, dy: 7 },
-  { rotate: 9, mirror: true, dy: 0 },
-  { rotate: -6, mirror: false, dy: 4 },
-  { rotate: 3, mirror: true, dy: -5 },
-  { rotate: -9, mirror: false, dy: 6 },
 ];
+
+/** Print box is 1070 × 1100, so height follows width at this ratio. */
+const HAND_RATIO = 1100 / 1070;
 
 /** Mostly white embers with a few warm brand sparks. */
 const PARTICLE_COLORS = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#fdf898", "#fae752"];
 
-const SCALE_MIN = 0.45;
-const SCALE_MAX = 2.4;
+const SCALE_MIN = 0.5;
+const SCALE_MAX = 6;
 const SHIFT_STEP = 16;
 const SHIFT_MIN = -240;
 const SHIFT_MAX = 340;
@@ -226,22 +230,25 @@ export function LaunchOverlay() {
             ) : null}
           </div>
           <div className="launch-hands" style={{ transform: `translateY(${shift}px)` }}>
-            {HAND_SHAPES.slice(0, HANDS).map((shape, index) => (
-              <Hand
+            {HAND_SHAPES.map((shape, index) => (
+              <span
                 key={index}
                 className="launch-hand"
-                strokeWidth={1.4}
                 style={
                   {
                     width: `calc(var(--hand-base) * ${scale})`,
-                    height: `calc(var(--hand-base) * ${scale})`,
+                    height: `calc(var(--hand-base) * ${scale} * ${HAND_RATIO})`,
                     marginTop: shape.dy,
-                    rotate: `${shape.rotate}deg`,
-                    scale: shape.mirror ? "-1 1" : undefined,
                     "--i": index,
                   } as CSSProperties
                 }
-              />
+              >
+                <Handprint
+                  style={{
+                    transform: `rotate(${shape.rotate}deg) scaleX(${shape.mirror ? -1 : 1})`,
+                  }}
+                />
+              </span>
             ))}
           </div>
         </div>

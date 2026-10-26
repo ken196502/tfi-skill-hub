@@ -486,7 +486,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(3rem, 9vh, 6rem);
+  gap: clamp(1.8rem, 5vh, 3.4rem);
 }
 
 /* Holds the word and — later — the digit, so the prints below never shift. */
@@ -532,21 +532,33 @@
 }
 
 .launch-hands {
-  --hand-base: clamp(30px, 5.2vw, 62px);
+  --hand-base: clamp(9px, 1.56vw, 19px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  gap: clamp(12px, 2.4vw, 30px);
+  gap: clamp(4px, 0.72vw, 9px);
   transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
   will-change: transform;
 }
 
+/* Split the row into two trios — right hands | left hands. */
+.launch-hand:nth-child(3) {
+  margin-right: clamp(6px, 1.1vw, 14px);
+}
+
 .launch-hand {
+  display: block;
   flex: none;
   color: #fff;
-  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.45));
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.38));
   animation: launch-hand-in 640ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
   animation-delay: calc(var(--i) * 60ms + 240ms);
+}
+
+.launch-hand > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 @keyframes launch-hand-in {
@@ -569,7 +581,7 @@
   align-items: center;
   justify-content: center;
   /* Nudged up so the digit keeps clear air above the prints. */
-  padding-bottom: 22px;
+  padding-bottom: 40px;
 }
 
 .launch-count {
