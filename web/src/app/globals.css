@@ -864,21 +864,21 @@
    prints underneath keeps the exact position it had before Enter. */
 .launch-count-slot {
   position: absolute;
-  inset: -12% -8%;
+  inset: -22% -18%;
   display: flex;
   align-items: center;
   justify-content: center;
   /* Nudged up so the digit keeps clear air above the prints. */
-  padding-bottom: 1.5rem;
+  padding: 0.5rem 0.75rem 2rem;
   overflow: visible;
 }
 
 .launch-count {
   display: block;
   box-sizing: content-box;
-  max-width: 90vw;
-  padding: 0.08em 0.12em 0.16em;
-  font-size: clamp(5rem, 12vw, 10rem);
+  max-width: calc(100vw - 2rem);
+  padding: 0.1em 0.16em 0.2em;
+  font-size: clamp(10rem, 24vw, 20rem);
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.05em;
@@ -912,28 +912,6 @@
     opacity: 0;
     filter: blur(6px);
     transform: scale(0.9);
-  }
-}
-
-.launch-count-ring {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: min(40vmin, 22rem);
-  height: min(40vmin, 22rem);
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  animation: launch-ring-pulse 800ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
-}
-
-@keyframes launch-ring-pulse {
-  from {
-    opacity: 0.85;
-    transform: translate(-50%, -50%) scale(0.55);
-  }
-  to {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(1.8);
   }
 }
 

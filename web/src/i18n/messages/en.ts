@@ -96,7 +96,7 @@ const en: DeepStringify<Messages> = {
     launchCfgSize: "Size",
     launchCfgReset: "Reset",
     launchCfgPlay: "Play",
-    launchCfgHint: "Drag each hand · scroll for shared scale · toggle visibility with the eye · arrow keys to nudge · saved automatically",
+    launchCfgHint: "Drag each hand · scroll for shared scale · toggle visibility with the eye · arrow keys to nudge · double-press Enter quickly to play · saved automatically",
   },
   search: {
     title: "Search",

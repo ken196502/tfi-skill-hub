@@ -97,7 +97,7 @@ const zh = {
     launchCfgSize: "大小",
     launchCfgReset: "还原",
     launchCfgPlay: "播放",
-    launchCfgHint: "拖动每个手掌移动 · 滚轮统一缩放 · 眼睛按钮单独显隐 · 方向键微调 · 自动保存",
+    launchCfgHint: "拖动每个手掌移动 · 滚轮统一缩放 · 眼睛按钮单独显隐 · 方向键微调 · 快速双击回车播放 · 自动保存",
   },
   search: {
     title: "搜索",

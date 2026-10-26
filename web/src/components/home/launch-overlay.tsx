@@ -74,6 +74,8 @@ interface DragState {
 const COUNTDOWN_FROM = 5;
 /** One beat per digit. */
 const TICK_MS = 800;
+/** Require an intentional rapid double-Enter before starting playback. */
+const DOUBLE_ENTER_WINDOW_MS = 450;
 /** Flash + shockwave + particles + curtain lift; keep in sync with the CSS.
  *  The glow burns down over ~3s, so the curtain holds black until 2.1s. */
 const BOOM_MS = 3250;
@@ -264,6 +266,7 @@ export function LaunchOverlay() {
   const timers = useRef<number[]>([]);
   const drag = useRef<DragState | null>(null);
   const hovered = useRef<Selection | null>(null);
+  const lastEnterAt = useRef(0);
   const stageRef = useRef<HTMLDivElement | null>(null);
 
   const clearTimers = useCallback(() => {
@@ -273,6 +276,7 @@ export function LaunchOverlay() {
 
   const close = useCallback(() => {
     clearTimers();
+    lastEnterAt.current = 0;
     setEditing(false);
     setStage("hidden");
   }, [clearTimers]);
@@ -280,6 +284,7 @@ export function LaunchOverlay() {
   /** Enter → 5 · 4 · 3 · 2 · 1 → boom → back to the page. */
   const detonate = useCallback(() => {
     clearTimers();
+    lastEnterAt.current = 0;
     setStage("countdown");
     setCount(COUNTDOWN_FROM);
     playTick(COUNTDOWN_FROM);
@@ -305,10 +310,22 @@ export function LaunchOverlay() {
 
   const open = useCallback((mode: "play" | "edit") => {
     clearTimers();
+    lastEnterAt.current = 0;
     setCount(COUNTDOWN_FROM);
     setEditing(mode === "edit");
     setStage("title");
   }, [clearTimers]);
+
+  const playAfterDoubleEnter = useCallback(() => {
+    const now = Date.now();
+    if (now - lastEnterAt.current <= DOUBLE_ENTER_WINDOW_MS) {
+      lastEnterAt.current = 0;
+      setEditing(false);
+      detonate();
+      return;
+    }
+    lastEnterAt.current = now;
+  }, [detonate]);
 
   const updateSelection = useCallback((selection: Selection, patch: Partial<BlockLayout>) => {
     setLayout((prev) => {
@@ -389,6 +406,7 @@ export function LaunchOverlay() {
       if (event.repeat || isTyping(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key;
+      if (key !== "Enter") lastEnterAt.current = 0;
 
       if (stage === "hidden") {
         if (key === "0") {
@@ -423,8 +441,7 @@ export function LaunchOverlay() {
       if (editing) {
         if (key === "Enter") {
           event.preventDefault();
-          setEditing(false);
-          detonate();
+          playAfterDoubleEnter();
           return;
         }
         const step = event.shiftKey ? NUDGE * 5 : NUDGE;
@@ -441,13 +458,23 @@ export function LaunchOverlay() {
 
       if (key === "Enter") {
         event.preventDefault();
-        detonate();
+        playAfterDoubleEnter();
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [stage, editing, selected, layout, close, detonate, open, updateSelection]);
+  }, [
+    stage,
+    editing,
+    selected,
+    layout,
+    close,
+    detonate,
+    open,
+    playAfterDoubleEnter,
+    updateSelection,
+  ]);
 
   // Wheel over a block resizes it. React's own wheel listener is passive, so
   // the browser cannot be stopped from scrolling unless we add ours natively.
@@ -770,7 +797,6 @@ export function LaunchOverlay() {
                   </h2>
                   {stage === "countdown" ? (
                     <div className="launch-count-slot">
-                      <div key={`ring-${count}`} className="launch-count-ring" />
                       <div key={`digit-${count}`} className="launch-count">
                         {count}
                       </div>
