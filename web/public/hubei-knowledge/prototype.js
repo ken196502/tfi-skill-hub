@@ -109,12 +109,12 @@ let mapGesture = null;
 let mapPointers = new Map();
 let mapDragDetected = false;
 let suppressMapClick = false;
-let mapStyle = localStorage.getItem('industry-map-map-style') === '1' ? '1' : '2';
+const mapStyle = '2';
 let globeMapView = {zoom:1.6,panX:0,panY:0};
 let globeMapController=null;
 let globeMapGeneration=0;
 let starView = {yaw:-0.32,pitch:0.18,zoom:1,selectedId:'software-ai',selectedSatellite:null};
-let starStyle = localStorage.getItem('industry-map-star-style') === '2' ? '2' : '1';
+const starStyle = '2';
 let starMapRefresh=()=>{};
 let starMapCleanup=()=>{};
 let starPopupOpen=false;
@@ -339,7 +339,7 @@ function renderHome(){
   const prompts=['湖北人工智能产业链上游有哪些方向？','武汉有哪些人工智能产业布局？','黑芝麻智能是什么企业？'];
   const heroEyebrow=language==='en'?'HUBEI INDUSTRY ATLAS':'产业 · 城市 · 企业';
   const heroCore=language==='en'?'<span>HUBEI</span><b>Industry<br>Atlas</b>':'<span>湖北</span><b>产业<br>脉络</b>';
-  const promptButtons=renderChatDemoPrompt()+prompts.map(prompt=>renderChatDemoPromptFor(prompt)).join('');
+  const promptButtons=renderChatDemoPrompt()+prompts.map(prompt=>`<button type="button" data-question="${prompt}">${prompt}</button>`).join('');
   const heroForm=`<form class="${homeChatExpanded?'chat-composer hero-chat-composer':'hero-ask'}" id="askForm"><label class="visually-hidden" for="questionInput">输入产业问题</label><input id="questionInput" name="question" placeholder="${homeChatExpanded?'输入你想了解的产业问题…':'例如：湖北人工智能产业链有哪些重点方向？'}" autocomplete="off"><button type="submit" aria-label="${homeChatExpanded?'发送问题':'开始提问'}"><span>${homeChatExpanded?'发送':'开始提问'}</span><b aria-hidden="true">↑</b></button></form>`;
   const chatSection=homeChatExpanded?`<div class="hero-chat-shell"><div class="chat-header"><span class="chat-assistant-icon">✦</span><span class="chat-title"><b>智能AI</b><small>站内知识库 · 来源可追溯</small></span></div><div class="chat-messages hero-chat-messages" id="chatMessages" role="log" aria-live="polite">${chatHistory.map(renderChatExchange).join('')}</div>${heroForm}</div>`:`${heroForm}<div class="hero-suggestions" aria-label="${language==='en'?'Example questions':'示例问题'}">${promptButtons}</div>`;
   const heroTitle=homeChatExpanded?`<div class="hero-chat-title"><span class="hero-eyebrow">${heroEyebrow}</span><h1>湖北产业知识库</h1></div>`:`<span class="hero-eyebrow">${heroEyebrow}</span><h1>湖北产业知识库</h1><p class="hero-slogan">发现湖北产业脉络，连接城市与企业</p>`;
@@ -491,9 +491,8 @@ function renderPolicyDetail(id){
 
 function renderExploreMap(){
   const labels=language==='en'?{map:'China industry map',aria:'Map of China with interactive Hubei prefecture-level regions',controls:'Map controls',zoomOut:'Zoom out',zoomIn:'Zoom in',reset:'Reset map view'}:{map:'中国产业地图',aria:'中国地图，湖北省内17个市州可交互',controls:'地图缩放控制',zoomOut:'缩小地图',zoomIn:'放大地图',reset:'重置地图视图'};
-  const stylePicker=`<div class="map-style-picker" data-preserve-text><label for="mapStyleSelect">${language==='en'?'Appearance':'视觉样式'}</label><select id="mapStyleSelect" aria-label="${language==='en'?'Map appearance':'地图样式'}"><option value="1"${mapStyle==='1'?' selected':''}>${language==='en'?'Style 1 · Classic':'样式一 · 经典地图'}</option><option value="2"${mapStyle==='2'?' selected':''}>${language==='en'?'Style 2 · Globe':'样式二 · 球面图谱'}</option></select></div>`;
   const controls=`<div class="map-controls" role="group" aria-label="${labels.controls}"><button type="button" data-map-control="out" aria-label="${labels.zoomOut}" title="${labels.zoomOut}">−</button><output class="map-zoom-level" aria-live="polite">${Math.round((mapStyle==='2'?globeMapView.zoom:mapScale)*100)}%</output><button type="button" data-map-control="in" aria-label="${labels.zoomIn}" title="${labels.zoomIn}">+</button><span class="map-control-divider" aria-hidden="true"></span><button type="button" data-map-control="reset" aria-label="${labels.reset}" title="${labels.reset}"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 8a6.5 6.5 0 1 1 .7 4.8M3.5 8V3.8M3.5 8h4.2"></path></svg></button></div>`;
-  if(mapStyle==='2')return `<section class="hubei-map-layout globe-map-layout" aria-label="${labels.map}"><div class="hubei-map-panel globe-map-panel" data-preserve-text>${stylePicker}<canvas class="globe-canvas" role="img" aria-label="${labels.aria}"></canvas><svg class="globe-leaders" aria-hidden="true"></svg><div class="globe-labels"></div><div class="globe-province-label">${language==='en'?'HUBEI':'湖北省'}</div>${controls}<div class="globe-status" role="status">${language==='en'?'Preparing the globe…':'正在展开球面地图…'}</div></div></section>`;
+  if(mapStyle==='2')return `<section class="hubei-map-layout globe-map-layout" aria-label="${labels.map}"><div class="hubei-map-panel globe-map-panel" data-preserve-text><canvas class="globe-canvas" role="img" aria-label="${labels.aria}"></canvas><svg class="globe-leaders" aria-hidden="true"></svg><div class="globe-labels"></div><div class="globe-province-label">${language==='en'?'HUBEI':'湖北省'}</div>${controls}<div class="globe-status" role="status">${language==='en'?'Preparing the globe…':'正在展开球面地图…'}</div></div></section>`;
   const mapViewport=window.chinaMapViewport||{focus:{x:442,y:243},hubeiTransform:{tx:0,ty:0,sx:1,sy:1}};
   const hubeiTransform=mapViewport.hubeiTransform;
   const chinaShapes=(window.chinaMapFeatures||[]).map(feature=>'<path class="china-province'+(feature.code==='420000'?' is-hubei':'')+'" d="'+feature.d+'" fill-rule="evenodd"><title>'+feature.name+'</title></path>').join('');
@@ -503,7 +502,7 @@ function renderExploreMap(){
   const hubeiOutline=(window.chinaMapFeatures||[]).find(feature=>feature.code==='420000')?.d||'';
   return [
     '<section class="hubei-map-layout" aria-label="'+labels.map+'">',
-    '<div class="hubei-map-panel">',stylePicker,
+    '<div class="hubei-map-panel">',
     '<svg class="hubei-map-svg" viewBox="0 0 720 520" role="img" aria-label="'+labels.aria+'">',
     '<g class="map-transform"><g class="china-provinces" aria-hidden="true">',chinaShapes,'</g><path class="china-maritime-line" d="'+(window.chinaMapMaritimePath||'')+'" aria-hidden="true"></path><g class="hubei-units-transform" transform="translate('+hubeiTransform.tx+' '+hubeiTransform.ty+') scale('+hubeiTransform.sx+' '+hubeiTransform.sy+')"><g class="map-city-shapes">',mapShapes,'</g><g class="map-city-labels" aria-hidden="true">',mapLabels,'</g></g><path class="hubei-outline" d="'+hubeiOutline+'" fill-rule="evenodd" aria-hidden="true"></path></g></svg>',
     '<div class="map-controls" role="group" aria-label="'+labels.controls+'">',
@@ -534,8 +533,7 @@ function renderStarDetail(){
 
 function renderExploreStars(){
   const legacyCaptions=starStyle==='1'?`<div class="star-drag-hint"><span class="star-drag-icon">✥</span>${language==='en'?'Drag to rotate · Scroll or pinch to zoom':'拖动旋转 · 滚轮或双指缩放'}</div><div class="star-legend"><span><i class="legend-sun"></i>${language==='en'?'Primary industry':'一级行业'}</span><span><i class="legend-moon"></i>${language==='en'?'Secondary industry':'二级行业'}</span></div>`:'';
-  const stylePicker=`<div class="star-style-picker" data-preserve-text><label for="starStyleSelect">${language==='en'?'Appearance':'视觉样式'}</label><select id="starStyleSelect" aria-label="${language==='en'?'Star map appearance':'星图样式'}"><option value="1"${starStyle==='1'?' selected':''}>${language==='en'?'Style 1 · Classic':'样式一 · 经典星图'}</option><option value="2"${starStyle==='2'?' selected':''}>${language==='en'?'Style 2 · Aurora':'样式二 · 星环宇宙'}</option></select></div>`;
-  return `<section class="star-page"><div class="star-explorer"><div class="star-stage panel" data-star-style="${starStyle}">${stylePicker}<canvas id="industryStarCanvas" aria-label="${language==='en'?'Interactive 3D industry star map':'可交互的湖北产业3D星图'}"></canvas><div id="starInfoPopup" class="star-info-popup" hidden></div><div class="star-controls" role="group" aria-label="${language==='en'?'Star map controls':'星图控制'}"><button type="button" data-star-control="zoom-out" aria-label="${language==='en'?'Zoom out':'缩小'}" title="${language==='en'?'Zoom out':'缩小'}">−</button><output id="starZoomLevel" aria-live="polite">100%</output><button type="button" data-star-control="zoom-in" aria-label="${language==='en'?'Zoom in':'放大'}" title="${language==='en'?'Zoom in':'放大'}">+</button><span class="star-control-divider"></span><button type="button" data-star-control="reset" aria-label="${language==='en'?'Restore view':'恢复默认视图'}" title="${language==='en'?'Restore view':'恢复默认视图'}"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8a6.5 6.5 0 1 1 .7 4.8M3.5 8V3.8M3.5 8h4.2"></path></svg></button></div>${legacyCaptions}</div></div></section>`;
+  return `<section class="star-page"><div class="star-explorer"><div class="star-stage panel" data-star-style="${starStyle}"><canvas id="industryStarCanvas" aria-label="${language==='en'?'Interactive 3D industry star map':'可交互的湖北产业3D星图'}"></canvas><div id="starInfoPopup" class="star-info-popup" hidden></div><div class="star-controls" role="group" aria-label="${language==='en'?'Star map controls':'星图控制'}"><button type="button" data-star-control="zoom-out" aria-label="${language==='en'?'Zoom out':'缩小'}" title="${language==='en'?'Zoom out':'缩小'}">−</button><output id="starZoomLevel" aria-live="polite">100%</output><button type="button" data-star-control="zoom-in" aria-label="${language==='en'?'Zoom in':'放大'}" title="${language==='en'?'Zoom in':'放大'}">+</button><span class="star-control-divider"></span><button type="button" data-star-control="reset" aria-label="${language==='en'?'Restore view':'恢复默认视图'}" title="${language==='en'?'Restore view':'恢复默认视图'}"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8a6.5 6.5 0 1 1 .7 4.8M3.5 8V3.8M3.5 8h4.2"></path></svg></button></div>${legacyCaptions}</div></div></section>`;
 }
 
 function updateStarDetail(){
@@ -1233,8 +1231,7 @@ document.addEventListener('submit',event=>{
   renderAnswer(new FormData(event.target).get('question')||'');
 });
 document.addEventListener('click',event=>{
-  const chatDemoTrigger=event.target.closest('[data-chat-demo]');
-  if(chatDemoTrigger){startChatDemo(chatDemoTrigger);return}
+  if(event.target.closest('[data-chat-demo]')){startChatDemo();return}
   const aboutTarget=event.target.closest('[data-about-target]');
   if(aboutTarget){
     event.preventDefault();
@@ -1334,17 +1331,7 @@ document.addEventListener('input',event=>{
   }
 });
 document.addEventListener('change',event=>{
-  if(event.target.id==='mapStyleSelect'){
-    mapStyle=event.target.value==='1'?'1':'2';
-    localStorage.setItem('industry-map-map-style',mapStyle);
-    render();
-    document.querySelector('#mapStyleSelect')?.focus({preventScroll:true});
-  }else if(event.target.id==='starStyleSelect'){
-    starStyle=event.target.value==='2'?'2':'1';
-    localStorage.setItem('industry-map-star-style',starStyle);
-    render();
-    document.querySelector('#starStyleSelect')?.focus({preventScroll:true});
-  }else if(['companySector','companyCity','companyCollection'].includes(event.target.id)){
+  if(['companySector','companyCity','companyCollection'].includes(event.target.id)){
     const query=document.querySelector('#companySearch').value;
     const filterKey={companySector:'industry',companyCity:'city',companyCollection:'collection'}[event.target.id];
     companyDirectoryState[filterKey]=event.target.value;
