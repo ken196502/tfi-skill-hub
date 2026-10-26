@@ -1,8 +1,11 @@
 # 构建上下文里不需要带进镜像的内容
 
 node_modules
+.next
 dist
 data
+preview
+nextjs.zip
 .git
 .gitignore
 *.log

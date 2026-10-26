@@ -5,6 +5,8 @@
 
 ## 技术栈（锁定，不要替换）
 - TanStack Start（单体全栈）+ Router + Query；前端只用 `@tanstack/*` + `react` + `react-dom`
+- **前端已迁到 Next.js 16（`web/`，App Router + React Query + Tailwind4 + shadcn）**；
+  后端 `src/server` 与数据库不动，Next 通过同源反代调后端
 - 唯一例外：内容管理页富文本用 `quill@2.0.3`，客户端动态 import、独立懒加载 chunk
 - SQLite 走 Node 内置 `node:sqlite`（**不要** better-sqlite3 / Prisma / Drizzle）；FTS5 `tokenize='trigram'`
 - 后端零第三方依赖（ZIP / Markdown / semver / scrypt / token 全自实现）
@@ -12,6 +14,9 @@
 ## 运行入口
 - 生产：`npm run build` → `npm start`（= `node --env-file-if-exists=.env scripts/serve.mjs`）
 - `dist/server/server.js` 只导出 Web 标准 handler，**不监听端口**；启动逻辑在 `serve.mjs`；开发 `npm run dev`
+- **后端独立跑**：`npm run api`（= `tsx scripts/serve-api.mjs`，默认 :8787，读根 `.env`），
+  Next 前端反代到它。Docker 后端镜像同款（`node --import tsx scripts/serve-api.mjs`）
+- 前端开发：`cd web && npm run dev`（:3000），读 `web/.env.development`
 - 管理员凭据必须由 `.env` 注入（`SKILLHUB_ADMIN_USER/PASSWORD`），仓库内无默认口令
 - 隔离验证：`SKILLHUB_DB_PATH=/tmp/xx.db SKILLHUB_PORT=5398` 换一套环境，别拿用户那份库做增删改
 
@@ -29,6 +34,19 @@
 - `src/server/api/handlers.ts` 只做「解析请求 → 调 service → 映射状态码」
 - 路由表 gin 语法，直接加在 `src/server/api/routes.ts`
 
+## Next.js 前端（web/）
+- 入口在 `web/src/app`；API 适配层**只有一处**知道后端方言：`web/src/lib/api/real.ts`
+  （hooks → `lib/api/endpoints.ts` → `real.ts` → `client.ts`）。改后端契约只改 `real.ts`
+- 同源反代：`NEXT_PUBLIC_API_BASE_URL=/skillhubservice`，Next `rewrites` 把 `/skillhubservice/:path*`
+  转到 `${API_PROXY_TARGET}/:path*`（**剥掉前缀**——后端只认 `/api/**`）。
+  生产由 Traefik `PathPrefix(/skillhubservice)` + `StripPrefix` 做同一件事
+- 后端真实方言（写 `real.ts` 必读）：**无 `Resp` 包装**（成功即 payload 本身）；列表是**游标**分页
+  （`cursor` + `limit`，回 `nextCursor`/`total`，公开列表**不返回 total**）；内容类型字段是
+  `type`（`skill` / `knowledge_base`，UI 侧叫 `knowledge`）；上下架字段是 `listing`；
+  **没有** visibility / moderationStatus；密码**明文传输**（服务端 scrypt），**没有** AES 预处理
+- 排序映射：UI 的 `hot` → 后端 `downloads`（后端只有 created/downloads/stars/updated/name）
+- `useSkillsInfinite` 有两道护栏：**按 skill.id 去重** + **某页没有新条目就停**（后端页可能重复）
+
 ## 契约要点
 - JSON 字段名照抄 Go 的 `json:"..."`；`omitempty` 为空时**整个键不出现**（不是 null）
 - 错误→状态码照抄原实现：只有带 sentinel 的错误才有 404/403/409，其余一律 400
@@ -38,6 +56,12 @@
   `.../request-public`、`/api/v1/plugins*`（smoke 有反向 404 断言）
 - 分类两处都是自由输入 Combobox（`allowCustom`）：管理台表单候选走 `GET /api/v1/admin/categories`（DISTINCT）；
   公开目录页侧栏（/skills、/knowledge-bases，`CataloguePage.tsx`）候选走 `/api/v1/categories/in-use`
+- **列表游标比较必须与 ORDER BY 同向**（2026-10-26 修）：`skills.list` 原用行值比较
+  `(s.col, s.id) < (c.col, c.id)`，但 `ORDER BY s.created_at DESC, s.id`（tiebreaker 是 **ASC**），
+  两者方向不一致 ⇒ 同一批 `created_at` 的行（批量 seed 就是这样）会**反复返回同一页**，
+  React 报 duplicate key 且后面的技能永远刷不出来。已改成
+  `(s.col <op> c.col) OR (s.col = c.col AND s.id >= c.id)`，`<op>` 随排序方向（name 是 `>`，其余 `<`）。
+  游标落在**本页没返回的第一行**上，所以 id 比较必须是 `>=`（含）而不是 `>`
   （**必须带 visibilityClause**，按 type 收窄），候选首位是「全部分类」(value='')，URL 上不在列表的分类
   会追加进候选保持可见可点。公开 `/api/v1/categories` 仍返回四项白名单
 - ⚠️ `createSkillFromForm` 的 create 路径经 `publishVersion` 会把非白名单分类**静默改成 general**，
@@ -117,6 +141,9 @@
   `contentDisposition()`（头值只能 Latin-1，中文名直接插值会让整个下载 404）
 
 ## 本机环境坑
+- **后台起服务不要接管道**（`npm run dev | head -n 40` 之类）：`head` 退出后管道关闭，
+  服务再写 stdout 就会 SIGPIPE **卡死**——端口还在监听，但请求/反代全部挂起，
+  看起来像"代码坏了"。起服务就裸跑 `npm run dev`
 - **git 推送**：钥匙串写入被沙箱拦（`failed to store: 100001`）⇒ 凭据助手不可用，
   remote URL 带 token 是唯一可用方式：`git remote set-url origin https://<user>:<pat>@github.com/...`
   （token 会以明文留在 .git/config，用户已知悉）。⚠️ 公开仓库 + 只读 token 时，

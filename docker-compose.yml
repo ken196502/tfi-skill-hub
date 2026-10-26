@@ -1,11 +1,20 @@
-# tfi-skill-hub 部署配置
+# tfi-skill-hub 部署配置（单体镜像：前端 Next.js + 后端 API 同一容器）
 #
-# 数据持久化：SQLite 主库与 -wal / -shm 伴随文件都在 /app/data 下，
-# 通过命名卷 skillhub-data 持久化。升级镜像、重建容器都不会丢数据。
+# 架构：
+#   一个镜像内同时跑两个进程，由 scripts/run-all.mjs 拉起并统一转发信号：
+#     - web ：Next.js standalone（:3000，对外唯一暴露的端口），提供 UI；
+#             构建期注入了 API_PROXY_TARGET=http://127.0.0.1:8787，Next 在服务端
+#             把同源前缀 /skillhubservice/* 反代到同容器的 api 进程（复用 next.config.ts
+#             已有的重写，无需改前端代码）。
+#     - api ：后端纯 API（scripts/serve-api.mjs，:8787，仅容器内部），
+#             暴露 /api/**、/login、/logout、/register、/healthz、/skills.md 等。
+#   浏览器只与 web(:3000) 通信，所以 Traefik 只需一条 Host 规则，没有路径分流。
+#
+# 数据持久化：SQLite 主库与 -wal / -shm 在 /app/data 下，经命名卷 skillhub-data 持久化。
 #
 # 启动：  docker compose up -d --build
 # 查看：  docker compose logs -f
-# 停止：  docker compose down        # 数据仍在卷中，不会删除
+# 停止：  docker compose down          # 数据仍在卷中，不会删除
 # 彻底清理（含数据！）： docker compose down -v
 
 services:
@@ -13,34 +22,41 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # 容器内后端地址（Next 在服务端反代 /skillhubservice 到这里）
+        API_PROXY_TARGET: "http://127.0.0.1:8787"
+        # 同源接口前缀（浏览器以此前缀请求，由 web 进程反代到 api）
+        NEXT_PUBLIC_API_BASE_URL: "/skillhubservice"
+        # 子路径部署时改为 /tfi-skillHub；根路径部署留空
+        NEXT_PUBLIC_BASE_PATH: ""
     image: tfi-skill-hub:latest
     container_name: tfi-skill-hub
     restart: unless-stopped
     init: true                       # 用 tini 作为 PID 1，正确转发 SIGTERM / 回收僵尸
-    ports:
-      - "10070:10070"                 # 直连兜底；经 Traefik 走 443 时此端口可注释掉
+
+    # 仅由 Traefik 在 websecure(443) 暴露；如需本地直连调试，取消下面注释：
+    # ports:
+    #   - "3000:3000"
 
     # ---- Traefik 反向代理 + Let's Encrypt 自动证书 ----
     # 前提：宿主机已运行 Traefik，且存在名为 traefik 的外部网络、
     # entrypoints 为 websecure(443)、certresolver 名为 letsencrypt。
+    # 注意：只需一条 Host 规则，接口前缀 /skillhubservice 由镜像内部的 web 进程反代。
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.skillhub.rule=Host(`skills.subx.fun`)"
       - "traefik.http.routers.skillhub.entrypoints=websecure"
       - "traefik.http.routers.skillhub.tls=true"
       - "traefik.http.routers.skillhub.tls.certresolver=letsencrypt"
-      - "traefik.http.services.skillhub.loadbalancer.server.port=10070"
+      - "traefik.http.services.skillhub.loadbalancer.server.port=3000"
 
     networks:
       - traefik
     environment:
       NODE_ENV: "production"
-      SKILLHUB_HOST: "0.0.0.0"
-      SKILLHUB_PORT: "10070"
+      SKILLHUB_API_HOST: "0.0.0.0"
+      SKILLHUB_API_PORT: "8787"
       SKILLHUB_DB_PATH: "/app/data/skillhub.db"
-
-      # 静态文档根目录：serve.mjs 从此目录提供 /docs/* 资源
-      SKILLHUB_STATIC_DIR: "/app/static"
 
       # 管理员凭据从同目录的 .env 读取（compose 会自动加载项目根目录的 .env 做变量替换），
       # 仓库里不再保留任何默认口令。未设置或为空时 compose 会直接报错退出，避免带默认口令上线。
@@ -48,8 +64,11 @@ services:
       SKILLHUB_ADMIN_USER: "${SKILLHUB_ADMIN_USER:?请在 .env 中设置 SKILLHUB_ADMIN_USER}"
       SKILLHUB_ADMIN_PASSWORD: "${SKILLHUB_ADMIN_PASSWORD:?请在 .env 中设置 SKILLHUB_ADMIN_PASSWORD}"
 
-      # 可选：公开访问地址，用于设备码校验等回链
+      # 公开访问地址，用于设备码校验等回链
       SKILLHUB_BASE_URL: "https://skills.subx.fun"
+
+      # 可选：关闭公开注册（置 0 后注册入口隐藏、提交被拒）
+      # SKILLHUB_ALLOW_REGISTRATION: "1"
 
       # 可选：限流调整（次数 / 时间窗，单位秒）
       # SKILLHUB_RATE_READ_LIMIT: "120"
@@ -61,20 +80,11 @@ services:
     volumes:
       # 命名卷：推荐。数据随卷保留，与宿主机路径解耦。
       - skillhub-data:/app/data
-
-      # 静态文档（产品说明等）：挂载宿主机目录，改 HTML 后无需重新构建镜像，
-      # 刷新浏览器即可看到更新（serve.mjs 对该目录返回 no-cache）。
-      - ./static:/app/static
-
-      # 若想直接用宿主机目录（bind mount），注释上面一行、启用下面这行：
-      # - ./data:/app/data
-      #   注意：bind mount 的目录不要放在 NFS / vboxsf 等网络文件系统上，
-      #   否则 SQLite WAL 模式可能报 "unable to open database file"。本地 ext4 没问题。
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:10070/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
-      start_period: 10s
+      start_period: 20s
       retries: 3
 
 volumes:

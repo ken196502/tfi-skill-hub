@@ -143,25 +143,36 @@ function listingClause(viewer: Viewer | null): { sql: string; params: unknown[] 
 
 export type SortKey = 'created' | 'downloads' | 'stars' | 'updated' | 'name'
 
-/** Column + direction + cursor comparator for each supported sort. */
+/**
+ * Column + direction + cursor comparator for each supported sort.
+ *
+ * The tiebreaker is always `s.id` **ascending**, so "the cursor row and
+ * everything after it" means a strictly smaller primary value for the DESC
+ * sorts (a strictly larger one for the ASC sort) and — when the primary value
+ * is equal — an id at or above the cursor's. A plain row-value comparison
+ * would apply the primary direction to the tiebreaker as well, which hands
+ * back the very same page whenever many rows share one sort value — exactly
+ * what a bulk seed produces, since every row is then stamped with the same
+ * `created_at`.
+ */
 function sortSpec(sort: string): {
   orderBy: string
   column: string
-  /** Row-value comparator between the cursor row and the next page. */
-  cursorOp: string
+  /** Comparator for the primary sort column: '<' for DESC, '>' for ASC. */
+  primaryOp: string
 } {
   switch (sort) {
     case 'downloads':
-      return { orderBy: 's.downloads DESC, s.id', column: 'downloads', cursorOp: '<' }
+      return { orderBy: 's.downloads DESC, s.id', column: 'downloads', primaryOp: '<' }
     case 'stars':
-      return { orderBy: 's.stars_count DESC, s.id', column: 'stars_count', cursorOp: '<' }
+      return { orderBy: 's.stars_count DESC, s.id', column: 'stars_count', primaryOp: '<' }
     case 'updated':
-      return { orderBy: 's.updated_at DESC, s.id', column: 'updated_at', cursorOp: '<' }
+      return { orderBy: 's.updated_at DESC, s.id', column: 'updated_at', primaryOp: '<' }
     case 'name':
-      return { orderBy: 's.slug ASC, s.id', column: 'slug', cursorOp: '>' }
+      return { orderBy: 's.slug ASC, s.id', column: 'slug', primaryOp: '>' }
     case 'created':
     default:
-      return { orderBy: 's.created_at DESC, s.id', column: 'created_at', cursorOp: '<' }
+      return { orderBy: 's.created_at DESC, s.id', column: 'created_at', primaryOp: '<' }
   }
 }
 
@@ -291,13 +302,20 @@ export const skills = {
       }
     }
 
-    const { orderBy, column, cursorOp } = sortSpec(opts.sort)
+    const { orderBy, column, primaryOp } = sortSpec(opts.sort)
 
     if (opts.cursor) {
+      // "The cursor row and everything after it": the primary column in the
+      // sort's own direction, and the id tiebreaker ascending. The comparison
+      // is inclusive on the id, because the cursor parks on the first row the
+      // previous page did *not* return — that row still belongs to this page.
+      // See `sortSpec`.
       where.push(
-        `(s.${column}, s.id) ${cursorOp} (SELECT ${column}, id FROM skills WHERE id = ?)`,
+        `(s.${column} ${primaryOp} (SELECT ${column} FROM skills WHERE id = ?)` +
+          ` OR (s.${column} = (SELECT ${column} FROM skills WHERE id = ?)` +
+          ` AND s.id >= (SELECT id FROM skills WHERE id = ?)))`,
       )
-      params.push(opts.cursor)
+      params.push(opts.cursor, opts.cursor, opts.cursor)
     }
 
     const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''

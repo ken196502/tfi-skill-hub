@@ -1,0 +1,459 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  /* TFI brand typography — Helvetica stack (brand font). */
+  --font-sans: "Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-brand: var(--brand);
+  --color-brand-bright: var(--brand-bright);
+  --color-knowledge: var(--knowledge);
+  --color-knowledge-soft: var(--knowledge-soft);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  /* ── TFI brand palette ─────────────────────────────────────────────────── */
+  /* Single source of truth for the TFI green; every primary token below
+     reads from it so a brand refresh is a one-line change. */
+  --brand: #034124;
+  --brand-bright: #2f9e63;
+  /* Knowledge-base accent — the brand's lilac, darkened for text contrast. */
+  --knowledge: #6b5bb5;
+  --knowledge-soft: #efecf9;
+  --tfi-purple: #baa6ee;
+  --tfi-lilac: #dcd2fa;
+  --tfi-yellow: #fae752;
+  --tfi-butter: #fdf898;
+  --tfi-olive: #53553f;
+  --tfi-khaki: #858667;
+  /* Hero headline gradient — symmetric sweep so the shine band reads
+     clearly. Light keeps every stop on the deep end of the brand palette
+     (olive frame, brand-green core, bright-green sweep) so the moving band
+     never drops below the 3:1 large-text bar on the pale surface. */
+  --title-base: #53553f;
+  --title-mid: var(--brand);
+  --title-shine: var(--brand-bright);
+  /* Logo tint — brand green on light surfaces, white on dark ones. */
+  --logo-color: var(--brand);
+
+  /* ── Semantic tokens (light) ───────────────────────────────────────────── */
+  --background: #f7f9f7;
+  --foreground: #0f1a14;
+  --card: #ffffff;
+  --card-foreground: #0f1a14;
+  --popover: #ffffff;
+  --popover-foreground: #0f1a14;
+  --primary: var(--brand);
+  --primary-foreground: #f7f9f7;
+  --secondary: #edf2ee;
+  --secondary-foreground: #0f1a14;
+  --muted: #edf2ee;
+  --muted-foreground: #47594e;
+  --accent: #e7f0e9;
+  --accent-foreground: #0f1a14;
+  --destructive: #dc3d43;
+  --border: #dbe5dd;
+  --input: #c5d1c7;
+  --ring: var(--brand);
+  --chart-1: var(--brand);
+  --chart-2: var(--knowledge);
+  --chart-3: #b8860b;
+  --chart-4: #858667;
+  --chart-5: #53553f;
+  --radius: 0.75rem;
+  --sidebar: #f0f4f0;
+  --sidebar-foreground: #0f1a14;
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: #f7f9f7;
+  --sidebar-accent: #e1eae3;
+  --sidebar-accent-foreground: #0f1a14;
+  --sidebar-border: #dbe5dd;
+  --sidebar-ring: var(--brand);
+}
+
+.dark {
+  /* Logo switches to white on dark surfaces. */
+  --logo-color: #ffffff;
+  /* Knowledge accent brightens on dark surfaces for text contrast. */
+  --knowledge: #b9a6ee;
+  --knowledge-soft: rgba(185, 166, 238, 0.14);
+
+  /* Hero headline gradient — dark runs the bright brand sweep: yellow
+     frame, green core, near-white shine band. All high contrast on the
+     near-black surface. */
+  --title-base: var(--tfi-yellow);
+  --title-mid: #3fb574;
+  --title-shine: #f6ffef;
+
+  /* ── Semantic tokens (dark) ──────────────────────────────────────────────── */
+  --background: #0a0e0b;
+  --foreground: #edf2ee;
+  --card: #121714;
+  --card-foreground: #edf2ee;
+  --popover: #141a16;
+  --popover-foreground: #edf2ee;
+  --primary: var(--brand-bright);
+  --primary-foreground: #04160e;
+  --secondary: #17201a;
+  --secondary-foreground: #edf2ee;
+  --muted: #17201a;
+  --muted-foreground: #a3b0a6;
+  --accent: #1b2620;
+  --accent-foreground: #edf2ee;
+  --destructive: #f2555b;
+  --border: #1e2620;
+  --input: #1e2620;
+  --ring: var(--brand-bright);
+  --chart-1: var(--brand-bright);
+  --chart-2: var(--knowledge);
+  --chart-3: #d4a72c;
+  --chart-4: #858667;
+  --chart-5: #53553f;
+  --sidebar: #0f1411;
+  --sidebar-foreground: #edf2ee;
+  --sidebar-primary: var(--brand-bright);
+  --sidebar-primary-foreground: #04160e;
+  --sidebar-accent: #1b2620;
+  --sidebar-accent-foreground: #edf2ee;
+  --sidebar-border: #1e2620;
+  --sidebar-ring: var(--brand-bright);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply scroll-smooth font-sans;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 24%, transparent);
+  }
+  /* Edge / some Chromium builds draw their own password reveal control inside
+     password inputs; hide it so it does not double up with the custom eye
+     toggle until the first type switch. */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+  }
+}
+
+/* TFI brand mark: rendered by the inline BrandLogo component
+   (components/common/brand-logo.tsx) so it stays vector-sharp on high-DPR
+   screens. Only its tint stays here — brand green on light, white on dark. */
+
+/* Theme switching — the new theme wipes in as a circle growing from the
+   click point (View Transitions API, see theme-toggle.tsx). Both snapshots
+   stay visually flat and layered, so the animated clip-path is the only
+   motion the user sees. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+}
+
+/* Home surface — layered brand glows over a vertical gradient, ported from
+   the demo skin. Light keeps the flat page colour as the base layer; dark
+   sinks into near-black at both ends through the gradient below. */
+.home-surface {
+  background:
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--tfi-purple) 18%, transparent), transparent 24rem),
+    radial-gradient(circle at 84% 22%, color-mix(in srgb, var(--tfi-yellow) 20%, transparent), transparent 22rem),
+    radial-gradient(circle at 50% 14%, color-mix(in srgb, var(--brand) 16%, transparent), transparent 30rem),
+    var(--background);
+}
+
+.dark .home-surface {
+  background:
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--tfi-purple) 14%, transparent), transparent 24rem),
+    radial-gradient(circle at 84% 22%, color-mix(in srgb, var(--tfi-yellow) 10%, transparent), transparent 22rem),
+    radial-gradient(circle at 50% 14%, color-mix(in srgb, var(--brand-bright) 18%, transparent), transparent 30rem),
+    linear-gradient(180deg, #0c1812 0%, var(--background) 58%, #040806 100%);
+}
+
+/* Home texture overlay — two dot grids, two diagonal hairlines and two
+   corner glows, faded out toward the bottom of the page via mask. */
+.home-backdrop {
+  pointer-events: none;
+  opacity: 0.45;
+  background-image:
+    radial-gradient(circle at 82% 12%, color-mix(in srgb, var(--tfi-purple) 10%, transparent), transparent 38%),
+    radial-gradient(circle at 12% 46%, color-mix(in srgb, var(--tfi-butter) 6%, transparent), transparent 32%),
+    radial-gradient(circle, color-mix(in srgb, var(--brand-bright) 70%, transparent) 0 1px, transparent 1.5px),
+    radial-gradient(circle, color-mix(in srgb, var(--tfi-lilac) 55%, transparent) 0 1px, transparent 1.5px),
+    linear-gradient(118deg, transparent 49.7%, color-mix(in srgb, var(--brand-bright) 18%, transparent) 50%, transparent 50.3%),
+    linear-gradient(27deg, transparent 49.7%, color-mix(in srgb, var(--brand) 12%, transparent) 50%, transparent 50.3%);
+  background-size: 100% 100%, 100% 100%, 180px 180px, 220px 220px, 280px 280px, 340px 340px;
+  background-position: center, center, 0 0, 90px 110px, center, center;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 92%);
+  mask-image: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, 0.7) 48%, transparent 92%);
+}
+
+/* Home hero headline — hugs the text so the brand gradient spans exactly
+   the glyphs. The image is a symmetric sweep (base → mid → shine → mid →
+   base) drawn wider than the line; `title-flow` slides the clipped window
+   back and forth, which reads as one shine band sweeping across the text.
+   Entry reuses rise-in inline because `animation` is one shorthand — the h1
+   therefore drops .motion-rise. Keep background-clip after the background
+   longhands: any later `background` shorthand with higher specificity
+   resets it to border-box and paints an unclipped gradient block instead
+   of glyph text. */
+.home-title {
+  display: inline-block;
+  background-image: linear-gradient(90deg, var(--title-base) 0%, var(--title-mid) 30%, var(--title-shine) 50%, var(--title-mid) 70%, var(--title-base) 100%);
+  background-size: 240% 100%;
+  background-position: 0 center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: rise-in 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) backwards,
+    title-flow 7s ease-in-out 0.6s infinite alternate;
+}
+
+/* Quill (rich-text editor) — the snow theme ships light-surface defaults;
+   re-map its shell, toolbar and placeholder onto our tokens. Scoped under
+   `.rich-text-editor` so it wins over quill.snow.css regardless of the order
+   the two stylesheets land in. */
+.rich-text-editor .ql-toolbar.ql-snow,
+.rich-text-editor .ql-container.ql-snow {
+  border-color: var(--border);
+}
+.rich-text-editor .ql-toolbar.ql-snow {
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--muted);
+}
+.rich-text-editor .ql-container.ql-snow {
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--background);
+  font-family: inherit;
+  font-size: 0.875rem;
+}
+.rich-text-editor .ql-snow .ql-editor {
+  min-height: 10rem;
+  color: var(--foreground);
+}
+.rich-text-editor .ql-editor.ql-blank::before {
+  color: var(--muted-foreground);
+  font-style: normal;
+}
+.rich-text-editor .ql-snow .ql-stroke {
+  stroke: var(--muted-foreground);
+}
+.rich-text-editor .ql-snow .ql-fill {
+  fill: var(--muted-foreground);
+}
+.rich-text-editor .ql-snow .ql-picker {
+  color: var(--muted-foreground);
+}
+.rich-text-editor .ql-snow .ql-picker-options {
+  background: var(--popover);
+  border-color: var(--border);
+}
+.rich-text-editor .ql-snow .ql-tooltip {
+  background: var(--popover);
+  border-color: var(--border);
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+/* ── Rich detail markup rendered on skill pages ──────────────────────────── */
+.skill-prose {
+  @apply text-sm leading-relaxed text-muted-foreground;
+}
+.skill-prose > * + * {
+  margin-top: 0.75rem;
+}
+.skill-prose h1,
+.skill-prose h2,
+.skill-prose h3,
+.skill-prose h4 {
+  @apply font-semibold text-foreground;
+}
+.skill-prose h2 {
+  @apply mt-6 text-base;
+}
+.skill-prose h3 {
+  @apply mt-5 text-sm;
+}
+.skill-prose ul {
+  @apply list-disc space-y-1 pl-5;
+}
+.skill-prose ol {
+  @apply list-decimal space-y-1 pl-5;
+}
+.skill-prose blockquote {
+  @apply border-l-2 pl-3 italic;
+}
+.skill-prose a {
+  @apply text-primary underline underline-offset-2;
+}
+.skill-prose code {
+  @apply rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground;
+}
+.skill-prose pre {
+  @apply overflow-x-auto rounded-lg border bg-muted/40 p-3 font-mono text-xs text-foreground;
+}
+.skill-prose img {
+  @apply max-w-full rounded-lg;
+}
+.skill-prose table {
+  @apply w-full border-collapse text-left;
+}
+.skill-prose th,
+.skill-prose td {
+  @apply border-b px-2 py-1.5;
+}
+.skill-prose strong {
+  @apply font-medium text-foreground;
+}
+
+/* ── Motion system ─────────────────────────────────────────────────────────
+   Shared entrance choreography. Keyframes fill `backwards` (not `both`) so
+   they never lock `transform` after finishing — hover/focus states that move
+   elements keep working. The global guard at the end of this block collapses
+   everything to instant under `prefers-reduced-motion`. */
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Hero headline hue drift — slides the clipped window the full overshoot so
+   the shine band enters from one side and leaves the other. Alternates, so
+   it never snaps back. Paints only this line, so the cost stays bounded. */
+@keyframes title-flow {
+  to {
+    background-position: 100% center;
+  }
+}
+
+/* Entrance for a single element; chain with .motion-delay-* for sequences. */
+.motion-rise {
+  animation: rise-in 0.5s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+}
+
+.motion-delay-1 {
+  animation-delay: 70ms;
+}
+.motion-delay-2 {
+  animation-delay: 140ms;
+}
+.motion-delay-3 {
+  animation-delay: 210ms;
+}
+.motion-delay-4 {
+  animation-delay: 280ms;
+}
+
+/* Entrance for grids and lists — children rise one after another; each child
+   sets `--stagger` to its position (keep it small, e.g. index % 6, so a
+   "load more" batch never makes the tail wait long). */
+.motion-stagger > * {
+  animation: rise-in 0.45s cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  animation-delay: calc(var(--stagger, 0) * 50ms);
+}
+
+/* Home page aurora — a soft brand-glow layer that drifts behind the texture
+   overlay, so the hero background stays alive without drawing attention. */
+@keyframes aurora-drift {
+  from {
+    opacity: 0.75;
+    transform: translate3d(-1.2%, -0.8%, 0) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(1.2%, 1.2%, 0) scale(1.05);
+  }
+}
+
+.home-aurora {
+  pointer-events: none;
+  background:
+    radial-gradient(36rem 22rem at 20% 10%, color-mix(in srgb, var(--tfi-purple) 16%, transparent), transparent 70%),
+    radial-gradient(32rem 20rem at 82% 24%, color-mix(in srgb, var(--tfi-yellow) 13%, transparent), transparent 70%),
+    radial-gradient(42rem 26rem at 52% 12%, color-mix(in srgb, var(--brand-bright) 14%, transparent), transparent 72%);
+  filter: blur(8px);
+  will-change: transform, opacity;
+  animation: aurora-drift 16s ease-in-out infinite alternate;
+}
+
+.dark .home-aurora {
+  background:
+    radial-gradient(36rem 22rem at 20% 10%, color-mix(in srgb, var(--tfi-purple) 12%, transparent), transparent 70%),
+    radial-gradient(32rem 20rem at 82% 24%, color-mix(in srgb, var(--tfi-yellow) 8%, transparent), transparent 70%),
+    radial-gradient(42rem 26rem at 52% 12%, color-mix(in srgb, var(--brand-bright) 16%, transparent), transparent 72%);
+}
+
+/* Reduced motion — collapse entrances, drifts and transitions to instant. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

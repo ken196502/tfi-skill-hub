@@ -9,6 +9,7 @@
     "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vite dev",
     "build": "vite build",
     "start": "NODE_OPTIONS=--disable-warning=ExperimentalWarning node --env-file-if-exists=.env scripts/serve.mjs",
+    "api": "tsx scripts/serve-api.mjs",
     "typecheck": "tsc --noEmit",
     "smoke": "node --disable-warning=ExperimentalWarning scripts/smoke-api.mjs",
     "smoke:kb": "node --disable-warning=ExperimentalWarning scripts/smoke-kb.mjs",
@@ -27,6 +28,7 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.1",
     "@vitejs/plugin-react": "^5.0.4",
+    "tsx": "^4.19.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.9"
   }

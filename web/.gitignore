@@ -1,0 +1,55 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# standalone 构建产物（K8s/Docker 部署用，由 pnpm build:standalone 生成）
+/tfi-skillHub/
+/tfi-skillHub.zip
+
+# 运维交付包（standalone 产物 + Dockerfile + K8s 清单）
+/release/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# 本地临时验证目录（禁止入库）
+.tmp-*/
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files — deploy targets are committed so CI (Jenkins) can build them;
+# machine-local overrides stay ignored
+.env*
+!.env.example
+!.env.sit
+!.env.prod
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
