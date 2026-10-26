@@ -1,0 +1,167 @@
+.map-style-picker {
+  position: absolute;
+  top: 14px;
+  left: 24px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #c7d9d2;
+  border-radius: 13px;
+  background: #fffefaeb;
+  color: #294f46;
+  box-shadow: 0 6px 24px #173b4910;
+}
+.map-style-picker label { font-size: 10px; opacity: .7; }
+.map-style-picker select {
+  max-width: 200px;
+  padding: 3px 22px 3px 0;
+  border: 0;
+  outline-offset: 5px;
+  background: transparent;
+  color: inherit;
+  font: 600 12px/1.7 Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  cursor: pointer;
+}
+.map-style-picker select option { background: #f1f7f5; color: #284c58; }
+body:has(.globe-map-layout) {
+  background: #070b12;
+}
+.app-main:has(.globe-map-layout) {
+  height: 100svh;
+  background: transparent;
+}
+.globe-map-panel {
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse at 18% 74%, #14345040 0, transparent 55%),
+    radial-gradient(ellipse at 86% 28%, #25375733 0, transparent 50%),
+    linear-gradient(145deg, #080c13 0%, #111823 50%, #080d16 100%);
+}
+.globe-map-panel::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 100%, #41649717, transparent 65%);
+  content: '';
+  pointer-events: none;
+}
+.globe-map-panel::after {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: linear-gradient(transparent 65%, #02050b38);
+  content: '';
+  pointer-events: none;
+}
+.globe-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: default;
+}
+.globe-labels, .globe-leaders {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+.globe-leaders { z-index: 2; }
+.globe-leaders path { fill: none; stroke: #a9c8e8; stroke-width: .8; opacity: .6; }
+.globe-leaders circle { fill: #d4eaff; stroke: #456d98; stroke-width: .7; }
+.globe-city-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  padding: 3px 5px;
+  border-radius: 5px;
+  color: #e2edff;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-shadow: 0 1px 4px #020812, 0 0 8px #071426;
+  pointer-events: auto;
+  transition: color .16s, background .16s;
+}
+.globe-city-label.is-hovered, .globe-city-label:focus-visible {
+  background: #1e3854eb;
+  outline: 1px solid #8bb8e570;
+  color: #fff;
+}
+.globe-city-label[hidden] { display: none; }
+.globe-province-label {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  padding: 5px 12px;
+  border: 1px solid #91b7e05c;
+  border-radius: 20px;
+  background: #182a41ed;
+  color: #d5e8ff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  box-shadow: 0 5px 18px #01071166;
+  pointer-events: none;
+}
+.globe-map-panel .map-style-picker,
+.globe-map-panel .map-controls {
+  top: 96px;
+  border-color: #9cbce22b;
+  background: linear-gradient(125deg, #2634498a, #151e2b80);
+  color: #fff;
+  box-shadow: 0 8px 30px #00050d30, inset 0 1px #ffffff08;
+  backdrop-filter: blur(18px);
+}
+.globe-map-panel .map-controls { right: 24px; padding: 7px; border-radius: 13px; }
+.globe-map-panel .map-style-picker select option { background: #172230; color: #e5eeff; }
+.globe-map-panel .map-controls button { width: 35px; height: 35px; color: #fff; }
+.globe-map-panel .map-controls button:hover:not(:disabled) { background: #ffffff20; color: #fff; }
+.globe-map-panel .map-controls button:disabled { opacity: .28; }
+.globe-map-panel .map-zoom-level { color: #efffff; min-width: 45px; }
+.globe-map-panel .map-control-divider { background: #ffffff2b; }
+.globe-status {
+  position: absolute;
+  z-index: 4;
+  top: 48%;
+  left: 50%;
+  max-width: calc(100% - 40px);
+  transform: translate(-50%, -50%);
+  padding: 12px 20px;
+  border: 1px solid #ffffff35;
+  border-radius: 12px;
+  background: #182738eb;
+  color: #f2ffff;
+  text-align: center;
+  font-size: 12px;
+}
+@media (max-width: 650px) {
+  .app-main:has(.globe-map-layout) { height: 100svh; }
+  .map-style-picker { left: 12px; top: 10px; gap: 6px; padding: 10px; }
+  .map-style-picker label { display: none; }
+  .map-style-picker select { max-width: 148px; font-size: 10px; padding-right: 0; }
+  .globe-map-panel .map-style-picker, .globe-map-panel .map-controls { top: 128px; }
+  .globe-map-panel .map-controls { right: 12px; padding: 5px; }
+  .globe-map-panel .map-controls button { width: 29px; height: 32px; }
+  .globe-map-panel .map-zoom-level { min-width: 34px; }
+  .globe-map-panel .map-control-divider { margin: 0 1px; }
+  .globe-city-label { padding: 2px 3px; font-size: 11px; }
+  .globe-province-label { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .globe-city-label { transition: none; }
+}
+@media (max-width: 380px) {
+  .hubei-map-panel:not(.globe-map-panel) .map-controls { top: 62px; }
+}

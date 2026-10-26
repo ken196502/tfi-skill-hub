@@ -39,7 +39,7 @@ const en: DeepStringify<Messages> = {
   nav: {
     home: "Home",
     skills: "Skills",
-    knowledge: "Knowledge",
+    hubeiDemo: "Hubei Industry KB Demo",
     favorites: "Favorites",
     admin: "Admin Console",
     backToSite: "Back to site",
@@ -84,6 +84,7 @@ const en: DeepStringify<Messages> = {
     noPopularSkillsDesc: "Once skills are downloaded, the most popular ones will appear here.",
     noPopularKnowledge: "No popular knowledge yet",
     noPopularKnowledgeDesc: "Once knowledge bases are downloaded, the most popular ones will appear here.",
+    launchSoon: "Coming soon",
   },
   search: {
     title: "Search",

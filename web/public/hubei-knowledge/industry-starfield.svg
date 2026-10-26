@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1000" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="space" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0c172b"/>
+      <stop offset=".48" stop-color="#102638"/>
+      <stop offset="1" stop-color="#102d2c"/>
+    </linearGradient>
+    <radialGradient id="nebulaA" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#4784a6" stop-opacity=".2"/>
+      <stop offset=".58" stop-color="#315e83" stop-opacity=".09"/>
+      <stop offset="1" stop-color="#315e83" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="nebulaB" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#5b8c72" stop-opacity=".15"/>
+      <stop offset=".62" stop-color="#3a6b62" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#3a6b62" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="fineStars" width="170" height="150" patternUnits="userSpaceOnUse">
+      <circle cx="13" cy="26" r="1" fill="#dce9ff" opacity=".55"/>
+      <circle cx="67" cy="19" r=".7" fill="#dce9ff" opacity=".35"/>
+      <circle cx="120" cy="57" r=".8" fill="#dce9ff" opacity=".48"/>
+      <circle cx="35" cy="99" r=".7" fill="#dce9ff" opacity=".4"/>
+      <circle cx="91" cy="128" r="1" fill="#dce9ff" opacity=".38"/>
+      <circle cx="154" cy="112" r=".65" fill="#dce9ff" opacity=".3"/>
+      <circle cx="143" cy="13" r=".55" fill="#dce9ff" opacity=".38"/>
+    </pattern>
+    <pattern id="distantStars" width="310" height="270" patternUnits="userSpaceOnUse">
+      <circle cx="225" cy="86" r="1.25" fill="#e6f0ff" opacity=".42"/>
+      <circle cx="56" cy="205" r="1.1" fill="#e6f0ff" opacity=".35"/>
+      <circle cx="285" cy="242" r=".8" fill="#e6f0ff" opacity=".32"/>
+    </pattern>
+  </defs>
+  <rect width="1600" height="1000" fill="url(#space)"/>
+  <ellipse cx="360" cy="250" rx="620" ry="390" fill="url(#nebulaA)"/>
+  <ellipse cx="1260" cy="780" rx="600" ry="430" fill="url(#nebulaB)"/>
+  <path d="M-120 760C230 570 390 610 700 450s510-240 1030-300" fill="none" stroke="#91bfd0" stroke-opacity=".035" stroke-width="180"/>
+  <rect width="1600" height="1000" fill="url(#fineStars)" opacity=".48"/>
+  <rect width="1600" height="1000" fill="url(#distantStars)" opacity=".55"/>
+</svg>

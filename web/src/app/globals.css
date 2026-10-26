@@ -444,6 +444,380 @@
     radial-gradient(42rem 26rem at 52% 12%, color-mix(in srgb, var(--brand-bright) 16%, transparent), transparent 72%);
 }
 
+/* ── Home teaser curtain ───────────────────────────────────────────────────
+   Press `0` on the landing page: a black curtain with 「即将发布」 and a row
+   of handprints; wheel resizes the prints, ↑/↓ slides them, Enter runs the
+   countdown that detonates and lifts the curtain off the page. Every layer is
+   transform/opacity only so the blast stays on the compositor. */
+
+.launch-root {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  will-change: opacity;
+}
+
+/* Soft halo so the black field never reads as a flat rectangle. */
+.launch-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 48%, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0) 58%);
+  animation: launch-breathe 6s ease-in-out infinite alternate;
+}
+
+@keyframes launch-breathe {
+  from {
+    opacity: 0.65;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.launch-center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(3rem, 9vh, 6rem);
+}
+
+/* Holds the word and — later — the digit, so the prints below never shift. */
+.launch-word {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.launch-title {
+  margin-right: -0.2em;
+  font-size: clamp(2.6rem, 11vw, 8rem);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+  color: #fff;
+  text-shadow:
+    0 0 40px rgba(255, 255, 255, 0.32),
+    0 0 130px rgba(255, 255, 255, 0.14);
+  animation: launch-title-in 900ms cubic-bezier(0.16, 0.84, 0.28, 1) backwards;
+}
+
+/* Kept in flow (not removed) while counting, so the prints hold their place. */
+.launch-title-muted {
+  opacity: 0;
+}
+
+@keyframes launch-title-in {
+  from {
+    opacity: 0;
+    filter: blur(16px);
+    letter-spacing: 0.55em;
+    transform: scale(1.16);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    letter-spacing: 0.2em;
+    transform: scale(1);
+  }
+}
+
+.launch-hands {
+  --hand-base: clamp(30px, 5.2vw, 62px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: clamp(12px, 2.4vw, 30px);
+  transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+
+.launch-hand {
+  flex: none;
+  color: #fff;
+  filter: drop-shadow(0 0 18px rgba(255, 255, 255, 0.45));
+  animation: launch-hand-in 640ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+  animation-delay: calc(var(--i) * 60ms + 240ms);
+}
+
+@keyframes launch-hand-in {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* The digit is pulled out of flow and centred on the word slot, so the row of
+   prints underneath keeps the exact position it had before Enter. */
+.launch-count-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Nudged up so the digit keeps clear air above the prints. */
+  padding-bottom: 22px;
+}
+
+.launch-count {
+  font-size: clamp(5rem, 15vw, 12rem);
+  font-weight: 800;
+  line-height: 0.82;
+  letter-spacing: -0.05em;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 0 60px rgba(255, 255, 255, 0.45),
+    0 0 180px rgba(255, 255, 255, 0.2);
+  animation: launch-count-beat 800ms cubic-bezier(0.2, 0.85, 0.24, 1) both;
+}
+
+@keyframes launch-count-beat {
+  0% {
+    opacity: 0;
+    filter: blur(18px);
+    transform: scale(2.2);
+  }
+  16% {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(1);
+  }
+  76% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(6px);
+    transform: scale(0.82);
+  }
+}
+
+.launch-count-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(40vmin, 22rem);
+  height: min(40vmin, 22rem);
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  animation: launch-ring-pulse 800ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes launch-ring-pulse {
+  from {
+    opacity: 0.85;
+    transform: translate(-50%, -50%) scale(0.55);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.8);
+  }
+}
+
+/* ── Detonation ────────────────────────────────────────────────────────── */
+
+.launch-boom {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.launch-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  animation: launch-flash 240ms ease-out forwards;
+}
+
+@keyframes launch-flash {
+  0% {
+    opacity: 0;
+  }
+  8% {
+    opacity: 0.95;
+  }
+  40% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Radial streak burst. */
+.launch-rays {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 150vmax;
+  height: 150vmax;
+  border-radius: 9999px;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 255, 255, 0.95) 0deg 0.7deg,
+    transparent 0.7deg 8deg
+  );
+  -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 58%);
+  mask-image: radial-gradient(circle, #000 0%, transparent 58%);
+  animation: launch-rays 900ms cubic-bezier(0.15, 0.75, 0.3, 1) forwards;
+}
+
+@keyframes launch-rays {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.12) rotate(0deg);
+  }
+  12% {
+    opacity: 0.9;
+  }
+  58% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.8) rotate(18deg);
+  }
+}
+
+/* White-hot core — reads as the seat of the blast once the screen flash is gone. */
+.launch-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 9999px;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0.82) 16%,
+    rgba(255, 255, 255, 0.28) 36%,
+    rgba(255, 255, 255, 0) 64%
+  );
+  animation: launch-core 900ms cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes launch-core {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.12);
+  }
+  10% {
+    opacity: 1;
+  }
+  42% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.4);
+  }
+}
+
+.launch-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 110vmax;
+  height: 110vmax;
+  border-radius: 9999px;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  animation: launch-shockwave 900ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+.launch-ring-late {
+  animation-delay: 130ms;
+  border-color: rgba(250, 231, 82, 0.7);
+}
+
+@keyframes launch-shockwave {
+  0% {
+    opacity: 0.95;
+    transform: translate(-50%, -50%) scale(0.06);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.launch-particle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  animation-name: launch-particle-fly;
+  animation-timing-function: cubic-bezier(0.14, 0.78, 0.3, 1);
+  animation-fill-mode: forwards;
+}
+
+@keyframes launch-particle-fly {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  60% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.15);
+  }
+}
+
+/* Curtain lift: shake, then fade the black field out to expose the page. */
+.launch-boom-out {
+  animation:
+    launch-shake 460ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both,
+    launch-veil-out 640ms cubic-bezier(0.4, 0, 0.6, 1) 470ms forwards;
+}
+
+@keyframes launch-shake {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  12% {
+    transform: translate3d(-9px, 6px, 0);
+  }
+  28% {
+    transform: translate3d(8px, -5px, 0);
+  }
+  44% {
+    transform: translate3d(-6px, -4px, 0);
+  }
+  62% {
+    transform: translate3d(5px, 3px, 0);
+  }
+  80% {
+    transform: translate3d(-3px, 2px, 0);
+  }
+}
+
+@keyframes launch-veil-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 /* Reduced motion — collapse entrances, drifts and transitions to instant. */
 @media (prefers-reduced-motion: reduce) {
   *,

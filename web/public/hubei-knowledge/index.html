@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#15332d">
+<title>湖北产业脉络 · 产业发现</title>
+<link rel="stylesheet" href="prototype.css?v=20261022-1">
+<link rel="stylesheet" href="prototype-adjustments.css?v=20261022-1">
+<link rel="stylesheet" href="homepage.css?v=20261023-16">
+<link rel="stylesheet" href="star-map.css?v=20261026-3">
+<link rel="stylesheet" href="star-map-aurora.css?v=20261026-1">
+<link rel="stylesheet" href="globe-map.css?v=20261024-5">
+<link rel="stylesheet" href="about.css?v=20261023-3">
+<link rel="stylesheet" href="site-navigation.css?v=20261026-1">
+<link rel="stylesheet" href="content-views.css?v=20261026-1">
+<script defer src="hubei-map-data.js?v=20261022-1"></script>
+<script defer src="china-map-data.js?v=20261023-2"></script>
+<script defer src="star-map-aurora.js?v=20261024-10"></script>
+<script defer src="content-data.js?v=20261026-2"></script>
+<script defer src="content-views.js?v=20261026-1"></script>
+<script defer src="site-navigation.js?v=20261026-1"></script>
+<script defer src="prototype.js?v=20261026-5"></script>
+</head>
+<body>
+<header class="site-header" data-preserve-text>
+  <div class="hub-header-inner">
+    <button class="hub-icon-button hub-menu-trigger" id="hubMenuTrigger" type="button" aria-label="菜单" aria-expanded="false" aria-controls="hubNavigation">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h16"></path></svg>
+    </button>
+    <a class="brand hub-brand" href="../" aria-label="TFI Skill Hub">
+      <span class="hub-logo" aria-hidden="true"></span><span class="hub-brand-name">TFI Skill Hub</span>
+    </a>
+    <nav class="hub-nav" id="hubNavigation" aria-label="Skill Hub 主导航">
+      <a href="../" data-hub-label="home">首页</a>
+      <a href="../skills" data-hub-label="skills">技能库</a>
+      <a href="#home" class="active" aria-current="page" data-knowledge-home data-hub-label="knowledge">湖北产业知识库demo</a>
+      <a href="../favorites" data-hub-label="favorites">我的收藏</a>
+    </nav>
+    <div class="hub-actions">
+      <div class="language-picker" id="languagePicker">
+        <button class="language-trigger hub-icon-button" id="languageTrigger" type="button" aria-label="切换语言" aria-haspopup="listbox" aria-expanded="false" aria-controls="languageOptions">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 8 6 6m-7 0 6-6 2-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"></path></svg>
+          <span id="languageLabel" class="visually-hidden">简体中文</span>
+        </button>
+        <div class="language-options hub-options" id="languageOptions" role="listbox" aria-label="网页语言" hidden>
+          <button type="button" role="option" data-language="zh" aria-selected="true"><span>简体中文</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"></path></svg></button>
+          <button type="button" role="option" data-language="en" aria-selected="false"><span>English</span><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8 3 3 7-7"></path></svg></button>
+        </div>
+      </div>
+      <div class="hub-theme-picker" id="hubThemePicker">
+        <button class="hub-icon-button" id="hubThemeTrigger" type="button" aria-label="切换主题" aria-haspopup="listbox" aria-expanded="false" aria-controls="hubThemeOptions">
+          <svg class="hub-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+          <svg class="hub-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401Z"></path></svg>
+        </button>
+        <div class="hub-options" id="hubThemeOptions" role="listbox" aria-label="导航主题" hidden>
+          <button type="button" role="option" data-hub-theme="light" aria-selected="false" data-hub-label="light">浅色</button>
+          <button type="button" role="option" data-hub-theme="dark" aria-selected="true" data-hub-label="dark">深色</button>
+          <button type="button" role="option" data-hub-theme="system" aria-selected="false" data-hub-label="system">跟随系统</button>
+        </div>
+      </div>
+      <a class="hub-login" href="../login" data-hub-label="login">登录</a>
+    </div>
+  </div>
+  <div class="knowledge-navigation">
+    <nav class="main-nav" aria-label="知识库导航">
+      <a href="#home-directory" data-section="home-directory" data-home-directory>产业目录</a>
+      <a href="#explore-map" data-section="explore-map">探索地图</a>
+      <a href="#explore-stars" data-section="explore-stars">探索星图</a>
+      <a href="#new-materials" data-section="new-materials">简介</a>
+    </nav>
+  </div>
+</header>
+<main class="app-main">
+  <div id="viewRoot" aria-live="polite"></div>
+</main>
+<footer class="hub-footer" data-preserve-text>
+  <div class="hub-footer-inner">
+    <span class="hub-logo" role="img" aria-label="天风国际 TFI"></span>
+    <p>© <span id="hubCopyrightYear">2026</span> TFI. <span data-hub-label="rights">保留所有权利。</span></p>
+  </div>
+</footer>
+</body>
+</html>

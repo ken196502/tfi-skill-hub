@@ -25,9 +25,23 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/", label: "nav.home" },
   { href: "/skills", label: "nav.skills" },
-  { href: "/knowledge", label: "nav.knowledge" },
   { href: "/favorites", label: "nav.favorites" },
 ] as const;
+
+/**
+ * 湖北产业知识库 demo —— 打包进来的独立静态站（`web/public/hubei-knowledge`），
+ * 不是 Next 路由，所以用普通 `<a>` 触发整页跳转而不是客户端导航。
+ * 部署在子路径下时 public 资源同样带前缀，这里补上 basePath。
+ */
+const DEMO_PATH = "/hubei-knowledge/index.html";
+const BASE_PATH = (process.env.NEXT_PUBLIC_BASE_PATH ?? "").trim().replace(/\/+$/, "");
+
+type NavItem = {
+  href: string;
+  label: TranslationKey;
+  /** Static bundle outside the router: plain anchor + full page load. */
+  static?: boolean;
+};
 
 export function SiteHeader() {
   const { t } = useI18n();
@@ -63,10 +77,12 @@ export function SiteHeader() {
 
   // The admin console is a first-class nav entry for admins, not tucked
   // into the avatar menu.
-  const navItems: { href: string; label: TranslationKey }[] =
-    user?.role === "admin"
-      ? [...NAV_ITEMS, { href: "/admin", label: "nav.admin" }]
-      : [...NAV_ITEMS];
+  const navItems: NavItem[] = [
+    ...NAV_ITEMS.slice(0, 2),
+    { href: `${BASE_PATH}${DEMO_PATH}`, label: "nav.hubeiDemo", static: true },
+    ...NAV_ITEMS.slice(2),
+    ...(user?.role === "admin" ? [{ href: "/admin", label: "nav.admin" as const }] : []),
+  ];
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -112,21 +128,32 @@ export function SiteHeader() {
               </SheetTitle>
             </SheetHeader>
             <nav className="flex flex-col gap-1 px-2">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setMenuOpen(false)}
-                  className={cn(
-                    "rounded-md px-3 py-2 text-sm transition-colors",
-                    isActive(item.href)
-                      ? "bg-accent font-medium text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  )}
-                >
-                  {t(item.label)}
-                </Link>
-              ))}
+              {navItems.map((item) =>
+                item.static ? (
+                  <a
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMenuOpen(false)}
+                    className="rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {t(item.label)}
+                  </a>
+                ) : (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMenuOpen(false)}
+                    className={cn(
+                      "rounded-md px-3 py-2 text-sm transition-colors",
+                      isActive(item.href)
+                        ? "bg-accent font-medium text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                    )}
+                  >
+                    {t(item.label)}
+                  </Link>
+                ),
+              )}
             </nav>
             <div className="mt-auto flex flex-col gap-1 px-2 pb-4">
               {isAuthenticated && user ? (
@@ -171,20 +198,30 @@ export function SiteHeader() {
 
         {/* Desktop navigation */}
         <nav className="ml-4 hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "rounded-md px-3 py-1.5 text-sm transition-colors",
-                isActive(item.href)
-                  ? "bg-accent font-medium text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              )}
-            >
-              {t(item.label)}
-            </Link>
-          ))}
+          {navItems.map((item) =>
+            item.static ? (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              >
+                {t(item.label)}
+              </a>
+            ) : (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm transition-colors",
+                  isActive(item.href)
+                    ? "bg-accent font-medium text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                {t(item.label)}
+              </Link>
+            ),
+          )}
         </nav>
 
         <div className="flex-1" />

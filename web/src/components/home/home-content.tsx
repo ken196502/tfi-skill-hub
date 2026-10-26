@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowRight, BookOpen, Search, Sparkles, TrendingUp } from "lucide-react";
+import { ArrowRight, Search, Sparkles, TrendingUp } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { EmptyState } from "@/components/common/empty-state";
+import { LaunchOverlay } from "@/components/home/launch-overlay";
 import { ContentTypeBadge } from "@/components/skills/content-type-badge";
 import { SkillGrid } from "@/components/skills/skill-card";
 import { Button } from "@/components/ui/button";
@@ -19,16 +20,11 @@ export function HomeContent() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const features = useFeatures();
-  // The curated list is one sequence; the home splits it so skills and
-  // knowledge bases each get their own strip.
+  // The curated list is one sequence; the home shows the skill strip from it.
   const featuredSkills = (features.data?.data ?? []).filter(
     (skill) => skill.contentType === "skill",
   );
-  const featuredKnowledge = (features.data?.data ?? []).filter(
-    (skill) => skill.contentType === "knowledge",
-  );
   const popularSkills = usePopularSkills(6, "skill");
-  const popularKnowledge = usePopularSkills(6, "knowledge");
 
   function handleSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -96,21 +92,6 @@ export function HomeContent() {
         emptyDesc={t("home.noFeaturedSkillsDesc")}
       />
 
-      {/* Featured knowledge bases */}
-      <HomeSection
-        type="knowledge"
-        title={t("home.featuredKnowledgeTitle")}
-        subtitle={t("home.featuredKnowledgeSubtitle")}
-        browseLabel={t("home.browseAllKnowledge")}
-        href="/knowledge"
-        returnTo="/knowledge"
-        loading={features.isLoading}
-        skills={featuredKnowledge}
-        emptyIcon={BookOpen}
-        emptyTitle={t("home.noFeaturedKnowledge")}
-        emptyDesc={t("home.noFeaturedKnowledgeDesc")}
-      />
-
       {/* Popular skills — top downloads */}
       <HomeSection
         type="skill"
@@ -126,25 +107,14 @@ export function HomeContent() {
         emptyDesc={t("home.noPopularSkillsDesc")}
       />
 
-      {/* Popular knowledge bases — top downloads */}
-      <HomeSection
-        type="knowledge"
-        title={t("home.popularKnowledgeTitle")}
-        subtitle={t("home.popularKnowledgeSubtitle")}
-        browseLabel={t("home.browseAllKnowledge")}
-        href="/knowledge?sort=downloads"
-        returnTo="/knowledge?sort=downloads"
-        loading={popularKnowledge.isLoading}
-        skills={popularKnowledge.data?.data ?? []}
-        emptyIcon={TrendingUp}
-        emptyTitle={t("home.noPopularKnowledge")}
-        emptyDesc={t("home.noPopularKnowledgeDesc")}
-      />
+      {/* Easter egg — fixed-position curtain, press 0 to summon. Rendered here
+          so it only exists on the landing page. */}
+      <LaunchOverlay />
     </div>
   );
 }
 
-/** One home strip — shared by the four skill / knowledge sections. */
+/** One home strip — shared by the two skill sections. */
 function HomeSection({
   type,
   title,

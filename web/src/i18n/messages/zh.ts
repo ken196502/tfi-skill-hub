@@ -40,7 +40,7 @@ const zh = {
   nav: {
     home: "首页",
     skills: "技能库",
-    knowledge: "知识库",
+    hubeiDemo: "湖北产业知识库demo",
     favorites: "我的收藏",
     admin: "管理控制台",
     backToSite: "返回站点",
@@ -85,6 +85,7 @@ const zh = {
     noPopularSkillsDesc: "技能产生下载后，这里会展示最受欢迎的技能。",
     noPopularKnowledge: "暂无热门知识库",
     noPopularKnowledgeDesc: "知识库产生下载后，这里会展示最受欢迎的知识库。",
+    launchSoon: "即将发布",
   },
   search: {
     title: "搜索",
