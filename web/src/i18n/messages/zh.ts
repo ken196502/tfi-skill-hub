@@ -89,6 +89,12 @@ const zh = {
     noPopularKnowledge: "暂无热门知识库",
     noPopularKnowledgeDesc: "知识库产生下载后，这里会展示最受欢迎的知识库。",
     launchSoon: "即将发布",
+    launchCfgBlockTitle: "Logo + 即将发布",
+    launchCfgBlockHands: "手印",
+    launchCfgSize: "大小",
+    launchCfgReset: "还原",
+    launchCfgPlay: "播放",
+    launchCfgHint: "拖动移动 · 滚轮缩放 · 方向键微调 · 自动保存",
   },
   search: {
     title: "搜索",

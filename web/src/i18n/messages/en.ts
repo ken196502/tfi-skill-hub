@@ -88,6 +88,12 @@ const en: DeepStringify<Messages> = {
     noPopularKnowledge: "No popular knowledge yet",
     noPopularKnowledgeDesc: "Once knowledge bases are downloaded, the most popular ones will appear here.",
     launchSoon: "Coming soon",
+    launchCfgBlockTitle: "Logo + Coming soon",
+    launchCfgBlockHands: "Handprints",
+    launchCfgSize: "Size",
+    launchCfgReset: "Reset",
+    launchCfgPlay: "Play",
+    launchCfgHint: "Drag to move · scroll to resize · arrow keys to nudge · saved automatically",
   },
   search: {
     title: "Search",

@@ -481,6 +481,220 @@
   }
 }
 
+/* Same ray fan as the blast, but dialled down to 10% and slowly rotating, so
+   the headline sits in a quiet never-ending shimmer. */
+.launch-halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 130vmax;
+  height: 130vmax;
+  border-radius: 9999px;
+  pointer-events: none;
+  opacity: 0.1;
+  background: repeating-conic-gradient(
+    from 0deg,
+    rgba(255, 255, 255, 0.95) 0deg 0.55deg,
+    transparent 0.55deg 9deg
+  );
+  -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 54%);
+  mask-image: radial-gradient(circle, #000 0%, transparent 54%);
+  animation: launch-halo-spin 26s linear infinite;
+}
+
+@keyframes launch-halo-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* Both blocks are placed by viewport percentage, so a layout tuned on a laptop
+   lands the same way on a smaller venue screen. `--block-scale` zooms the art;
+   the editor chrome counter-scales with `--block-inverse` to stay readable. */
+.launch-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.launch-block {
+  position: absolute;
+  transform: translate(-50%, -50%) scale(var(--block-scale, 1));
+  transform-origin: 50% 50%;
+}
+
+.launch-block-editing {
+  padding: 12px;
+  outline: 1px dashed rgba(255, 255, 255, 0.28);
+  outline-offset: 2px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.launch-block-editing:active {
+  cursor: grabbing;
+}
+
+.launch-block-selected {
+  outline-color: rgba(255, 255, 255, 0.8);
+}
+
+.launch-block-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(calc(-100% - 6px)) scale(var(--block-inverse, 1));
+  transform-origin: 0 100%;
+}
+
+.launch-block-selected .launch-block-label {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b0b0b;
+}
+
+/* Corner grip — drag it and the block grows from its own centre. */
+.launch-block-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b0b0b;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  cursor: nwse-resize;
+  touch-action: none;
+  transform: translate(45%, 45%) scale(var(--block-inverse, 1));
+  transform-origin: 100% 100%;
+}
+
+.launch-block-handle > svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Layout editor — only mounted while editing (press `1`). */
+.launch-cfg {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(16px, 4vh, 40px);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(16, 16, 16, 0.78);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 12px;
+  line-height: 1.2;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+.launch-cfg-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.launch-cfg button {
+  appearance: none;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.launch-cfg button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.launch-cfg button:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.75);
+  outline-offset: 2px;
+}
+
+.launch-cfg-chip[data-on="true"] {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: transparent;
+  color: #0b0b0b;
+}
+
+.launch-cfg-step {
+  width: 28px;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.launch-cfg-value {
+  min-width: 48px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.launch-cfg-label {
+  margin-right: 2px;
+  opacity: 0.55;
+}
+
+.launch-cfg-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.launch-cfg button.launch-cfg-play {
+  background: #fff;
+  border-color: transparent;
+  color: #0b0b0b;
+  font-weight: 600;
+}
+
+.launch-cfg button.launch-cfg-play:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.launch-cfg-hint {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  opacity: 0.5;
+}
+
 .launch-center {
   position: relative;
   display: flex;
@@ -570,9 +784,6 @@
   align-items: center;
   justify-content: center;
   gap: clamp(28px, 4.8vw, 68px);
-  margin-top: clamp(2.6rem, 8vh, 5rem);
-  transition: transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
-  will-change: transform;
 }
 
 /* Split the row into two trios — left hands | right hands. */
@@ -623,12 +834,33 @@
   font-weight: 800;
   line-height: 0.82;
   letter-spacing: -0.05em;
-  color: #fff;
   font-variant-numeric: tabular-nums;
-  text-shadow:
-    0 0 60px rgba(255, 255, 255, 0.45),
-    0 0 180px rgba(255, 255, 255, 0.2);
-  animation: launch-count-beat 800ms cubic-bezier(0.2, 0.85, 0.24, 1) both;
+  /* Rainbow fill that keeps sliding while each digit holds. */
+  background-image: linear-gradient(
+    100deg,
+    #ff5f6d,
+    #ffc371,
+    #7af5c8,
+    #4d9dff,
+    #c471ed,
+    #ff5f6d
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation:
+    launch-count-beat 800ms cubic-bezier(0.2, 0.85, 0.24, 1) both,
+    launch-count-flow 2400ms linear infinite;
+}
+
+@keyframes launch-count-flow {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 220% 50%;
+  }
 }
 
 @keyframes launch-count-beat {
@@ -644,6 +876,7 @@
   }
   76% {
     opacity: 1;
+    filter: blur(0);
     transform: scale(1);
   }
   100% {
