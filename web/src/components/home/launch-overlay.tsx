@@ -36,6 +36,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 type Stage = "hidden" | "title" | "countdown" | "boom";
 type Selection = "title" | number;
+type IntroState = "visible" | "fading" | "hidden";
 
 interface BlockLayout {
   /** Centre of the block, as a fraction of the viewport (0–1). */
@@ -94,6 +95,10 @@ const TITLE_HOLD_MS_STEP = 100;
 const DEFAULT_TITLE_HOLD_MS = 500;
 /** Require an intentional rapid double-Enter before starting playback. */
 const DOUBLE_ENTER_WINDOW_MS = 450;
+/** Let the reference intro cover the curtain before the headline appears. */
+const INTRO_FADE_AT_MS = 2500;
+const INTRO_FADE_MS = 500;
+const INTRO_FALLBACK_MS = INTRO_FADE_AT_MS + INTRO_FADE_MS + 800;
 /** Flash + shockwave + particles + curtain lift; keep in sync with the CSS.
  *  The glow burns down over ~3s, so the curtain holds black until 2.1s. */
 const BOOM_MS = 3250;
@@ -312,6 +317,8 @@ export function LaunchOverlay() {
   const [editing, setEditing] = useState(false);
   const [count, setCount] = useState(COUNTDOWN_FROM);
   const [countdownDigitVisible, setCountdownDigitVisible] = useState(false);
+  const [introState, setIntroState] = useState<IntroState>("visible");
+  const introVisible = introState !== "hidden";
   const [layout, setLayout] = useState<Layout>(readLayout);
   const [selected, setSelected] = useState<Selection>("title");
   const timers = useRef<number[]>([]);
@@ -319,6 +326,14 @@ export function LaunchOverlay() {
   const hovered = useRef<Selection | null>(null);
   const lastEnterAt = useRef(0);
   const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const finishIntro = useCallback(() => {
+    setIntroState("hidden");
+  }, []);
+
+  const fadeIntro = useCallback(() => {
+    setIntroState((current) => (current === "visible" ? "fading" : current));
+  }, []);
 
   useEffect(() => {
     preloadCountdownAudio();
@@ -333,15 +348,17 @@ export function LaunchOverlay() {
   const close = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
+    finishIntro();
     setEditing(false);
     setCountdownDigitVisible(false);
     setStage("hidden");
-  }, [clearTimers]);
+  }, [clearTimers, finishIntro]);
 
   /** Hold the title, then run 5 · 4 · 3 · 2 · 1 → boom → back to the page. */
   const detonate = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
+    finishIntro();
     setStage("title");
     setCount(COUNTDOWN_FROM);
     setCountdownDigitVisible(false);
@@ -389,16 +406,17 @@ export function LaunchOverlay() {
         COUNTDOWN_AUDIO_DELAY_MS + layout.titleHoldMs + COUNTDOWN_AUDIO_LEAD_MS,
       ),
     );
-  }, [clearTimers, layout.titleHoldMs]);
+  }, [clearTimers, finishIntro, layout.titleHoldMs]);
 
   const openEditor = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
+    finishIntro();
     setCount(COUNTDOWN_FROM);
     setCountdownDigitVisible(false);
     setEditing(true);
     setStage("title");
-  }, [clearTimers]);
+  }, [clearTimers, finishIntro]);
 
   const playAfterDoubleEnter = useCallback(() => {
     const now = Date.now();
@@ -621,6 +639,18 @@ export function LaunchOverlay() {
     };
   }, [stage]);
 
+  // The muted clip normally ends itself after three seconds. The fallback
+  // prevents a stalled media request from leaving the homepage covered.
+  useEffect(() => {
+    if (!introVisible) return;
+    const fadeTimeout = window.setTimeout(fadeIntro, INTRO_FADE_AT_MS);
+    const fallbackTimeout = window.setTimeout(finishIntro, INTRO_FALLBACK_MS);
+    return () => {
+      window.clearTimeout(fadeTimeout);
+      window.clearTimeout(fallbackTimeout);
+    };
+  }, [fadeIntro, finishIntro, introVisible]);
+
   useEffect(() => clearTimers, [clearTimers]);
 
   const beginDrag = (selection: Selection) => (event: ReactPointerEvent<HTMLElement>) => {
@@ -831,6 +861,25 @@ export function LaunchOverlay() {
         .join(" ")}
       aria-hidden={editing ? undefined : true}
     >
+      {introVisible ? (
+        <div
+          className={introState === "fading" ? "launch-intro launch-intro-fading" : "launch-intro"}
+          style={{ "--intro-fade-ms": `${INTRO_FADE_MS}ms` } as CSSProperties}
+          aria-hidden="true"
+        >
+          <video
+            className="launch-intro-video"
+            autoPlay
+            muted
+            playsInline
+            preload="auto"
+            onEnded={finishIntro}
+            onError={finishIntro}
+          >
+            <source src="/video/launch-intro-3s.mp4" type="video/mp4" />
+          </video>
+        </div>
+      ) : null}
       <div className="launch-glow" />
       <div className="launch-ribbons" />
       {/* Slow rotating rays behind the word — a dimmed version of the reference burst. */}
