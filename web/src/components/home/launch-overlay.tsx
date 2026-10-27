@@ -62,6 +62,8 @@ interface HandsLayout {
 interface Layout {
   title: BlockLayout;
   hands: HandsLayout;
+  /** How long each countdown digit stays on screen, in milliseconds. */
+  countdownMs: number;
 }
 
 interface DragState {
@@ -78,7 +80,10 @@ interface DragState {
 
 const COUNTDOWN_FROM = 5;
 /** One beat per digit. */
-const TICK_MS = 800;
+const DEFAULT_COUNTDOWN_MS = 800;
+const COUNTDOWN_MS_MIN = 200;
+const COUNTDOWN_MS_MAX = 3000;
+const COUNTDOWN_MS_STEP = 100;
 /** Require an intentional rapid double-Enter before starting playback. */
 const DOUBLE_ENTER_WINDOW_MS = 450;
 /** Flash + shockwave + particles + curtain lift; keep in sync with the CSS.
@@ -95,8 +100,12 @@ const HAND_RATIO = 1290 / 1250;
 const PARTICLE_COLORS = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#fdf898", "#fae752"];
 
 /** Autosaved layout. Bump the suffix if the shape ever changes. */
-const STORAGE_KEY = "tfi.launch.layout.v3";
-const LEGACY_STORAGE_KEYS = ["tfi.launch.layout.v2", "tfi.launch.layout.v1"];
+const STORAGE_KEY = "tfi.launch.layout.v4";
+const LEGACY_STORAGE_KEYS = [
+  "tfi.launch.layout.v3",
+  "tfi.launch.layout.v2",
+  "tfi.launch.layout.v1",
+];
 
 /** Matches the composition the curtain had before it became editable. */
 const DEFAULT_HAND_X = [0.24, 0.3, 0.36, 0.42, 0.47, 0.53, 0.58, 0.64, 0.7, 0.76];
@@ -109,6 +118,7 @@ function makeDefaultLayout(): Layout {
       scale: 1,
       items: DEFAULT_HAND_X.map((x) => ({ x, y: LEGACY_HANDS_POSITION.y, visible: true })),
     },
+    countdownMs: DEFAULT_COUNTDOWN_MS,
   };
 }
 
@@ -197,6 +207,15 @@ function readHands(value: unknown, fallback: HandsLayout): HandsLayout {
   };
 }
 
+function readCountdownMs(value: unknown, fallback: number) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return clamp(
+    Math.round(value / COUNTDOWN_MS_STEP) * COUNTDOWN_MS_STEP,
+    COUNTDOWN_MS_MIN,
+    COUNTDOWN_MS_MAX,
+  );
+}
+
 function readLayout(): Layout {
   const fallback = makeDefaultLayout();
   if (typeof window === "undefined") return fallback;
@@ -209,6 +228,7 @@ function readLayout(): Layout {
     return {
       title: readBlock(parsed?.title, fallback.title),
       hands: readHands(parsed?.hands, fallback.hands),
+      countdownMs: readCountdownMs(parsed?.countdownMs, fallback.countdownMs),
     };
   } catch {
     return fallback;
@@ -305,7 +325,7 @@ export function LaunchOverlay() {
         setCount(next);
         playTick(next);
         speakCountdownNumber(next);
-        timers.current.push(window.setTimeout(beat, TICK_MS));
+        timers.current.push(window.setTimeout(beat, layout.countdownMs));
         return;
       }
       // Last digit has had its beat — go straight to the blast so the screen
@@ -315,8 +335,8 @@ export function LaunchOverlay() {
       timers.current.push(window.setTimeout(() => setStage("hidden"), BOOM_MS));
     };
 
-    timers.current.push(window.setTimeout(beat, TICK_MS));
-  }, [clearTimers]);
+    timers.current.push(window.setTimeout(beat, layout.countdownMs));
+  }, [clearTimers, layout.countdownMs]);
 
   const openEditor = useCallback(() => {
     clearTimers();
@@ -394,6 +414,17 @@ export function LaunchOverlay() {
     },
     [selected],
   );
+
+  const adjustCountdown = useCallback((delta: number) => {
+    setLayout((prev) => ({
+      ...prev,
+      countdownMs: clamp(
+        prev.countdownMs + delta,
+        COUNTDOWN_MS_MIN,
+        COUNTDOWN_MS_MAX,
+      ),
+    }));
+  }, []);
 
   // Every tweak is written straight through — there is no "save" button to miss.
   // Comparing against the layout we started with keeps a visitor who never
@@ -864,6 +895,31 @@ export function LaunchOverlay() {
                     </span>
                   );
                 })}
+              </div>
+
+              <div className="launch-cfg-row">
+                <span className="launch-cfg-label">{t("home.launchCfgCountdown")}</span>
+                <button
+                  type="button"
+                  className="launch-cfg-step"
+                  aria-label="-"
+                  onClick={() => adjustCountdown(-COUNTDOWN_MS_STEP)}
+                >
+                  −
+                </button>
+                <span className="launch-cfg-value">
+                  {t("home.launchCfgSeconds", {
+                    seconds: (layout.countdownMs / 1000).toFixed(1),
+                  })}
+                </span>
+                <button
+                  type="button"
+                  className="launch-cfg-step"
+                  aria-label="+"
+                  onClick={() => adjustCountdown(COUNTDOWN_MS_STEP)}
+                >
+                  +
+                </button>
               </div>
 
               <div className="launch-cfg-row">

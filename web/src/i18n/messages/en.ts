@@ -94,6 +94,8 @@ const en: DeepStringify<Messages> = {
     launchCfgShowHand: "Show hand {index}",
     launchCfgHideHand: "Hide hand {index}",
     launchCfgSize: "Size",
+    launchCfgCountdown: "Countdown dwell",
+    launchCfgSeconds: "{seconds}s",
     launchCfgReset: "Reset",
     launchCfgPlay: "Play",
     launchCfgHint: "Drag each hand · scroll for shared scale · toggle visibility with the eye · arrow keys to nudge · double-press Enter quickly to play · saved automatically",
