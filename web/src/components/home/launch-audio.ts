@@ -11,15 +11,13 @@ let ctx: AudioContext | null = null;
 
 let countdownVoice: SpeechSynthesisVoice | null = null;
 let voiceChangeListenerAttached = false;
+let pendingVoicePromise: Promise<SpeechSynthesisVoice | null> | null = null;
+let speechRequestId = 0;
 
 const COUNTDOWN_WORDS = ["零", "一", "二", "三", "四", "五"];
 const FEMALE_VOICE_HINTS = [
-  "ting-ting",
   "tingting",
-  "mei-jia",
-  "mei jia",
   "meijia",
-  "sin-ji",
   "sinji",
   "xiaoxiao",
   "xiaoyi",
@@ -29,10 +27,15 @@ const FEMALE_VOICE_HINTS = [
   "女",
 ];
 const MALE_VOICE_HINTS = ["kangkang", "yunxi", "yunyang", "male", "男"];
+const VOICE_LIST_TIMEOUT_MS = 750;
 
 function speech(): SpeechSynthesis | null {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
   return window.speechSynthesis;
+}
+
+function normalizeVoiceName(name: string) {
+  return name.toLocaleLowerCase().replace(/[\s_-]+/g, "");
 }
 
 function chooseChineseVoice(voices: SpeechSynthesisVoice[]) {
@@ -41,25 +44,37 @@ function chooseChineseVoice(voices: SpeechSynthesisVoice[]) {
     return lang.startsWith("zh-") || lang === "zh" || /中文|普通话|粤语|cantonese|chinese/i.test(voice.name);
   });
 
-  return chineseVoices
+  const ranked = chineseVoices
     .map((voice) => {
-      const name = voice.name.toLowerCase();
+      // macOS exposes its built-in female Mandarin voices as Ting-Ting,
+      // Mei-Jia and Sin-ji. Normalising the name also covers variants such as
+      // "Ting Ting" and "TingTing" returned by different browsers.
+      const name = normalizeVoiceName(voice.name);
       const lang = voice.lang.toLowerCase().replace("_", "-");
       const femaleHint = FEMALE_VOICE_HINTS.some((hint) => name.includes(hint));
       const maleHint = MALE_VOICE_HINTS.some((hint) => name.includes(hint));
       const score =
-        (femaleHint ? 100 : 0) -
-        (maleHint ? 100 : 0) +
-        (lang === "zh-cn" ? 20 : lang.startsWith("zh-") ? 10 : 0);
-      return { voice, score };
+        (femaleHint ? 1000 : 0) -
+        (maleHint ? 1000 : 0) +
+        (lang === "zh-cn" ? 20 : lang.startsWith("zh-") ? 10 : 0) +
+        (voice.localService ? 5 : 0);
+      return { voice, score, maleHint };
     })
-    .sort((a, b) => b.score - a.score)[0]?.voice;
+    .sort((a, b) => b.score - a.score);
+
+  // Never let an explicitly male voice win just because it happens to be the
+  // first voice returned by Safari/Chrome. If the platform has no gender
+  // metadata, an unlabelled Chinese voice is still a better fallback than a
+  // known male voice.
+  return ranked.find(({ maleHint }) => !maleHint)?.voice;
 }
 
-function ensureCountdownVoice(synth: SpeechSynthesis) {
-  const voices = synth.getVoices();
-  countdownVoice = chooseChineseVoice(voices) ?? countdownVoice;
+function refreshCountdownVoice(synth: SpeechSynthesis) {
+  countdownVoice = chooseChineseVoice(synth.getVoices()) ?? countdownVoice;
+  return countdownVoice;
+}
 
+function ensureVoiceListener(synth: SpeechSynthesis) {
   // Some browsers populate the voice list asynchronously. Refresh the choice
   // when that list becomes available so the first countdown can use the
   // system's Chinese female voice instead of the browser default.
@@ -69,8 +84,50 @@ function ensureCountdownVoice(synth: SpeechSynthesis) {
     });
     voiceChangeListenerAttached = true;
   }
+}
 
-  return countdownVoice;
+function ensureCountdownVoice(synth: SpeechSynthesis) {
+  ensureVoiceListener(synth);
+  return refreshCountdownVoice(synth);
+}
+
+/**
+ * Safari and Chromium on macOS can return an empty voice list on the first
+ * call and fill it shortly afterwards. Waiting for voiceschanged prevents the
+ * first digit from falling through to the browser's default (often male)
+ * zh-CN voice.
+ */
+function waitForCountdownVoice(synth: SpeechSynthesis) {
+  const immediate = ensureCountdownVoice(synth);
+  if (immediate) return Promise.resolve(immediate);
+  if (pendingVoicePromise) return pendingVoicePromise;
+
+  pendingVoicePromise = new Promise<SpeechSynthesisVoice | null>((resolve) => {
+    let settled = false;
+
+    const finish = (voice: SpeechSynthesisVoice | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      synth.removeEventListener("voiceschanged", onVoicesChanged);
+      resolve(voice);
+    };
+
+    const onVoicesChanged = () => {
+      const voice = refreshCountdownVoice(synth);
+      if (voice) finish(voice);
+    };
+
+    synth.addEventListener("voiceschanged", onVoicesChanged);
+    const timeoutId = window.setTimeout(
+      () => finish(refreshCountdownVoice(synth)),
+      VOICE_LIST_TIMEOUT_MS,
+    );
+  }).finally(() => {
+    pendingVoicePromise = null;
+  });
+
+  return pendingVoicePromise;
 }
 
 /** Read one countdown number with the best available Chinese female voice. */
@@ -79,25 +136,35 @@ export function speakCountdownNumber(number: number) {
   if (!synth) return;
 
   const text = COUNTDOWN_WORDS[number] ?? String(number);
-  const voice = ensureCountdownVoice(synth);
+  const requestId = ++speechRequestId;
   synth.cancel();
 
-  try {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = voice?.lang ?? "zh-CN";
-    utterance.rate = 0.85;
-    utterance.pitch = 1.05;
-    utterance.volume = 1;
-    if (voice) utterance.voice = voice;
-    synth.speak(utterance);
-  } catch {
-    // Speech synthesis is an optional enhancement; the visual countdown and
-    // Web Audio cue should continue if a browser rejects the utterance.
-  }
+  void waitForCountdownVoice(synth).then((voice) => {
+    // A newer digit or a close/restart supersedes this delayed request.
+    if (requestId !== speechRequestId) return;
+
+    try {
+      // Do not speak until a Chinese voice is known. This keeps an unloaded
+      // macOS voice list from silently selecting the platform default voice.
+      if (!voice) return;
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = voice.lang;
+      utterance.rate = 0.85;
+      utterance.pitch = 1.05;
+      utterance.volume = 1;
+      utterance.voice = voice;
+      synth.cancel();
+      synth.speak(utterance);
+    } catch {
+      // Speech synthesis is an optional enhancement; the visual countdown and
+      // Web Audio cue should continue if a browser rejects the utterance.
+    }
+  });
 }
 
 /** Stop any countdown speech when the launch overlay is closed or restarted. */
 export function stopCountdownSpeech() {
+  speechRequestId += 1;
   speech()?.cancel();
 }
 
