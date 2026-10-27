@@ -22,6 +22,11 @@ function getCountdownAudio() {
   return countdownAudio;
 }
 
+/** Warm the local asset so the double-Enter gesture can start it immediately. */
+export function preloadCountdownAudio() {
+  getCountdownAudio()?.load();
+}
+
 /** Start the extracted 5→1 countdown and detonation soundtrack. */
 export function playCountdownAudio() {
   const player = getCountdownAudio();

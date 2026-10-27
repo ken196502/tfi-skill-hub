@@ -501,6 +501,16 @@
   mix-blend-mode: screen;
 }
 
+/* The blast fully covers the ambient field. Stop spending frames animating
+   those background layers while the expensive explosion is compositing. */
+.launch-boom-out::before,
+.launch-boom-out .launch-glow,
+.launch-boom-out .launch-ribbons,
+.launch-boom-out .launch-halo,
+.launch-boom-out .launch-grain {
+  animation-play-state: paused;
+}
+
 @keyframes launch-current {
   from {
     transform: scale(1.02) translate3d(-1%, 1%, 0);
@@ -1104,6 +1114,7 @@
   );
   -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 58%);
   mask-image: radial-gradient(circle, #000 0%, transparent 58%);
+  will-change: transform, opacity;
   animation: launch-rays 3000ms cubic-bezier(0.15, 0.75, 0.3, 1) forwards;
 }
 
@@ -1144,6 +1155,7 @@
     rgba(20, 130, 255, 0.5) 36%,
     rgba(0, 36, 184, 0) 64%
   );
+  will-change: transform, opacity;
   animation: launch-core 2300ms cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
 }
 
@@ -1175,6 +1187,7 @@
   height: 110vmax;
   border-radius: 9999px;
   border: 3px solid rgba(218, 250, 255, 0.92);
+  will-change: transform, opacity;
   animation: launch-shockwave 1400ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 
@@ -1199,6 +1212,7 @@
   top: 50%;
   left: 50%;
   display: block;
+  will-change: transform, opacity;
   animation-name: launch-particle-fly;
   animation-timing-function: cubic-bezier(0.14, 0.78, 0.3, 1);
   animation-fill-mode: forwards;

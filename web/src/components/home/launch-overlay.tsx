@@ -12,7 +12,11 @@ import {
 } from "react";
 import { BrandLogo } from "@/components/common/brand-logo";
 import { Handprint } from "@/components/home/handprint";
-import { playCountdownAudio, stopCountdownAudio } from "@/components/home/launch-audio";
+import {
+  playCountdownAudio,
+  preloadCountdownAudio,
+  stopCountdownAudio,
+} from "@/components/home/launch-audio";
 import { useI18n } from "@/i18n";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -57,8 +61,8 @@ interface HandsLayout {
 interface Layout {
   title: BlockLayout;
   hands: HandsLayout;
-  /** How long each countdown digit stays fully visible, in milliseconds. */
-  countdownHoldMs: number;
+  /** How long the title remains visible after double-Enter, in milliseconds. */
+  titleHoldMs: number;
 }
 
 interface DragState {
@@ -77,14 +81,17 @@ const COUNTDOWN_FROM = 5;
 /** The visible digit is split into enter → hold → exit phases. */
 const COUNTDOWN_ENTER_MS = 150;
 const COUNTDOWN_EXIT_MS = 150;
-/** The reference audio/animation changes digits every 2.9 seconds. */
-const COUNTDOWN_BEAT_MS = 2900;
-const DEFAULT_COUNTDOWN_HOLD_MS = COUNTDOWN_BEAT_MS - COUNTDOWN_ENTER_MS - COUNTDOWN_EXIT_MS;
-/** Let the soundtrack establish its cue before the first digit appears. */
-const COUNTDOWN_DIGIT_DELAY_MS = 2000;
-const COUNTDOWN_HOLD_MS_MIN = 100;
-const COUNTDOWN_HOLD_MS_MAX = 3000;
-const COUNTDOWN_HOLD_MS_STEP = 100;
+/** The countdown changes digits every 3 seconds. */
+const COUNTDOWN_BEAT_MS = 3000;
+const COUNTDOWN_HOLD_MS = COUNTDOWN_BEAT_MS - COUNTDOWN_ENTER_MS - COUNTDOWN_EXIT_MS;
+/** Keep the soundtrack's established one-second delay after double-Enter. */
+const COUNTDOWN_AUDIO_DELAY_MS = 0;
+/** The soundtrack's first audible countdown hit lands about 0.5s in. */
+const COUNTDOWN_AUDIO_LEAD_MS = 0;
+const TITLE_HOLD_MS_MIN = 0;
+const TITLE_HOLD_MS_MAX = 5000;
+const TITLE_HOLD_MS_STEP = 100;
+const DEFAULT_TITLE_HOLD_MS = 500;
 /** Require an intentional rapid double-Enter before starting playback. */
 const DOUBLE_ENTER_WINDOW_MS = 450;
 /** Flash + shockwave + particles + curtain lift; keep in sync with the CSS.
@@ -109,8 +116,10 @@ const PARTICLE_COLORS = [
 ];
 
 /** Autosaved layout. Bump the suffix if the shape ever changes. */
-const STORAGE_KEY = "tfi.launch.layout.v6";
+const STORAGE_KEY = "tfi.launch.layout.v8";
 const LEGACY_STORAGE_KEYS = [
+  "tfi.launch.layout.v7",
+  "tfi.launch.layout.v6",
   "tfi.launch.layout.v5",
   "tfi.launch.layout.v4",
   "tfi.launch.layout.v3",
@@ -129,7 +138,7 @@ function makeDefaultLayout(): Layout {
       scale: 1,
       items: DEFAULT_HAND_X.map((x) => ({ x, y: LEGACY_HANDS_POSITION.y, visible: true })),
     },
-    countdownHoldMs: DEFAULT_COUNTDOWN_HOLD_MS,
+    titleHoldMs: DEFAULT_TITLE_HOLD_MS,
   };
 }
 
@@ -218,12 +227,12 @@ function readHands(value: unknown, fallback: HandsLayout): HandsLayout {
   };
 }
 
-function readCountdownHoldMs(value: unknown, fallback: number) {
+function readTitleHoldMs(value: unknown, fallback: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return clamp(
-    Math.round(value / COUNTDOWN_HOLD_MS_STEP) * COUNTDOWN_HOLD_MS_STEP,
-    COUNTDOWN_HOLD_MS_MIN,
-    COUNTDOWN_HOLD_MS_MAX,
+    Math.round(value / TITLE_HOLD_MS_STEP) * TITLE_HOLD_MS_STEP,
+    TITLE_HOLD_MS_MIN,
+    TITLE_HOLD_MS_MAX,
   );
 }
 
@@ -231,30 +240,15 @@ function readLayout(): Layout {
   const fallback = makeDefaultLayout();
   if (typeof window === "undefined") return fallback;
   try {
-    const storedKey = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS].find((key) =>
-      Boolean(window.localStorage.getItem(key)),
-    );
-    const raw = storedKey ? window.localStorage.getItem(storedKey) : null;
+    const raw = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS]
+      .map((key) => window.localStorage.getItem(key))
+      .find((value): value is string => Boolean(value));
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    // v4 stored the total digit interval under `countdownMs`. Convert that
-    // value to the new hold-only setting while preserving the saved layout.
-    const legacyHoldMs =
-      typeof parsed?.countdownHoldMs === "number"
-        ? parsed.countdownHoldMs
-        : typeof parsed?.countdownMs === "number"
-          ? parsed.countdownMs - COUNTDOWN_ENTER_MS - COUNTDOWN_EXIT_MS
-          : undefined;
     return {
       title: readBlock(parsed?.title, fallback.title),
       hands: readHands(parsed?.hands, fallback.hands),
-      // The v5 countdown used the old synthetic 1.3s cadence. Keep saved
-      // layout positions, but reset its timing so the extracted soundtrack
-      // remains on beat after the upgrade.
-      countdownHoldMs:
-        storedKey === STORAGE_KEY
-          ? readCountdownHoldMs(legacyHoldMs, fallback.countdownHoldMs)
-          : fallback.countdownHoldMs,
+      titleHoldMs: readTitleHoldMs(parsed?.titleHoldMs, fallback.titleHoldMs),
     };
   } catch {
     return fallback;
@@ -275,8 +269,11 @@ function parseSelection(value: string | null): Selection | null {
 }
 
 function makeParticles() {
-  return Array.from({ length: 90 }, (_, index) => {
-    const angle = (index / 90) * Math.PI * 2 + Math.random() * 0.22;
+  // Keep the burst dense enough to read as an explosion without creating a
+  // separate animated, glowing layer for every spark on slower GPUs.
+  const particleCount = 48;
+  return Array.from({ length: particleCount }, (_, index) => {
+    const angle = (index / particleCount) * Math.PI * 2 + Math.random() * 0.22;
     const distance = 170 + Math.random() * 660;
     return {
       id: index,
@@ -314,6 +311,7 @@ export function LaunchOverlay() {
   const [stage, setStage] = useState<Stage>("title");
   const [editing, setEditing] = useState(false);
   const [count, setCount] = useState(COUNTDOWN_FROM);
+  const [countdownDigitVisible, setCountdownDigitVisible] = useState(false);
   const [layout, setLayout] = useState<Layout>(readLayout);
   const [selected, setSelected] = useState<Selection>("title");
   const timers = useRef<number[]>([]);
@@ -321,6 +319,10 @@ export function LaunchOverlay() {
   const hovered = useRef<Selection | null>(null);
   const lastEnterAt = useRef(0);
   const stageRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    preloadCountdownAudio();
+  }, []);
 
   const clearTimers = useCallback(() => {
     for (const id of timers.current) window.clearTimeout(id);
@@ -332,52 +334,68 @@ export function LaunchOverlay() {
     clearTimers();
     lastEnterAt.current = 0;
     setEditing(false);
+    setCountdownDigitVisible(false);
     setStage("hidden");
   }, [clearTimers]);
 
-  /** Enter → 5 · 4 · 3 · 2 · 1 → boom → back to the page. */
+  /** Hold the title, then run 5 · 4 · 3 · 2 · 1 → boom → back to the page. */
   const detonate = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
-    playCountdownAudio();
+    setStage("title");
+    setCount(COUNTDOWN_FROM);
+    setCountdownDigitVisible(false);
 
-    // The source soundtrack has a two-second lead-in before its first clear
-    // countdown cue. Keep the audio running while the visual digits wait.
+    // The title hold only adds time before the visual countdown. Keep the
+    // soundtrack on its fixed one-second cue so changing the hold does not
+    // move the music.
+    timers.current.push(window.setTimeout(playCountdownAudio, COUNTDOWN_AUDIO_DELAY_MS));
+
+    const startCountdown = () => {
+      // Let the title-removal render commit first, then mount the first digit
+      // on its own frame so 5 receives the same entrance animation as later
+      // digits.
+      setStage("countdown");
+      setCountdownDigitVisible(false);
+      timers.current.push(window.setTimeout(() => setCountdownDigitVisible(true), 0));
+
+      let next = COUNTDOWN_FROM;
+      const beat = () => {
+        next -= 1;
+        if (next >= 1) {
+          setCount(next);
+          timers.current.push(window.setTimeout(beat, COUNTDOWN_BEAT_MS));
+          return;
+        }
+        // Last digit has had its beat — go straight to the blast so the screen
+        // never sits empty between the countdown and the explosion.
+        setStage("boom");
+        timers.current.push(
+          window.setTimeout(() => {
+            stopCountdownAudio();
+            setStage("hidden");
+          }, BOOM_MS),
+        );
+      };
+
+      timers.current.push(window.setTimeout(beat, COUNTDOWN_BEAT_MS));
+    };
+
+    // The audio has its fixed start delay, then a short lead-in before the
+    // first hit. The configurable title hold is extra time on top of that.
     timers.current.push(
-      window.setTimeout(() => {
-        setStage("countdown");
-        setCount(COUNTDOWN_FROM);
-
-        let next = COUNTDOWN_FROM;
-        const digitCycleMs =
-          COUNTDOWN_ENTER_MS + layout.countdownHoldMs + COUNTDOWN_EXIT_MS;
-        const beat = () => {
-          next -= 1;
-          if (next >= 1) {
-            setCount(next);
-            timers.current.push(window.setTimeout(beat, digitCycleMs));
-            return;
-          }
-          // Last digit has had its beat — go straight to the blast so the
-          // screen never sits empty between the countdown and the explosion.
-          setStage("boom");
-          timers.current.push(
-            window.setTimeout(() => {
-              stopCountdownAudio();
-              setStage("hidden");
-            }, BOOM_MS),
-          );
-        };
-
-        timers.current.push(window.setTimeout(beat, digitCycleMs));
-      }, COUNTDOWN_DIGIT_DELAY_MS),
+      window.setTimeout(
+        startCountdown,
+        COUNTDOWN_AUDIO_DELAY_MS + layout.titleHoldMs + COUNTDOWN_AUDIO_LEAD_MS,
+      ),
     );
-  }, [clearTimers, layout.countdownHoldMs]);
+  }, [clearTimers, layout.titleHoldMs]);
 
   const openEditor = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
     setCount(COUNTDOWN_FROM);
+    setCountdownDigitVisible(false);
     setEditing(true);
     setStage("title");
   }, [clearTimers]);
@@ -451,13 +469,13 @@ export function LaunchOverlay() {
     [selected],
   );
 
-  const adjustCountdown = useCallback((delta: number) => {
+  const adjustTitleHold = useCallback((delta: number) => {
     setLayout((prev) => ({
       ...prev,
-      countdownHoldMs: clamp(
-        prev.countdownHoldMs + delta,
-        COUNTDOWN_HOLD_MS_MIN,
-        COUNTDOWN_HOLD_MS_MAX,
+      titleHoldMs: clamp(
+        prev.titleHoldMs + delta,
+        TITLE_HOLD_MS_MIN,
+        TITLE_HOLD_MS_MAX,
       ),
     }));
   }, []);
@@ -857,7 +875,7 @@ export function LaunchOverlay() {
               <div className="launch-center">
                 <div
                   className={
-                    stage === "countdown" ? "launch-brand launch-brand-muted" : "launch-brand"
+                    stage !== "title" ? "launch-brand launch-brand-muted" : "launch-brand"
                   }
                 >
                   <BrandLogo />
@@ -865,19 +883,19 @@ export function LaunchOverlay() {
                 <div className="launch-word">
                   <h2
                     className={
-                      stage === "countdown" ? "launch-title launch-title-muted" : "launch-title"
+                      stage !== "title" ? "launch-title launch-title-muted" : "launch-title"
                     }
                   >
                     {t("home.launchSoon")}
                   </h2>
-                  {stage === "countdown" ? (
+                  {stage === "countdown" && countdownDigitVisible ? (
                     <div className="launch-count-slot">
                       <div key={`digit-${count}`} className="launch-count">
                         <span
                           className="launch-count-ink"
                           style={
                             {
-                              "--countdown-hold-ms": `${layout.countdownHoldMs}ms`,
+                              "--countdown-hold-ms": `${COUNTDOWN_HOLD_MS}ms`,
                             } as CSSProperties
                           }
                         >
@@ -949,25 +967,25 @@ export function LaunchOverlay() {
               </div>
 
               <div className="launch-cfg-row">
-                <span className="launch-cfg-label">{t("home.launchCfgCountdown")}</span>
+                <span className="launch-cfg-label">{t("home.launchCfgTitleHold")}</span>
                 <button
                   type="button"
                   className="launch-cfg-step"
                   aria-label="-"
-                  onClick={() => adjustCountdown(-COUNTDOWN_HOLD_MS_STEP)}
+                  onClick={() => adjustTitleHold(-TITLE_HOLD_MS_STEP)}
                 >
                   −
                 </button>
                 <span className="launch-cfg-value">
                   {t("home.launchCfgSeconds", {
-                    seconds: (layout.countdownHoldMs / 1000).toFixed(1),
+                    seconds: (layout.titleHoldMs / 1000).toFixed(1),
                   })}
                 </span>
                 <button
                   type="button"
                   className="launch-cfg-step"
                   aria-label="+"
-                  onClick={() => adjustCountdown(COUNTDOWN_HOLD_MS_STEP)}
+                  onClick={() => adjustTitleHold(TITLE_HOLD_MS_STEP)}
                 >
                   +
                 </button>
