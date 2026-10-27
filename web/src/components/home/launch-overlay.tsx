@@ -12,12 +12,7 @@ import {
 } from "react";
 import { BrandLogo } from "@/components/common/brand-logo";
 import { Handprint } from "@/components/home/handprint";
-import {
-  playBoom,
-  playTick,
-  speakCountdownNumber,
-  stopCountdownSpeech,
-} from "@/components/home/launch-audio";
+import { playCountdownAudio, stopCountdownAudio } from "@/components/home/launch-audio";
 import { useI18n } from "@/i18n";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -82,7 +77,9 @@ const COUNTDOWN_FROM = 5;
 /** The visible digit is split into enter → hold → exit phases. */
 const COUNTDOWN_ENTER_MS = 150;
 const COUNTDOWN_EXIT_MS = 150;
-const DEFAULT_COUNTDOWN_HOLD_MS = 1000;
+/** The reference audio/animation changes digits every 2.9 seconds. */
+const COUNTDOWN_BEAT_MS = 2900;
+const DEFAULT_COUNTDOWN_HOLD_MS = COUNTDOWN_BEAT_MS - COUNTDOWN_ENTER_MS - COUNTDOWN_EXIT_MS;
 const COUNTDOWN_HOLD_MS_MIN = 100;
 const COUNTDOWN_HOLD_MS_MAX = 3000;
 const COUNTDOWN_HOLD_MS_STEP = 100;
@@ -98,12 +95,21 @@ const HANDS_PER_SIDE = 5;
 /** Print box is 1250 × 1290, so height follows width at this ratio. */
 const HAND_RATIO = 1290 / 1250;
 
-/** Mostly white embers with a few warm brand sparks. */
-const PARTICLE_COLORS = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#fdf898", "#fae752"];
+/** Ice-blue sparks with a few pale-gold accents sampled from the reference. */
+const PARTICLE_COLORS = [
+  "#ffffff",
+  "#e8fbff",
+  "#b6f1ff",
+  "#6de2ff",
+  "#24bfff",
+  "#6f9dff",
+  "#ffe7a2",
+];
 
 /** Autosaved layout. Bump the suffix if the shape ever changes. */
-const STORAGE_KEY = "tfi.launch.layout.v5";
+const STORAGE_KEY = "tfi.launch.layout.v6";
 const LEGACY_STORAGE_KEYS = [
+  "tfi.launch.layout.v5",
   "tfi.launch.layout.v4",
   "tfi.launch.layout.v3",
   "tfi.launch.layout.v2",
@@ -223,9 +229,10 @@ function readLayout(): Layout {
   const fallback = makeDefaultLayout();
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS]
-      .map((key) => window.localStorage.getItem(key))
-      .find((value): value is string => Boolean(value));
+    const storedKey = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS].find((key) =>
+      Boolean(window.localStorage.getItem(key)),
+    );
+    const raw = storedKey ? window.localStorage.getItem(storedKey) : null;
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     // v4 stored the total digit interval under `countdownMs`. Convert that
@@ -239,7 +246,13 @@ function readLayout(): Layout {
     return {
       title: readBlock(parsed?.title, fallback.title),
       hands: readHands(parsed?.hands, fallback.hands),
-      countdownHoldMs: readCountdownHoldMs(legacyHoldMs, fallback.countdownHoldMs),
+      // The v5 countdown used the old synthetic 1.3s cadence. Keep saved
+      // layout positions, but reset its timing so the extracted soundtrack
+      // remains on beat after the upgrade.
+      countdownHoldMs:
+        storedKey === STORAGE_KEY
+          ? readCountdownHoldMs(legacyHoldMs, fallback.countdownHoldMs)
+          : fallback.countdownHoldMs,
     };
   } catch {
     return fallback;
@@ -310,7 +323,7 @@ export function LaunchOverlay() {
   const clearTimers = useCallback(() => {
     for (const id of timers.current) window.clearTimeout(id);
     timers.current = [];
-    stopCountdownSpeech();
+    stopCountdownAudio();
   }, []);
 
   const close = useCallback(() => {
@@ -326,8 +339,7 @@ export function LaunchOverlay() {
     lastEnterAt.current = 0;
     setStage("countdown");
     setCount(COUNTDOWN_FROM);
-    playTick(COUNTDOWN_FROM);
-    speakCountdownNumber(COUNTDOWN_FROM);
+    playCountdownAudio();
 
     let next = COUNTDOWN_FROM;
     const digitCycleMs =
@@ -336,16 +348,18 @@ export function LaunchOverlay() {
       next -= 1;
       if (next >= 1) {
         setCount(next);
-        playTick(next);
-        speakCountdownNumber(next);
         timers.current.push(window.setTimeout(beat, digitCycleMs));
         return;
       }
       // Last digit has had its beat — go straight to the blast so the screen
       // never sits empty between the countdown and the explosion.
       setStage("boom");
-      playBoom();
-      timers.current.push(window.setTimeout(() => setStage("hidden"), BOOM_MS));
+      timers.current.push(
+        window.setTimeout(() => {
+          stopCountdownAudio();
+          setStage("hidden");
+        }, BOOM_MS),
+      );
     };
 
     timers.current.push(window.setTimeout(beat, digitCycleMs));
@@ -781,14 +795,20 @@ export function LaunchOverlay() {
 
   return (
     <div
-      className={
-        stage === "boom" ? "launch-root launch-boom-out" : "launch-root"
-      }
+      className={[
+        "launch-root",
+        stage === "countdown" ? "launch-countdown" : "",
+        stage === "boom" ? "launch-boom-out" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
       aria-hidden={editing ? undefined : true}
     >
       <div className="launch-glow" />
-      {/* Slow rotating rays behind the word — 10% opacity, always running. */}
+      <div className="launch-ribbons" />
+      {/* Slow rotating rays behind the word — a dimmed version of the reference burst. */}
       <div className="launch-halo" />
+      <div className="launch-grain" />
 
       {stage === "boom" ? (
         <div className="launch-boom">

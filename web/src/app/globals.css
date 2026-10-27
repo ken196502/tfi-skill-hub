@@ -459,17 +459,69 @@
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: #000;
-  color: #fff;
+  isolation: isolate;
+  background:
+    radial-gradient(ellipse 44% 38% at 50% 46%, rgba(30, 195, 255, 0.18), transparent 72%),
+    radial-gradient(ellipse 85% 60% at 50% 100%, rgba(3, 34, 104, 0.78), transparent 72%),
+    linear-gradient(180deg, #010617 0%, #03183d 50%, #01030e 100%);
+  color: #eaf9ff;
   will-change: opacity;
 }
 
-/* Soft halo so the black field never reads as a flat rectangle. */
-.launch-glow {
+/* A very soft blue wash keeps the deep-space field dimensional before the first beat. */
+.launch-root::before {
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
-  background: radial-gradient(circle at 50% 48%, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0) 58%);
+  content: "";
+  background:
+    radial-gradient(ellipse 54% 28% at 50% 51%, rgba(56, 208, 255, 0.2), transparent 70%),
+    repeating-linear-gradient(
+      135deg,
+      transparent 0 68px,
+      rgba(65, 185, 255, 0.065) 69px 70px,
+      transparent 71px 136px
+    );
+  mix-blend-mode: screen;
+  opacity: 0.75;
+  animation: launch-current 11s ease-in-out infinite alternate;
+}
+
+.launch-root::after {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  content: "";
+  background-image:
+    repeating-linear-gradient(0deg, rgba(126, 224, 255, 0.03) 0 1px, transparent 1px 4px),
+    radial-gradient(circle at 50% 48%, transparent 0 28%, rgba(0, 0, 0, 0.35) 78%);
+  opacity: 0.65;
+  mix-blend-mode: screen;
+}
+
+@keyframes launch-current {
+  from {
+    transform: scale(1.02) translate3d(-1%, 1%, 0);
+  }
+  to {
+    transform: scale(1.1) translate3d(1%, -1%, 0);
+  }
+}
+
+/* Soft halo so the blue energy field never reads as a flat rectangle. */
+.launch-glow {
+  position: absolute;
+  inset: -12%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 22% 17% at 50% 48%, rgba(238, 253, 255, 0.56), transparent 72%),
+    radial-gradient(ellipse 48% 31% at 50% 49%, rgba(0, 190, 255, 0.38), transparent 68%),
+    radial-gradient(ellipse 70% 46% at 50% 80%, rgba(0, 35, 116, 0.76), transparent 76%);
+  filter: blur(16px);
+  mix-blend-mode: screen;
   animation: launch-breathe 6s ease-in-out infinite alternate;
 }
 
@@ -482,25 +534,63 @@
   }
 }
 
-/* Same ray fan as the blast, but dialled down to 10% and slowly rotating, so
-   the headline sits in a quiet never-ending shimmer. */
+/* Curved energy ribbons echo the reference's blue orbital trails. */
+.launch-ribbons {
+  position: absolute;
+  inset: -24%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 44% 15% at 50% 61%, transparent 41%, rgba(69, 218, 255, 0.34) 43%, transparent 47%),
+    radial-gradient(ellipse 62% 23% at 50% 68%, transparent 48%, rgba(18, 101, 255, 0.42) 50%, transparent 53%),
+    radial-gradient(ellipse 80% 29% at 50% 77%, transparent 56%, rgba(0, 151, 255, 0.22) 58%, transparent 61%),
+    conic-gradient(
+      from 255deg at 50% 67%,
+      transparent 0deg 24deg,
+      rgba(185, 246, 255, 0.3) 28deg 31deg,
+      transparent 35deg 58deg,
+      rgba(38, 130, 255, 0.34) 62deg 66deg,
+      transparent 70deg 112deg,
+      rgba(23, 203, 255, 0.24) 116deg 120deg,
+      transparent 124deg 360deg
+    );
+  filter: blur(2px);
+  opacity: 0.78;
+  mix-blend-mode: screen;
+  transform: rotate(-7deg) scale(1.06);
+  animation: launch-ribbons 13s ease-in-out infinite alternate;
+}
+
+@keyframes launch-ribbons {
+  from {
+    transform: rotate(-8deg) scale(1.04) translate3d(-1%, 1%, 0);
+  }
+  to {
+    transform: rotate(-2deg) scale(1.12) translate3d(1%, -1%, 0);
+  }
+}
+
+/* Slow rotating ray fan behind the word, dialled down so it shimmers instead
+   of competing with the number. */
 .launch-halo {
   position: absolute;
   top: 50%;
   left: 50%;
   width: 260vmax;
   height: 260vmax;
+  z-index: 0;
   border-radius: 9999px;
   pointer-events: none;
-  opacity: 0.08;
+  opacity: 0.14;
   background: repeating-conic-gradient(
-    from 0deg,
-    rgba(255, 255, 255, 0.95) 0deg 0.55deg,
-    transparent 0.55deg 9deg
+    from -8deg,
+    rgba(190, 244, 255, 0.85) 0deg 0.45deg,
+    transparent 0.45deg 8deg
   );
   -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 54%);
   mask-image: radial-gradient(circle, #000 0%, transparent 54%);
-  animation: launch-halo-spin 26s linear infinite;
+  mix-blend-mode: screen;
+  animation: launch-halo-spin 32s linear infinite;
 }
 
 @keyframes launch-halo-spin {
@@ -512,6 +602,30 @@
   }
 }
 
+/* Fine particles give the otherwise CSS-only field the dusty, filmed quality
+   visible in the reference frames. */
+.launch-grain {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(117, 224, 255, 0.6) 0.7px, transparent 0.9px);
+  background-size: 7px 7px;
+  opacity: 0.1;
+  mix-blend-mode: screen;
+  animation: launch-grain-drift 9s steps(2, end) infinite;
+}
+
+@keyframes launch-grain-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(7px, -5px, 0);
+  }
+}
+
 /* The title and each hand are placed by viewport percentage, so a layout tuned
    on a laptop lands the same way on a smaller venue screen. `--block-scale`
    zooms the art; the editor chrome counter-scales with `--block-inverse` to
@@ -519,6 +633,7 @@
 .launch-stage {
   position: absolute;
   inset: 0;
+  z-index: 2;
   overflow: hidden;
 }
 
@@ -798,12 +913,12 @@
   line-height: 1;
   letter-spacing: 0.2em;
   white-space: nowrap;
-  color: #fff;
+  color: #eafaff;
   text-shadow:
-    0 0 5px rgba(250, 231, 82, 0.95),
-    0 0 22px rgba(250, 231, 82, 0.72),
-    0 0 70px rgba(250, 231, 82, 0.36),
-    0 0 130px rgba(250, 231, 82, 0.16);
+    0 0 5px rgba(255, 255, 255, 0.98),
+    0 0 22px rgba(39, 214, 255, 0.78),
+    0 0 70px rgba(0, 110, 255, 0.42),
+    0 0 130px rgba(0, 54, 190, 0.2);
   animation: launch-title-in 900ms cubic-bezier(0.16, 0.84, 0.28, 1) backwards;
 }
 
@@ -828,11 +943,14 @@
 }
 
 .launch-hand {
-  --hand-base: clamp(9px, 1.56vw, 19px);
+  --hand-base: clamp(13px, 2.2vw, 28px);
   display: block;
   box-sizing: content-box;
-  color: #fff;
-  filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.38));
+  color: #c9f6ff;
+  filter:
+    drop-shadow(0 0 4px rgba(239, 253, 255, 0.95))
+    drop-shadow(0 0 14px rgba(40, 213, 255, 0.78))
+    drop-shadow(0 0 28px rgba(0, 89, 220, 0.46));
 }
 
 .launch-hand-art {
@@ -879,20 +997,34 @@
   max-width: calc(100vw - 2rem);
   padding: 0.1em 0.16em 0.2em;
   font-size: clamp(10rem, 24vw, 20rem);
-  font-weight: 800;
+  font-family: "Arial Black", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight: 900;
   line-height: 1;
   letter-spacing: -0.05em;
   font-variant-numeric: tabular-nums;
-  color: #fff;
+  color: transparent;
 }
 
 .launch-count-ink {
   display: block;
-  text-shadow:
-    0 0 5px rgba(250, 231, 82, 0.95),
-    0 0 22px rgba(250, 231, 82, 0.72),
-    0 0 70px rgba(250, 231, 82, 0.36),
-    0 0 130px rgba(250, 231, 82, 0.16);
+  background-image:
+    linear-gradient(180deg, #ffffff 0%, #e8fbff 24%, #8be3ff 62%, #278cff 100%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.7) 0 1px,
+      rgba(255, 255, 255, 0) 1px 8px
+    );
+  background-blend-mode: screen;
+  background-size: 100% 100%, 18px 18px;
+  background-position: center, 0 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: clamp(1px, 0.13vw, 3px) rgba(171, 239, 255, 0.78);
+  filter:
+    drop-shadow(0 0 1px rgba(255, 255, 255, 1))
+    drop-shadow(0 0 18px rgba(36, 215, 255, 0.92))
+    drop-shadow(0 0 58px rgba(0, 81, 255, 0.62));
   animation:
     launch-count-in 150ms cubic-bezier(0.2, 0.85, 0.24, 1) both,
     launch-count-out 150ms ease-in
@@ -930,13 +1062,14 @@
 .launch-boom {
   position: absolute;
   inset: 0;
+  z-index: 4;
   pointer-events: none;
 }
 
 .launch-flash {
   position: absolute;
   inset: 0;
-  background: #fff;
+  background: #e8fbff;
   animation: launch-flash 240ms ease-out forwards;
 }
 
@@ -945,10 +1078,10 @@
     opacity: 0;
   }
   8% {
-    opacity: 0.95;
+    opacity: 0.92;
   }
   40% {
-    opacity: 0.35;
+    opacity: 0.22;
   }
   100% {
     opacity: 0;
@@ -964,9 +1097,10 @@
   height: 150vmax;
   border-radius: 9999px;
   background: repeating-conic-gradient(
-    from 0deg,
-    rgba(255, 255, 255, 0.95) 0deg 0.7deg,
-    transparent 0.7deg 8deg
+    from -8deg,
+    rgba(244, 255, 255, 0.95) 0deg 0.7deg,
+    rgba(34, 203, 255, 0.82) 0.7deg 1.05deg,
+    transparent 1.05deg 8deg
   );
   -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 58%);
   mask-image: radial-gradient(circle, #000 0%, transparent 58%);
@@ -1006,9 +1140,9 @@
   background: radial-gradient(
     circle,
     rgba(255, 255, 255, 1) 0%,
-    rgba(255, 255, 255, 0.82) 16%,
-    rgba(255, 255, 255, 0.28) 36%,
-    rgba(255, 255, 255, 0) 64%
+    rgba(132, 235, 255, 0.92) 16%,
+    rgba(20, 130, 255, 0.5) 36%,
+    rgba(0, 36, 184, 0) 64%
   );
   animation: launch-core 2300ms cubic-bezier(0.16, 0.8, 0.3, 1) forwards;
 }
@@ -1040,13 +1174,13 @@
   width: 110vmax;
   height: 110vmax;
   border-radius: 9999px;
-  border: 3px solid rgba(255, 255, 255, 0.85);
+  border: 3px solid rgba(218, 250, 255, 0.92);
   animation: launch-shockwave 1400ms cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
 }
 
 .launch-ring-late {
   animation-delay: 130ms;
-  border-color: rgba(250, 231, 82, 0.7);
+  border-color: rgba(60, 157, 255, 0.84);
 }
 
 @keyframes launch-shockwave {

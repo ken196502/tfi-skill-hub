@@ -95,7 +95,7 @@ const zh = {
     launchCfgShowHand: "显示手掌 {index}",
     launchCfgHideHand: "隐藏手掌 {index}",
     launchCfgSize: "大小",
-    launchCfgCountdown: "数字停留时间",
+    launchCfgCountdown: "倒数间隔",
     launchCfgSeconds: "{seconds} 秒",
     launchCfgReset: "还原",
     launchCfgPlay: "播放",
