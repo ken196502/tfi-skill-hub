@@ -62,8 +62,8 @@ interface HandsLayout {
 interface Layout {
   title: BlockLayout;
   hands: HandsLayout;
-  /** How long each countdown digit stays on screen, in milliseconds. */
-  countdownMs: number;
+  /** How long each countdown digit stays fully visible, in milliseconds. */
+  countdownHoldMs: number;
 }
 
 interface DragState {
@@ -79,11 +79,13 @@ interface DragState {
 }
 
 const COUNTDOWN_FROM = 5;
-/** One beat per digit. */
-const DEFAULT_COUNTDOWN_MS = 800;
-const COUNTDOWN_MS_MIN = 200;
-const COUNTDOWN_MS_MAX = 3000;
-const COUNTDOWN_MS_STEP = 100;
+/** The visible digit is split into enter → hold → exit phases. */
+const COUNTDOWN_ENTER_MS = 150;
+const COUNTDOWN_EXIT_MS = 150;
+const DEFAULT_COUNTDOWN_HOLD_MS = 1000;
+const COUNTDOWN_HOLD_MS_MIN = 100;
+const COUNTDOWN_HOLD_MS_MAX = 3000;
+const COUNTDOWN_HOLD_MS_STEP = 100;
 /** Require an intentional rapid double-Enter before starting playback. */
 const DOUBLE_ENTER_WINDOW_MS = 450;
 /** Flash + shockwave + particles + curtain lift; keep in sync with the CSS.
@@ -100,8 +102,9 @@ const HAND_RATIO = 1290 / 1250;
 const PARTICLE_COLORS = ["#ffffff", "#ffffff", "#ffffff", "#ffffff", "#ffffff", "#fdf898", "#fae752"];
 
 /** Autosaved layout. Bump the suffix if the shape ever changes. */
-const STORAGE_KEY = "tfi.launch.layout.v4";
+const STORAGE_KEY = "tfi.launch.layout.v5";
 const LEGACY_STORAGE_KEYS = [
+  "tfi.launch.layout.v4",
   "tfi.launch.layout.v3",
   "tfi.launch.layout.v2",
   "tfi.launch.layout.v1",
@@ -118,7 +121,7 @@ function makeDefaultLayout(): Layout {
       scale: 1,
       items: DEFAULT_HAND_X.map((x) => ({ x, y: LEGACY_HANDS_POSITION.y, visible: true })),
     },
-    countdownMs: DEFAULT_COUNTDOWN_MS,
+    countdownHoldMs: DEFAULT_COUNTDOWN_HOLD_MS,
   };
 }
 
@@ -207,12 +210,12 @@ function readHands(value: unknown, fallback: HandsLayout): HandsLayout {
   };
 }
 
-function readCountdownMs(value: unknown, fallback: number) {
+function readCountdownHoldMs(value: unknown, fallback: number) {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return clamp(
-    Math.round(value / COUNTDOWN_MS_STEP) * COUNTDOWN_MS_STEP,
-    COUNTDOWN_MS_MIN,
-    COUNTDOWN_MS_MAX,
+    Math.round(value / COUNTDOWN_HOLD_MS_STEP) * COUNTDOWN_HOLD_MS_STEP,
+    COUNTDOWN_HOLD_MS_MIN,
+    COUNTDOWN_HOLD_MS_MAX,
   );
 }
 
@@ -225,10 +228,18 @@ function readLayout(): Layout {
       .find((value): value is string => Boolean(value));
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // v4 stored the total digit interval under `countdownMs`. Convert that
+    // value to the new hold-only setting while preserving the saved layout.
+    const legacyHoldMs =
+      typeof parsed?.countdownHoldMs === "number"
+        ? parsed.countdownHoldMs
+        : typeof parsed?.countdownMs === "number"
+          ? parsed.countdownMs - COUNTDOWN_ENTER_MS - COUNTDOWN_EXIT_MS
+          : undefined;
     return {
       title: readBlock(parsed?.title, fallback.title),
       hands: readHands(parsed?.hands, fallback.hands),
-      countdownMs: readCountdownMs(parsed?.countdownMs, fallback.countdownMs),
+      countdownHoldMs: readCountdownHoldMs(legacyHoldMs, fallback.countdownHoldMs),
     };
   } catch {
     return fallback;
@@ -319,13 +330,15 @@ export function LaunchOverlay() {
     speakCountdownNumber(COUNTDOWN_FROM);
 
     let next = COUNTDOWN_FROM;
+    const digitCycleMs =
+      COUNTDOWN_ENTER_MS + layout.countdownHoldMs + COUNTDOWN_EXIT_MS;
     const beat = () => {
       next -= 1;
       if (next >= 1) {
         setCount(next);
         playTick(next);
         speakCountdownNumber(next);
-        timers.current.push(window.setTimeout(beat, layout.countdownMs));
+        timers.current.push(window.setTimeout(beat, digitCycleMs));
         return;
       }
       // Last digit has had its beat — go straight to the blast so the screen
@@ -335,8 +348,8 @@ export function LaunchOverlay() {
       timers.current.push(window.setTimeout(() => setStage("hidden"), BOOM_MS));
     };
 
-    timers.current.push(window.setTimeout(beat, layout.countdownMs));
-  }, [clearTimers, layout.countdownMs]);
+    timers.current.push(window.setTimeout(beat, digitCycleMs));
+  }, [clearTimers, layout.countdownHoldMs]);
 
   const openEditor = useCallback(() => {
     clearTimers();
@@ -418,10 +431,10 @@ export function LaunchOverlay() {
   const adjustCountdown = useCallback((delta: number) => {
     setLayout((prev) => ({
       ...prev,
-      countdownMs: clamp(
-        prev.countdownMs + delta,
-        COUNTDOWN_MS_MIN,
-        COUNTDOWN_MS_MAX,
+      countdownHoldMs: clamp(
+        prev.countdownHoldMs + delta,
+        COUNTDOWN_HOLD_MS_MIN,
+        COUNTDOWN_HOLD_MS_MAX,
       ),
     }));
   }, []);
@@ -831,7 +844,16 @@ export function LaunchOverlay() {
                   {stage === "countdown" ? (
                     <div className="launch-count-slot">
                       <div key={`digit-${count}`} className="launch-count">
-                        {count}
+                        <span
+                          className="launch-count-ink"
+                          style={
+                            {
+                              "--countdown-hold-ms": `${layout.countdownHoldMs}ms`,
+                            } as CSSProperties
+                          }
+                        >
+                          {count}
+                        </span>
                       </div>
                     </div>
                   ) : null}
@@ -903,20 +925,20 @@ export function LaunchOverlay() {
                   type="button"
                   className="launch-cfg-step"
                   aria-label="-"
-                  onClick={() => adjustCountdown(-COUNTDOWN_MS_STEP)}
+                  onClick={() => adjustCountdown(-COUNTDOWN_HOLD_MS_STEP)}
                 >
                   −
                 </button>
                 <span className="launch-cfg-value">
                   {t("home.launchCfgSeconds", {
-                    seconds: (layout.countdownMs / 1000).toFixed(1),
+                    seconds: (layout.countdownHoldMs / 1000).toFixed(1),
                   })}
                 </span>
                 <button
                   type="button"
                   className="launch-cfg-step"
                   aria-label="+"
-                  onClick={() => adjustCountdown(COUNTDOWN_MS_STEP)}
+                  onClick={() => adjustCountdown(COUNTDOWN_HOLD_MS_STEP)}
                 >
                   +
                 </button>

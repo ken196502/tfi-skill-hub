@@ -94,7 +94,7 @@ const en: DeepStringify<Messages> = {
     launchCfgShowHand: "Show hand {index}",
     launchCfgHideHand: "Hide hand {index}",
     launchCfgSize: "Size",
-    launchCfgCountdown: "Countdown dwell",
+    launchCfgCountdown: "Digit hold",
     launchCfgSeconds: "{seconds}s",
     launchCfgReset: "Reset",
     launchCfgPlay: "Play",
