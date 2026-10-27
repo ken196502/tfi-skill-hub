@@ -445,11 +445,11 @@
 }
 
 /* ── Home teaser curtain ───────────────────────────────────────────────────
-   Press `0` on the landing page: a black curtain with 「即将发布」 and a row
-   of handprints; edit mode can move each print independently, toggle each one,
-   or resize the shared hand scale. Enter runs the countdown that detonates and
-   lifts the curtain off the page. Every layer is transform/opacity only so the
-   blast stays on the compositor. */
+   The landing page shows a black curtain with 「即将发布」 and a row of
+   handprints by default; edit mode can move each print independently, toggle
+   each one, or resize the shared hand scale. Double-Enter runs the countdown
+   that detonates and lifts the curtain off the page. Every layer is
+   transform/opacity only so the blast stays on the compositor. */
 
 .launch-root {
   position: fixed;

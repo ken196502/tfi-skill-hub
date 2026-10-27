@@ -22,11 +22,11 @@ import { useI18n } from "@/i18n";
 import { Eye, EyeOff } from "lucide-react";
 
 /**
- * Home-page teaser (easter egg).
+ * Home-page launch curtain.
  *
- * `0` plays it: a black curtain drops in with 「即将发布」 and a row of
- * handprints, Enter runs a 5-4-1 countdown that detonates and lifts the
- * curtain off the page.
+ * It is shown by default on the home page with 「即将发布」 and a row of
+ * handprints. Double-Enter runs a 5-4-1 countdown that detonates and lifts
+ * the curtain off the page.
  *
  * `1` opens the layout editor: drag the title or any individual hand to move
  * it, scroll to resize, and use the eye buttons to toggle individual hands.
@@ -263,7 +263,9 @@ function ResizeGlyph() {
 
 export function LaunchOverlay() {
   const { t } = useI18n();
-  const [stage, setStage] = useState<Stage>("hidden");
+  // The launch teaser is the default home-page opening. Double-Enter plays it;
+  // `1` reveals the editor while keeping the curtain in place.
+  const [stage, setStage] = useState<Stage>("title");
   const [editing, setEditing] = useState(false);
   const [count, setCount] = useState(COUNTDOWN_FROM);
   const [layout, setLayout] = useState<Layout>(readLayout);
@@ -316,11 +318,11 @@ export function LaunchOverlay() {
     timers.current.push(window.setTimeout(beat, TICK_MS));
   }, [clearTimers]);
 
-  const open = useCallback((mode: "play" | "edit") => {
+  const openEditor = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
     setCount(COUNTDOWN_FROM);
-    setEditing(mode === "edit");
+    setEditing(true);
     setStage("title");
   }, [clearTimers]);
 
@@ -407,8 +409,8 @@ export function LaunchOverlay() {
     }
   }, [layout]);
 
-  // `0` plays, `1` edits. Inside the curtain: Enter detonates, Esc leaves,
-  // arrows nudge the selected block while editing.
+  // Double-Enter plays, `1` edits. Inside the curtain, Esc leaves and arrows
+  // nudge the selected block while editing. `0` is intentionally inert.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || isTyping(event.target)) return;
@@ -417,12 +419,9 @@ export function LaunchOverlay() {
       if (key !== "Enter") lastEnterAt.current = 0;
 
       if (stage === "hidden") {
-        if (key === "0") {
+        if (key === "1") {
           event.preventDefault();
-          open("play");
-        } else if (key === "1") {
-          event.preventDefault();
-          open("edit");
+          openEditor();
         }
         return;
       }
@@ -438,11 +437,6 @@ export function LaunchOverlay() {
       if (key === "1" && !editing) {
         event.preventDefault();
         setEditing(true);
-        return;
-      }
-      if (key === "0" && editing) {
-        event.preventDefault();
-        setEditing(false);
         return;
       }
 
@@ -479,7 +473,7 @@ export function LaunchOverlay() {
     layout,
     close,
     detonate,
-    open,
+    openEditor,
     playAfterDoubleEnter,
     updateSelection,
   ]);

@@ -148,8 +148,8 @@ export function HomeContent() {
         emptyDesc={t("home.noPopularSkillsDesc")}
       />
 
-      {/* Easter egg — fixed-position curtain, press 0 to summon. Rendered here
-          so it only exists on the landing page. */}
+      {/* Fixed-position launch curtain, shown by default only on the landing
+          page. */}
       <LaunchOverlay />
     </div>
   );
