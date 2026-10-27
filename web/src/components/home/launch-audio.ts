@@ -9,6 +9,98 @@
 
 let ctx: AudioContext | null = null;
 
+let countdownVoice: SpeechSynthesisVoice | null = null;
+let voiceChangeListenerAttached = false;
+
+const COUNTDOWN_WORDS = ["零", "一", "二", "三", "四", "五"];
+const FEMALE_VOICE_HINTS = [
+  "ting-ting",
+  "tingting",
+  "mei-jia",
+  "mei jia",
+  "meijia",
+  "sin-ji",
+  "sinji",
+  "xiaoxiao",
+  "xiaoyi",
+  "huihui",
+  "yaoyao",
+  "female",
+  "女",
+];
+const MALE_VOICE_HINTS = ["kangkang", "yunxi", "yunyang", "male", "男"];
+
+function speech(): SpeechSynthesis | null {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  return window.speechSynthesis;
+}
+
+function chooseChineseVoice(voices: SpeechSynthesisVoice[]) {
+  const chineseVoices = voices.filter((voice) => {
+    const lang = voice.lang.toLowerCase().replace("_", "-");
+    return lang.startsWith("zh-") || lang === "zh" || /中文|普通话|粤语|cantonese|chinese/i.test(voice.name);
+  });
+
+  return chineseVoices
+    .map((voice) => {
+      const name = voice.name.toLowerCase();
+      const lang = voice.lang.toLowerCase().replace("_", "-");
+      const femaleHint = FEMALE_VOICE_HINTS.some((hint) => name.includes(hint));
+      const maleHint = MALE_VOICE_HINTS.some((hint) => name.includes(hint));
+      const score =
+        (femaleHint ? 100 : 0) -
+        (maleHint ? 100 : 0) +
+        (lang === "zh-cn" ? 20 : lang.startsWith("zh-") ? 10 : 0);
+      return { voice, score };
+    })
+    .sort((a, b) => b.score - a.score)[0]?.voice;
+}
+
+function ensureCountdownVoice(synth: SpeechSynthesis) {
+  const voices = synth.getVoices();
+  countdownVoice = chooseChineseVoice(voices) ?? countdownVoice;
+
+  // Some browsers populate the voice list asynchronously. Refresh the choice
+  // when that list becomes available so the first countdown can use the
+  // system's Chinese female voice instead of the browser default.
+  if (!voiceChangeListenerAttached) {
+    synth.addEventListener("voiceschanged", () => {
+      countdownVoice = chooseChineseVoice(synth.getVoices()) ?? countdownVoice;
+    });
+    voiceChangeListenerAttached = true;
+  }
+
+  return countdownVoice;
+}
+
+/** Read one countdown number with the best available Chinese female voice. */
+export function speakCountdownNumber(number: number) {
+  const synth = speech();
+  if (!synth) return;
+
+  const text = COUNTDOWN_WORDS[number] ?? String(number);
+  const voice = ensureCountdownVoice(synth);
+  synth.cancel();
+
+  try {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = voice?.lang ?? "zh-CN";
+    utterance.rate = 0.85;
+    utterance.pitch = 1.05;
+    utterance.volume = 1;
+    if (voice) utterance.voice = voice;
+    synth.speak(utterance);
+  } catch {
+    // Speech synthesis is an optional enhancement; the visual countdown and
+    // Web Audio cue should continue if a browser rejects the utterance.
+  }
+}
+
+/** Stop any countdown speech when the launch overlay is closed or restarted. */
+export function stopCountdownSpeech() {
+  speech()?.cancel();
+}
+
 function audio(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (!ctx) {

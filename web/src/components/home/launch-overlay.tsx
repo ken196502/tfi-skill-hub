@@ -12,7 +12,12 @@ import {
 } from "react";
 import { BrandLogo } from "@/components/common/brand-logo";
 import { Handprint } from "@/components/home/handprint";
-import { playBoom, playTick } from "@/components/home/launch-audio";
+import {
+  playBoom,
+  playTick,
+  speakCountdownNumber,
+  stopCountdownSpeech,
+} from "@/components/home/launch-audio";
 import { useI18n } from "@/i18n";
 import { Eye, EyeOff } from "lucide-react";
 
@@ -272,6 +277,7 @@ export function LaunchOverlay() {
   const clearTimers = useCallback(() => {
     for (const id of timers.current) window.clearTimeout(id);
     timers.current = [];
+    stopCountdownSpeech();
   }, []);
 
   const close = useCallback(() => {
@@ -288,6 +294,7 @@ export function LaunchOverlay() {
     setStage("countdown");
     setCount(COUNTDOWN_FROM);
     playTick(COUNTDOWN_FROM);
+    speakCountdownNumber(COUNTDOWN_FROM);
 
     let next = COUNTDOWN_FROM;
     const beat = () => {
@@ -295,6 +302,7 @@ export function LaunchOverlay() {
       if (next >= 1) {
         setCount(next);
         playTick(next);
+        speakCountdownNumber(next);
         timers.current.push(window.setTimeout(beat, TICK_MS));
         return;
       }
