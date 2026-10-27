@@ -511,13 +511,9 @@
   pointer-events: none;
   content: "";
   background:
-    radial-gradient(ellipse 54% 28% at 50% 51%, rgba(56, 208, 255, 0.2), transparent 70%),
-    repeating-linear-gradient(
-      135deg,
-      transparent 0 68px,
-      rgba(65, 185, 255, 0.065) 69px 70px,
-      transparent 71px 136px
-    );
+    radial-gradient(ellipse 20% 40% at 16% 28%, rgba(35, 104, 255, 0.16), transparent 72%),
+    radial-gradient(ellipse 20% 40% at 84% 28%, rgba(35, 104, 255, 0.16), transparent 72%),
+    radial-gradient(ellipse 32% 14% at 50% 90%, rgba(56, 208, 255, 0.26), transparent 70%);
   mix-blend-mode: screen;
   opacity: 0.75;
   animation: launch-current 11s ease-in-out infinite alternate;
@@ -541,8 +537,7 @@
 .launch-boom-out::before,
 .launch-boom-out .launch-glow,
 .launch-boom-out .launch-ribbons,
-.launch-boom-out .launch-halo,
-.launch-boom-out .launch-grain {
+.launch-boom-out .launch-starfield {
   animation-play-state: paused;
 }
 
@@ -588,19 +583,9 @@
   background:
     radial-gradient(ellipse 44% 15% at 50% 61%, transparent 41%, rgba(69, 218, 255, 0.34) 43%, transparent 47%),
     radial-gradient(ellipse 62% 23% at 50% 68%, transparent 48%, rgba(18, 101, 255, 0.42) 50%, transparent 53%),
-    radial-gradient(ellipse 80% 29% at 50% 77%, transparent 56%, rgba(0, 151, 255, 0.22) 58%, transparent 61%),
-    conic-gradient(
-      from 255deg at 50% 67%,
-      transparent 0deg 24deg,
-      rgba(185, 246, 255, 0.3) 28deg 31deg,
-      transparent 35deg 58deg,
-      rgba(38, 130, 255, 0.34) 62deg 66deg,
-      transparent 70deg 112deg,
-      rgba(23, 203, 255, 0.24) 116deg 120deg,
-      transparent 124deg 360deg
-    );
+    radial-gradient(ellipse 80% 29% at 50% 77%, transparent 56%, rgba(0, 151, 255, 0.12) 58%, transparent 61%);
   filter: blur(2px);
-  opacity: 0.78;
+  opacity: 0.36;
   mix-blend-mode: screen;
   transform: rotate(-7deg) scale(1.06);
   animation: launch-ribbons 13s ease-in-out infinite alternate;
@@ -615,60 +600,15 @@
   }
 }
 
-/* Slow rotating ray fan behind the word, dialled down so it shimmers instead
-   of competing with the number. */
-.launch-halo {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 260vmax;
-  height: 260vmax;
-  z-index: 0;
-  border-radius: 9999px;
-  pointer-events: none;
-  opacity: 0.14;
-  background: repeating-conic-gradient(
-    from -8deg,
-    rgba(190, 244, 255, 0.85) 0deg 0.45deg,
-    transparent 0.45deg 8deg
-  );
-  -webkit-mask-image: radial-gradient(circle, #000 0%, transparent 54%);
-  mask-image: radial-gradient(circle, #000 0%, transparent 54%);
-  mix-blend-mode: screen;
-  animation: launch-halo-spin 32s linear infinite;
-}
-
-@keyframes launch-halo-spin {
-  from {
-    transform: translate(-50%, -50%) rotate(0deg);
-  }
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-/* Fine particles give the otherwise CSS-only field the dusty, filmed quality
-   visible in the reference frames. */
-.launch-grain {
+/* Blue-white star rivers frame the title from both sides. */
+.launch-starfield {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   z-index: 1;
   pointer-events: none;
-  background-image: radial-gradient(rgba(117, 224, 255, 0.6) 0.7px, transparent 0.9px);
-  background-size: 7px 7px;
-  opacity: 0.1;
   mix-blend-mode: screen;
-  animation: launch-grain-drift 9s steps(2, end) infinite;
-}
-
-@keyframes launch-grain-drift {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(7px, -5px, 0);
-  }
 }
 
 /* The title and each hand are placed by viewport percentage, so a layout tuned
@@ -958,13 +898,35 @@
   line-height: 1;
   letter-spacing: 0.2em;
   white-space: nowrap;
-  color: #eafaff;
-  text-shadow:
-    0 0 5px rgba(255, 255, 255, 0.98),
-    0 0 22px rgba(39, 214, 255, 0.78),
-    0 0 70px rgba(0, 110, 255, 0.42),
-    0 0 130px rgba(0, 54, 190, 0.2);
+  -webkit-text-stroke: clamp(1.5px, 0.24vw, 3.5px) rgba(192, 248, 255, 0.95);
   animation: launch-title-in 900ms cubic-bezier(0.16, 0.84, 0.28, 1) backwards;
+}
+
+/* Translucent glass faces: narrow reflection bands, bright thick rims and
+   a small blue bevel keep the starfield visible through the glyphs. */
+.launch-title,
+.launch-count-ink {
+  color: transparent;
+  background-image: linear-gradient(
+    165deg,
+    rgba(235, 253, 255, 0.62) 0%,
+    rgba(113, 226, 255, 0.22) 18%,
+    rgba(31, 164, 225, 0.12) 38%,
+    rgba(211, 250, 255, 0.58) 43%,
+    rgba(115, 228, 255, 0.2) 47%,
+    rgba(21, 130, 213, 0.1) 67%,
+    rgba(87, 213, 255, 0.36) 88%,
+    rgba(228, 253, 255, 0.65) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  paint-order: stroke fill;
+  filter:
+    drop-shadow(1px 2px 0 rgba(13, 127, 189, 0.8))
+    drop-shadow(-1px -1px 0 rgba(240, 255, 255, 0.7))
+    drop-shadow(0 0 8px rgba(36, 212, 255, 0.5))
+    drop-shadow(0 0 28px rgba(0, 107, 255, 0.3));
 }
 
 /* Kept in flow (not removed) while counting, so the prints hold their place. */
@@ -975,13 +937,11 @@
 @keyframes launch-title-in {
   from {
     opacity: 0;
-    filter: blur(16px);
     letter-spacing: 0.55em;
     transform: scale(1.16);
   }
   to {
     opacity: 1;
-    filter: blur(0);
     letter-spacing: 0.2em;
     transform: scale(1);
   }
@@ -1077,24 +1037,7 @@
   padding: 0.1em 0.16em 0.2em;
   line-height: 1.2;
   letter-spacing: 0;
-  background-image:
-    repeating-linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.7) 0 1px,
-      rgba(255, 255, 255, 0) 1px 8px
-    ),
-    linear-gradient(180deg, #ffffff 0%, #e8fbff 24%, #8be3ff 62%, #278cff 100%);
-  background-blend-mode: screen;
-  background-size: 18px 18px, 100% 100%;
-  background-position: 0 0, center;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: clamp(1px, 0.13vw, 3px) rgba(171, 239, 255, 0.78);
-  filter:
-    drop-shadow(0 0 1px rgba(255, 255, 255, 1))
-    drop-shadow(0 0 18px rgba(36, 215, 255, 0.92))
-    drop-shadow(0 0 58px rgba(0, 81, 255, 0.62));
+  -webkit-text-stroke: clamp(3px, 0.42vw, 7px) rgba(192, 248, 255, 0.95);
   animation:
     launch-count-in 150ms cubic-bezier(0.2, 0.85, 0.24, 1) both,
     launch-count-out 150ms ease-in
@@ -1104,12 +1047,10 @@
 @keyframes launch-count-in {
   from {
     opacity: 0;
-    filter: blur(18px);
     transform: scale(1.45);
   }
   to {
     opacity: 1;
-    filter: blur(0);
     transform: scale(1);
   }
 }
@@ -1117,12 +1058,10 @@
 @keyframes launch-count-out {
   from {
     opacity: 1;
-    filter: blur(0);
     transform: scale(1);
   }
   to {
     opacity: 0;
-    filter: blur(6px);
     transform: scale(0.9);
   }
 }

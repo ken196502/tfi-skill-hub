@@ -12,6 +12,7 @@ import {
 } from "react";
 import { BrandLogo } from "@/components/common/brand-logo";
 import { Handprint } from "@/components/home/handprint";
+import { LaunchStarfield } from "@/components/home/launch-starfield";
 import {
   playCountdownAudio,
   preloadCountdownAudio,
@@ -882,9 +883,7 @@ export function LaunchOverlay() {
       ) : null}
       <div className="launch-glow" />
       <div className="launch-ribbons" />
-      {/* Slow rotating rays behind the word — a dimmed version of the reference burst. */}
-      <div className="launch-halo" />
-      <div className="launch-grain" />
+      <LaunchStarfield paused={stage === "boom" || introState !== "hidden"} />
 
       {stage === "boom" ? (
         <div className="launch-boom">
