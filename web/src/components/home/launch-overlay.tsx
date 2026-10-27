@@ -80,6 +80,8 @@ const COUNTDOWN_EXIT_MS = 150;
 /** The reference audio/animation changes digits every 2.9 seconds. */
 const COUNTDOWN_BEAT_MS = 2900;
 const DEFAULT_COUNTDOWN_HOLD_MS = COUNTDOWN_BEAT_MS - COUNTDOWN_ENTER_MS - COUNTDOWN_EXIT_MS;
+/** Let the soundtrack establish its cue before the first digit appears. */
+const COUNTDOWN_DIGIT_DELAY_MS = 2000;
 const COUNTDOWN_HOLD_MS_MIN = 100;
 const COUNTDOWN_HOLD_MS_MAX = 3000;
 const COUNTDOWN_HOLD_MS_STEP = 100;
@@ -337,32 +339,39 @@ export function LaunchOverlay() {
   const detonate = useCallback(() => {
     clearTimers();
     lastEnterAt.current = 0;
-    setStage("countdown");
-    setCount(COUNTDOWN_FROM);
     playCountdownAudio();
 
-    let next = COUNTDOWN_FROM;
-    const digitCycleMs =
-      COUNTDOWN_ENTER_MS + layout.countdownHoldMs + COUNTDOWN_EXIT_MS;
-    const beat = () => {
-      next -= 1;
-      if (next >= 1) {
-        setCount(next);
-        timers.current.push(window.setTimeout(beat, digitCycleMs));
-        return;
-      }
-      // Last digit has had its beat — go straight to the blast so the screen
-      // never sits empty between the countdown and the explosion.
-      setStage("boom");
-      timers.current.push(
-        window.setTimeout(() => {
-          stopCountdownAudio();
-          setStage("hidden");
-        }, BOOM_MS),
-      );
-    };
+    // The source soundtrack has a two-second lead-in before its first clear
+    // countdown cue. Keep the audio running while the visual digits wait.
+    timers.current.push(
+      window.setTimeout(() => {
+        setStage("countdown");
+        setCount(COUNTDOWN_FROM);
 
-    timers.current.push(window.setTimeout(beat, digitCycleMs));
+        let next = COUNTDOWN_FROM;
+        const digitCycleMs =
+          COUNTDOWN_ENTER_MS + layout.countdownHoldMs + COUNTDOWN_EXIT_MS;
+        const beat = () => {
+          next -= 1;
+          if (next >= 1) {
+            setCount(next);
+            timers.current.push(window.setTimeout(beat, digitCycleMs));
+            return;
+          }
+          // Last digit has had its beat — go straight to the blast so the
+          // screen never sits empty between the countdown and the explosion.
+          setStage("boom");
+          timers.current.push(
+            window.setTimeout(() => {
+              stopCountdownAudio();
+              setStage("hidden");
+            }, BOOM_MS),
+          );
+        };
+
+        timers.current.push(window.setTimeout(beat, digitCycleMs));
+      }, COUNTDOWN_DIGIT_DELAY_MS),
+    );
   }, [clearTimers, layout.countdownHoldMs]);
 
   const openEditor = useCallback(() => {
