@@ -883,7 +883,10 @@ export function LaunchOverlay() {
       ) : null}
       <div className="launch-glow" />
       <div className="launch-ribbons" />
-      <LaunchStarfield paused={stage === "boom" || introState !== "hidden"} />
+      <LaunchStarfield
+        paused={stage === "boom" || introState !== "hidden"}
+        center={layout.title}
+      />
 
       {stage === "boom" ? (
         <div className="launch-boom">
