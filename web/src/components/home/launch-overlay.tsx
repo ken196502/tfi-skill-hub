@@ -19,13 +19,15 @@ import {
   stopCountdownAudio,
 } from "@/components/home/launch-audio";
 import { useI18n } from "@/i18n";
+import { apiFetchRaw } from "@/lib/api/client";
+import { useCurrentUser } from "@/hooks/use-auth";
 import { Eye, EyeOff } from "lucide-react";
 
 /**
  * Home-page launch curtain.
  *
  * It is shown by default on the home page with 「即将发布」 and a row of
- * handprints. Double-Enter runs a 5-4-1 countdown that detonates and lifts
+ * handprints. `0` plays the intro video. Double-Enter runs a 5-4-1 countdown that detonates and lifts
  * the curtain off the page.
  *
  * `1` opens the layout editor: drag the title or any individual hand to move
@@ -121,20 +123,9 @@ const PARTICLE_COLORS = [
   "#ffe7a2",
 ];
 
-/** Autosaved layout. Bump the suffix if the shape ever changes. */
-const STORAGE_KEY = "tfi.launch.layout.v8";
-const LEGACY_STORAGE_KEYS = [
-  "tfi.launch.layout.v7",
-  "tfi.launch.layout.v6",
-  "tfi.launch.layout.v5",
-  "tfi.launch.layout.v4",
-  "tfi.launch.layout.v3",
-  "tfi.launch.layout.v2",
-  "tfi.launch.layout.v1",
-];
-
-/** Matches the composition the curtain had before it became editable. */
-const DEFAULT_HAND_X = [0.24, 0.3, 0.36, 0.42, 0.47, 0.53, 0.58, 0.64, 0.7, 0.76];
+/** Five evenly spaced hands on each side, leaving the headline clear. */
+const DEFAULT_HAND_X = [0.06, 0.105, 0.15, 0.195, 0.24, 0.76, 0.805, 0.85, 0.895, 0.94];
+const DEFAULT_HAND_Y = 0.48;
 const LEGACY_HANDS_POSITION = { x: 0.5, y: 0.68 };
 
 function makeDefaultLayout(): Layout {
@@ -142,7 +133,7 @@ function makeDefaultLayout(): Layout {
     title: { x: 0.5, y: 0.44, scale: 1 },
     hands: {
       scale: 1,
-      items: DEFAULT_HAND_X.map((x) => ({ x, y: LEGACY_HANDS_POSITION.y, visible: true })),
+      items: DEFAULT_HAND_X.map((x) => ({ x, y: DEFAULT_HAND_Y, visible: true })),
     },
     titleHoldMs: DEFAULT_TITLE_HOLD_MS,
   };
@@ -242,23 +233,15 @@ function readTitleHoldMs(value: unknown, fallback: number) {
   );
 }
 
-function readLayout(): Layout {
+function readLayout(value: unknown): Layout {
   const fallback = makeDefaultLayout();
-  if (typeof window === "undefined") return fallback;
-  try {
-    const raw = [STORAGE_KEY, ...LEGACY_STORAGE_KEYS]
-      .map((key) => window.localStorage.getItem(key))
-      .find((value): value is string => Boolean(value));
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    return {
-      title: readBlock(parsed?.title, fallback.title),
-      hands: readHands(parsed?.hands, fallback.hands),
-      titleHoldMs: readTitleHoldMs(parsed?.titleHoldMs, fallback.titleHoldMs),
-    };
-  } catch {
-    return fallback;
-  }
+  if (!value || typeof value !== "object") return fallback;
+  const parsed = value as Record<string, unknown>;
+  return {
+    title: readBlock(parsed.title, fallback.title),
+    hands: readHands(parsed.hands, fallback.hands),
+    titleHoldMs: readTitleHoldMs(parsed.titleHoldMs, fallback.titleHoldMs),
+  };
 }
 
 function getSelectionLayout(layout: Layout, selection: Selection): BlockLayout {
@@ -312,15 +295,21 @@ function ResizeGlyph() {
 
 export function LaunchOverlay() {
   const { t } = useI18n();
+  const { isAdmin } = useCurrentUser();
   // The launch teaser is the default home-page opening. Double-Enter plays it;
   // `1` reveals the editor while keeping the curtain in place.
   const [stage, setStage] = useState<Stage>("title");
   const [editing, setEditing] = useState(false);
   const [count, setCount] = useState(COUNTDOWN_FROM);
   const [countdownDigitVisible, setCountdownDigitVisible] = useState(false);
-  const [introState, setIntroState] = useState<IntroState>("visible");
+  const [introState, setIntroState] = useState<IntroState>("hidden");
   const introVisible = introState !== "hidden";
-  const [layout, setLayout] = useState<Layout>(readLayout);
+  const [layout, setLayout] = useState<Layout>(makeDefaultLayout);
+  const [loaded, setLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("正在读取服务器配置…");
+  const persistedLayout = useRef<Layout | null>(null);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const [retry, setRetry] = useState(0);
   const [selected, setSelected] = useState<Selection>("title");
   const timers = useRef<number[]>([]);
   const drag = useRef<DragState | null>(null);
@@ -410,6 +399,7 @@ export function LaunchOverlay() {
   }, [clearTimers, finishIntro, layout.titleHoldMs]);
 
   const openEditor = useCallback(() => {
+    if (!isAdmin || !loaded) return;
     clearTimers();
     lastEnterAt.current = 0;
     finishIntro();
@@ -417,7 +407,7 @@ export function LaunchOverlay() {
     setCountdownDigitVisible(false);
     setEditing(true);
     setStage("title");
-  }, [clearTimers, finishIntro]);
+  }, [clearTimers, finishIntro, isAdmin, loaded]);
 
   const playAfterDoubleEnter = useCallback(() => {
     const now = Date.now();
@@ -499,28 +489,66 @@ export function LaunchOverlay() {
     }));
   }, []);
 
-  // Every tweak is written straight through — there is no "save" button to miss.
-  // Comparing against the layout we started with keeps a visitor who never
-  // opens the editor from leaving anything behind (every edit makes a new
-  // object, so identity is enough).
-  const initialLayout = useRef(layout);
   useEffect(() => {
-    if (layout === initialLayout.current) return;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-    } catch {
-      // Private mode / quota — the show still runs on the defaults.
-    }
-  }, [layout]);
+    if (loaded) return;
+    const controller = new AbortController();
+    apiFetchRaw("/api/v1/homepage-config", { cache: "no-store", signal: controller.signal })
+      .then((response) => response.json())
+      .then((data: { layout: unknown }) => {
+        if (controller.signal.aborted) return;
+        const next = readLayout(data.layout);
+        persistedLayout.current = next;
+        setLayout(next);
+        setLoaded(true);
+        setSaveStatus("已读取服务器配置");
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setSaveStatus("读取失败，请重试");
+      });
+    return () => controller.abort();
+  }, [retry, loaded]);
 
-  // Double-Enter plays, `1` edits. Inside the curtain, Esc leaves and arrows
-  // nudge the selected block while editing. `0` is intentionally inert.
+  // Debounce dragging, then serialize writes so an older request cannot win.
+  useEffect(() => {
+    if (!loaded || !isAdmin || layout === persistedLayout.current) return;
+    const timer = window.setTimeout(() => {
+      setSaveStatus("正在保存到服务器…");
+      saveQueue.current = saveQueue.current.then(async () => {
+        try {
+          await apiFetchRaw("/api/v1/admin/homepage-config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ layout }),
+          });
+          persistedLayout.current = layout;
+          setSaveStatus("已保存到服务器");
+        } catch {
+          setSaveStatus("保存失败，请重试");
+        }
+      });
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [layout, loaded, isAdmin, retry]);
+
+  // `0` plays the intro, Double-Enter plays the countdown, and `1` edits.
+  // Inside the curtain, Esc leaves and arrows nudge the selected block.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.repeat || isTyping(event.target)) return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key;
       if (key !== "Enter") lastEnterAt.current = 0;
+
+      if (key === "0") {
+        event.preventDefault();
+        if (introVisible) return;
+        clearTimers();
+        setEditing(false);
+        setCountdownDigitVisible(false);
+        setStage("title");
+        setIntroState("visible");
+        return;
+      }
 
       if (stage === "hidden") {
         if (key === "1") {
@@ -538,7 +566,7 @@ export function LaunchOverlay() {
 
       if (stage !== "title") return;
 
-      if (key === "1" && !editing) {
+      if (key === "1" && !editing && isAdmin && loaded) {
         event.preventDefault();
         setEditing(true);
         return;
@@ -572,6 +600,10 @@ export function LaunchOverlay() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     stage,
+    isAdmin,
+    loaded,
+    introVisible,
+    clearTimers,
     editing,
     selected,
     layout,
@@ -962,8 +994,20 @@ export function LaunchOverlay() {
             {Array.from({ length: HANDS_PER_SIDE * 2 }, (_, index) => hand(index))}
           </div>
 
+          {!loaded && saveStatus.includes("失败") ? (
+            <div className="launch-cfg" role="status">
+              {saveStatus}
+              <button type="button" onClick={() => setRetry((value) => value + 1)}>重试</button>
+            </div>
+          ) : null}
           {editing ? (
             <div className="launch-cfg">
+              <div className="launch-cfg-row" role="status">
+                {saveStatus}
+                {saveStatus.includes("失败") ? (
+                  <button type="button" onClick={() => setRetry((value) => value + 1)}>重试</button>
+                ) : null}
+              </div>
               <div className="launch-cfg-row launch-cfg-selection-row">
                 <button
                   type="button"

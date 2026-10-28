@@ -30,6 +30,7 @@ import { parseSkillRef, isUuidLike, formatSkillRef } from '../services/shared'
 import * as skillSvc from '../services/skills'
 import * as nsSvc from '../services/namespaces'
 import * as socialSvc from '../services/social'
+import * as homepageSvc from '../services/homepage'
 import * as manageSvc from '../services/manage'
 import type { SkillFormInput } from '../services/manage'
 import * as apiKeySvc from '../services/apiKeys'
@@ -1720,3 +1721,16 @@ export const runtime: Record<string, Handler> = {
 }
 
 export { hashPassword, MIN_PASSWORD_LENGTH, nowIso, formatSkillRef, parseSkillRef, members }
+
+export const homepage: Record<string, Handler> = {
+  get: () => json({ layout: homepageSvc.getLayout() }, 200, { 'Cache-Control': 'no-store' }),
+  put: async (ctx) => {
+    const body = await jsonBody<{ layout?: unknown }>(ctx.request)
+    try {
+      homepageSvc.saveLayout(ctx.user!.id, body?.layout)
+      return json({ message: 'saved' })
+    } catch (e) {
+      return serviceError(e)
+    }
+  },
+}

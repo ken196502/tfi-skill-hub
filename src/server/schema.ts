@@ -769,6 +769,15 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_skills_type ON skills (type);
     `,
   },
+  {
+    v: 16,
+    name: 'shared homepage launch configuration',
+    sql: `CREATE TABLE homepage_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      layout TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );`,
+  },
 ]
 
 /** Slugs that may never be used as a skill slug (`seedReservedSlugs`). */

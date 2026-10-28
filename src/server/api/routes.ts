@@ -72,6 +72,9 @@ function buildRoutes(): RouteDef[] {
     { method: 'POST', path: '/register', handler: h.auth.register, auth: 'public', bucket: 'write' },
     { method: 'GET', path: '/api/v1/registration', handler: h.auth.registrationStatus, ...pub },
 
+    { method: 'GET', path: '/api/v1/homepage-config', handler: h.homepage.get, ...pub },
+    { method: 'PUT', path: '/api/v1/admin/homepage-config', handler: h.homepage.put, ...adminWrite },
+
     // ── Search & browsing ────────────────────────────────────────────────────
     { method: 'GET', path: '/api/v1/search', handler: h.skillRead.search, ...opt, ...K_READ },
     { method: 'GET', path: '/api/v1/categories', handler: h.skillRead.categories, ...opt, ...K_READ },
